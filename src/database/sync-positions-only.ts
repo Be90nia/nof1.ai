@@ -77,7 +77,7 @@ async function syncPositionsOnly() {
     // 3. 从 Gate.io 获取持仓
     const gateClient = createGateClient();
     const positions = await gateClient.getPositions();
-    const activePositions = positions.filter(p => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     
     logger.info(`\n📊 Gate.io 当前持仓数: ${activePositions.length}`);
     
@@ -90,17 +90,17 @@ async function syncPositionsOnly() {
       logger.info(`\n🔄 同步 ${activePositions.length} 个持仓到数据库...`);
       
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
+        const size = Number.parseInt((pos.size || "0").toString());
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
-        const entryPrice = Number.parseFloat(pos.entryPrice || "0");
-        const currentPrice = Number.parseFloat(pos.markPrice || "0");
-        const leverage = Number.parseInt(pos.leverage || "1");
+        const symbol = (pos.contract || "").replace("_USDT", "");
+        const entryPrice = Number.parseFloat((pos.entryPrice || "0").toString());
+        const currentPrice = Number.parseFloat((pos.markPrice || "0").toString());
+        const leverage = Number.parseInt((pos.leverage || "1").toString());
         const side = size > 0 ? "long" : "short";
         const quantity = Math.abs(size);
-        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-        const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+        const pnl = Number.parseFloat((pos.unrealisedPnl || "0").toString());
+        const liqPrice = Number.parseFloat((pos.liqPrice || "0").toString());
         
         await client.execute({
           sql: `INSERT INTO positions 

@@ -56,16 +56,16 @@ async function syncFromGate() {
     
     // 2. 获取持仓信息
     const positions = await gateClient.getPositions();
-    const activePositions = positions.filter(p => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     logger.info(`   当前持仓数: ${activePositions.length}`);
     
     if (activePositions.length > 0) {
       logger.info(`\n   持仓详情:`);
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
-        const symbol = pos.contract.replace("_USDT", "");
+        const size = Number.parseInt((pos.size || "0").toString());
+        const symbol = (pos.contract || "").replace("_USDT", "");
         const side = size > 0 ? "做多" : "做空";
-        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
+        const pnl = Number.parseFloat((pos.unrealisedPnl || "0").toString());
         logger.info(`     ${symbol}: ${Math.abs(size)} 张 (${side}) | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
       }
     }
@@ -124,17 +124,17 @@ async function syncFromGate() {
       logger.info(`\n🔄 同步 ${activePositions.length} 个持仓到数据库...`);
       
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
+        const size = Number.parseInt((pos.size || "0").toString());
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
-        const entryPrice = Number.parseFloat(pos.entryPrice || "0");
-        const currentPrice = Number.parseFloat(pos.markPrice || "0");
-        const leverage = Number.parseInt(pos.leverage || "1");
+        const symbol = (pos.contract || "").replace("_USDT", "");
+        const entryPrice = Number.parseFloat((pos.entryPrice || "0").toString());
+        const currentPrice = Number.parseFloat((pos.markPrice || "0").toString());
+        const leverage = Number.parseInt((pos.leverage || "1").toString());
         const side = size > 0 ? "long" : "short";
         const quantity = Math.abs(size);
-        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-        const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+        const pnl = Number.parseFloat((pos.unrealisedPnl || "0").toString());
+        const liqPrice = Number.parseFloat((pos.liqPrice || "0").toString());
         
         // 生成占位符 order_id
         const entryOrderId = `synced-${symbol}-${Date.now()}`;

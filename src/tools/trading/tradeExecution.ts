@@ -178,7 +178,7 @@ export const openPositionTool = createTool({
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const posLeverage = Number.parseInt(pos.leverage || "1");
         // 获取合约乘数
-        const posQuantoMultiplier = await getQuantoMultiplier(pos.contract);
+        const posQuantoMultiplier = await getQuantoMultiplier(pos.contract || "");
         const posValue = posSize * entryPrice * posQuantoMultiplier;
         currentTotalExposure += posValue;
       }
@@ -383,13 +383,13 @@ export const openPositionTool = createTool({
           try {
             const orderDetail = await client.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
-            actualFillSize = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
+            actualFillSize = Math.abs(Number.parseInt((orderDetail.size || "0").toString()) - Number.parseInt((orderDetail.left || "0").toString()));
             
             //  获取实际成交价格（fill_price 或 average price）
             if (orderDetail.fill_price && Number.parseFloat(orderDetail.fill_price) > 0) {
               actualFillPrice = Number.parseFloat(orderDetail.fill_price);
-            } else if (orderDetail.price && Number.parseFloat(orderDetail.price) > 0) {
-              actualFillPrice = Number.parseFloat(orderDetail.price);
+            } else if (orderDetail.price && Number.parseFloat(orderDetail.price.toString()) > 0) {
+              actualFillPrice = Number.parseFloat(orderDetail.price.toString());
             }
             
             logger.info(`成交: ${actualFillSize}张 @ ${actualFillPrice.toFixed(2)} USDT`);
@@ -754,7 +754,7 @@ export const closePositionTool = createTool({
           try {
             const orderDetail = await client.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
-            const filled = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
+            const filled = Math.abs(Number.parseInt((orderDetail.size || "0").toString()) - Number.parseInt((orderDetail.left || "0").toString()));
             
             if (filled > 0) {
               actualCloseSize = filled;
@@ -763,8 +763,8 @@ export const closePositionTool = createTool({
             // 获取实际成交价格
             if (orderDetail.fill_price && Number.parseFloat(orderDetail.fill_price) > 0) {
               actualExitPrice = Number.parseFloat(orderDetail.fill_price);
-            } else if (orderDetail.price && Number.parseFloat(orderDetail.price) > 0) {
-              actualExitPrice = Number.parseFloat(orderDetail.price);
+            } else if (orderDetail.price && Number.parseFloat(orderDetail.price.toString()) > 0) {
+              actualExitPrice = Number.parseFloat(orderDetail.price.toString());
             }
             
             logger.info(`成交: ${actualCloseSize}张 @ ${actualExitPrice.toFixed(2)} USDT`);

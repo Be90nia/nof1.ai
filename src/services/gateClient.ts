@@ -18,30 +18,50 @@
 
 /**
  * GATE.IO API 客户端封装
+ * 实现ExchangeClient接口
  */
 // @ts-ignore - gate-api 的类型定义可能不完整
 import * as GateApi from "gate-api";
 import { createLogger } from "../utils/loggerUtils";
 import { RISK_PARAMS } from "../config/riskParams";
+import { 
+  ExchangeClient, 
+  ExchangeType, 
+  ExchangeConfig,
+  BaseAccount, 
+  BasePosition, 
+  BaseTicker, 
+  BaseOrder, 
+  BaseCandle, 
+  BaseContract
+} from "../types/exchange";
 
 const logger = createLogger({
   name: "gate-client",
   level: "info",
 });
 
-export class GateClient {
+/**
+ * Gate.io交易所客户端实现类
+ * Gate.io Exchange Client Implementation Class
+ */
+export class GateClient implements ExchangeClient {
   private readonly client: any;
   private readonly futuresApi: any;
   private readonly spotApi: any;
   private readonly settle = "usdt"; // 使用 USDT 结算
 
-  constructor(apiKey: string, apiSecret: string) {
+  /**
+   * 构造函数
+   * Constructor
+   * @param config 交易所配置 Exchange configuration
+   */
+  constructor(config: ExchangeConfig) {
     // @ts-ignore
     this.client = new GateApi.ApiClient();
     
-    // 根据环境变量决定使用测试网还是正式网
-    const isTestnet = process.env.GATE_USE_TESTNET === "true";
-    if (isTestnet) {
+    // 根据配置决定使用测试网还是正式网
+    if (config.sandbox) {
       this.client.basePath = "https://api-testnet.gateapi.io/api/v4";
       logger.info("使用 GATE 测试网");
     } else {
@@ -50,7 +70,8 @@ export class GateClient {
       logger.info("使用 GATE 正式网");
     }
     
-    this.client.setApiKeySecret(apiKey, apiSecret);
+    // 设置API密钥和密钥
+    this.client.setApiKeySecret(config.apiKey, config.apiSecret);
 
     // @ts-ignore
     this.futuresApi = new GateApi.FuturesApi(this.client);
@@ -61,69 +82,12 @@ export class GateClient {
   }
 
   /**
-   * 获取合约ticker价格（带重试机制）
+   * 获取期货账户信息
+   * Get futures account information
+   * @param retries 重试次数 Retry count
+   * @returns 账户信息 Account information
    */
-  async getFuturesTicker(contract: string, retries: number = 2) {
-    let lastError: any;
-    
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const result = await this.futuresApi.listFuturesTickers(this.settle, {
-          contract,
-        });
-        return result.body[0];
-      } catch (error) {
-        lastError = error;
-        if (i < retries) {
-          logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
-        }
-      }
-    }
-    
-    logger.error(`获取 ${contract} 价格失败（${retries}次重试）:`, lastError);
-    throw lastError;
-  }
-
-  /**
-   * 获取合约K线数据（带重试机制）
-   */
-  async getFuturesCandles(
-    contract: string,
-    interval: string = "5m",
-    limit: number = 100,
-    retries: number = 2
-  ) {
-    let lastError: any;
-    
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const result = await this.futuresApi.listFuturesCandlesticks(
-          this.settle,
-          contract,
-          {
-            interval: interval as any,
-            limit,
-          }
-        );
-        return result.body;
-      } catch (error) {
-        lastError = error;
-        if (i < retries) {
-          logger.warn(`获取 ${contract} K线数据失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
-        }
-      }
-    }
-    
-    logger.error(`获取 ${contract} K线数据失败（${retries}次重试）:`, lastError);
-    throw lastError;
-  }
-
-  /**
-   * 获取账户余额（带重试机制）
-   */
-  async getFuturesAccount(retries: number = 2) {
+  async getFuturesAccount(retries: number = 3): Promise<BaseAccount> {
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -144,10 +108,12 @@ export class GateClient {
   }
 
   /**
-   * 获取当前持仓（带重试机制，只返回允许的币种）
-   * 注意：需要指定 position mode 参数
+   * 获取持仓信息
+   * Get position information
+   * @param retries 重试次数 Retry count
+   * @returns 持仓信息列表 Position information list
    */
-  async getPositions(retries: number = 2) {
+  async getPositions(retries: number = 3): Promise<BasePosition[]> {
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -180,7 +146,80 @@ export class GateClient {
   }
 
   /**
-   * 下单 - 开仓或平仓
+   * 获取期货行情信息
+   * Get futures ticker information
+   * @param contract 合约代码 Contract symbol
+   * @param retries 重试次数 Retry count
+   * @returns 行情信息 Ticker information
+   */
+  async getFuturesTicker(contract: string, retries: number = 3): Promise<BaseTicker> {
+    let lastError: any;
+    
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const result = await this.futuresApi.listFuturesTickers(this.settle, {
+          contract,
+        });
+        return result.body[0];
+      } catch (error) {
+        lastError = error;
+        if (i < retries) {
+          logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}...`);
+          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
+        }
+      }
+    }
+    
+    logger.error(`获取 ${contract} 价格失败（${retries}次重试）:`, lastError);
+    throw lastError;
+  }
+
+  /**
+   * 获取期货K线数据
+   * Get futures candlestick data
+   * @param contract 合约代码 Contract symbol
+   * @param interval 时间间隔 Time interval
+   * @param limit 数据条数 Number of data points
+   * @param retries 重试次数 Retry count
+   * @returns K线数据列表 Candlestick data list
+   */
+  async getFuturesCandles(
+    contract: string,
+    interval: string = "5m",
+    limit: number = 100,
+    retries: number = 3
+  ): Promise<BaseCandle[]> {
+    let lastError: any;
+    
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const result = await this.futuresApi.listFuturesCandlesticks(
+          this.settle,
+          contract,
+          {
+            interval: interval as any,
+            limit,
+          }
+        );
+        return result.body;
+      } catch (error) {
+        lastError = error;
+        if (i < retries) {
+          logger.warn(`获取 ${contract} K线数据失败，重试 ${i + 1}/${retries}...`);
+          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
+        }
+      }
+    }
+    
+    logger.error(`获取 ${contract} K线数据失败（${retries}次重试）:`, lastError);
+    throw lastError;
+  }
+
+  /**
+   * 下单
+   * Place order
+   * @param params 下单参数 Order parameters
+   * @returns 订单信息 Order information
    */
   async placeOrder(params: {
     contract: string;
@@ -191,7 +230,7 @@ export class GateClient {
     autoSize?: string;
     stopLoss?: number;
     takeProfit?: number;
-  }) {
+  }): Promise<BaseOrder> {
     // 验证并调整数量（在 try 外部定义，以便在 catch 中使用）
     let adjustedSize = params.size;
     
@@ -248,417 +287,437 @@ export class GateClient {
       }
 
       // 格式化价格，确保不超过精度限制
-      // Gate.io API 要求价格精度不超过 12 位小数
-      // 注意：price: "0" 表示市价单
-      const formatPrice = (price: number | undefined): string => {
-        if (!price || price === 0) return "0";  // 市价单
-        
-        // 先四舍五入到 8 位小数，避免浮点数精度问题
-        const roundedPrice = Math.round(price * 100000000) / 100000000;
-        
-        // 转为字符串
-        let priceStr = roundedPrice.toString();
-        
-        // 如果包含小数点，移除末尾的零
-        if (priceStr.includes('.')) {
-          priceStr = priceStr.replace(/\.?0+$/, "");
-        }
-        
-        return priceStr;
-      };
+      if (adjustedPrice && contractInfo.precision) {
+        const pricePrecision = contractInfo.precision || 8;
+        const multiplier = Math.pow(10, pricePrecision);
+        adjustedPrice = Math.round(adjustedPrice * multiplier) / multiplier;
+      }
 
-      // 使用 FuturesOrder 类型的结构
-      // 注意：gate-api SDK 使用驼峰命名，会自动转换为下划线命名
-      const order: any = {
+      // 格式化数量，确保不超过精度限制
+      if (contractInfo.orderSizePrecision) {
+        const sizePrecision = contractInfo.orderSizePrecision || 8;
+        const multiplier = Math.pow(10, sizePrecision);
+        adjustedSize = Math.round(adjustedSize * multiplier) / multiplier;
+      }
+
+      // 构建订单参数
+      const orderParams: any = {
         contract: params.contract,
         size: adjustedSize,
-        price: formatPrice(adjustedPrice), // 市价单传 "0"
+        iceberg: params.autoSize || 0, // 0表示不使用冰山订单
+        tif: params.tif || "gtc", // 默认GTC
       };
-      
-      // 根据订单类型设置 tif
-      const formattedPrice = formatPrice(adjustedPrice);
-      if (formattedPrice !== "0") {
-        // 限价单：设置 tif 为 GTC（Good Till Cancel）
-        order.tif = params.tif || "gtc";
+
+      // 设置价格和订单类型
+      if (adjustedPrice && adjustedPrice > 0) {
+        // 限价单
+        orderParams.price = adjustedPrice;
       } else {
-        // 市价单：必须设置 IOC（Immediate or Cancel）或 FOK（Fill or Kill）
-        // Gate.io API 要求市价单必须指定 IOC 或 FOK
-        order.tif = "ioc"; // 立即成交或取消
+        // 市价单 - 需要明确指定订单类型
+        orderParams.price = "0";
+        orderParams.type = "market";
+        orderParams.tif = "ioc"; // 市价单使用IOC订单类型
       }
 
-      // Gate API SDK 使用驼峰命名：isReduceOnly -> is_reduce_only
-      // 注意：只使用 isReduceOnly，不使用 isClose，避免保证金计算冲突
-      // isReduceOnly 已足够确保只减仓不开仓，反向订单本身就会执行平仓
-      if (params.reduceOnly === true) {
-        order.isReduceOnly = true;
-        order.reduceOnly = true;
-        order.reduce_only = true;
-        order.is_reduce_only = true;
+      // 设置reduceOnly标志
+      if (params.reduceOnly) {
+        orderParams.reduce_only = true;
       }
 
-      // 驼峰命名：autoSize -> auto_size
-      if (params.autoSize !== undefined) {
-        order.autoSize = params.autoSize;
-      }
-
-      // 止盈止损参数（如果有提供）
-      if (params.stopLoss !== undefined && params.stopLoss > 0) {
-        order.stopLoss = params.stopLoss.toString();
-        logger.info(`设置止损价格: ${params.stopLoss}`);
-      }
-      
-      if (params.takeProfit !== undefined && params.takeProfit > 0) {
-        order.takeProfit = params.takeProfit.toString();
-        logger.info(`设置止盈价格: ${params.takeProfit}`);
-      }
-
-      logger.info(`下单: ${JSON.stringify(order)}`);
-      const result = await this.futuresApi.createFuturesOrder(
-        this.settle,
-        order
-      );
-      return result.body;
-    } catch (error: any) {
-      // 获取详细的 API 错误信息
-      const errorDetails = {
-        message: error.message,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        apiError: error.response?.body || error.response?.data,
-      };
-      logger.error("下单失败:", errorDetails);
-      
-      // 🛡️ 兜底机制：如果 reduceOnly 订单因保证金不足失败，则去除 reduceOnly 重试
-      // 这种情况可能发生在某些边缘场景，去除 reduceOnly 后按反向开仓处理可能更稳妥
-      if (
-        params.reduceOnly === true && 
-        errorDetails.apiError?.label === "INSUFFICIENT_AVAILABLE"
-      ) {
-        logger.warn(
-          `⚠️  reduceOnly 平仓失败（保证金不足），尝试去除 reduceOnly 参数重试: ${params.contract} size=${adjustedSize}`
+      // 设置止盈止损
+      if (params.stopLoss || params.takeProfit) {
+        const stopPriceParams: any = {};
+        
+        if (params.stopLoss) {
+          stopPriceParams.stop_loss_price = params.stopLoss.toString();
+        }
+        
+        if (params.takeProfit) {
+          stopPriceParams.take_profit_price = params.takeProfit.toString();
+        }
+        
+        // 创建带止盈止损的订单 - 确保正确传递settle参数和FuturesOrder对象
+        const futuresOrder = {
+          ...orderParams,
+          ...stopPriceParams,
+        };
+        
+        const stopOrderResult = await this.futuresApi.createFuturesOrder(
+          this.settle,
+          futuresOrder
         );
         
+        logger.info(`止盈止损订单已提交: ${JSON.stringify(stopOrderResult.body)}`);
+        return stopOrderResult.body;
+      }
+
+      // 创建普通订单 - 确保正确传递settle参数和FuturesOrder对象
+      const futuresOrder = {
+        contract: orderParams.contract,
+        size: orderParams.size,
+        price: orderParams.price,
+        type: orderParams.type,
+        iceberg: orderParams.iceberg,
+        tif: orderParams.tif,
+        reduce_only: orderParams.reduce_only,
+      };
+      
+      const orderResult = await this.futuresApi.createFuturesOrder(
+        this.settle,
+        futuresOrder
+      );
+      
+      // 处理包含BigInt的响应对象
+      const orderResultStr = JSON.stringify(orderResult.body, (key, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      );
+      logger.info(`订单已提交: ${orderResultStr}`);
+      return orderResult.body;
+    } catch (error) {
+      // 处理reduceOnly订单保证金不足的特殊情况
+      if (
+        error &&
+        (error as any).label === "INSUFFICIENT_MARGIN" &&
+        params.reduceOnly
+      ) {
+        logger.warn("reduceOnly订单保证金不足，尝试使用市价单立即平仓");
+        
         try {
-          // 去除 reduceOnly 参数，重新构建订单
-          // 重新格式化价格
-          const formatPrice = (price: number | undefined): string => {
-            if (!price || price === 0) return "0";
-            const roundedPrice = Math.round(price * 100000000) / 100000000;
-            let priceStr = roundedPrice.toString();
-            if (priceStr.includes('.')) {
-              priceStr = priceStr.replace(/\.?0+$/, "");
-            }
-            return priceStr;
-          };
-          
-          const formattedPrice = formatPrice(params.price);
-          
-          const retryOrder: any = {
+          // 使用市价单立即平仓 - 确保正确传递settle参数和FuturesOrder对象
+          const marketFuturesOrder = {
             contract: params.contract,
             size: adjustedSize,
-            price: formattedPrice,
-            tif: formattedPrice !== "0" ? (params.tif || "gtc") : "ioc",
+            price: "0", // 市价单
+            type: "market", // 明确指定为市价单
+            reduce_only: true,
+            tif: "ioc", // 市价单使用IOC订单类型
           };
           
-          // 不设置 isReduceOnly
-          
-          // 保留其他参数
-          if (params.autoSize !== undefined) {
-            retryOrder.autoSize = params.autoSize;
-          }
-          if (params.stopLoss !== undefined && params.stopLoss > 0) {
-            retryOrder.stopLoss = params.stopLoss.toString();
-          }
-          if (params.takeProfit !== undefined && params.takeProfit > 0) {
-            retryOrder.takeProfit = params.takeProfit.toString();
-          }
-          
-          logger.info(`重试下单（无 reduceOnly）: ${JSON.stringify(retryOrder)}`);
-          const retryResult = await this.futuresApi.createFuturesOrder(
+          const marketOrderResult = await this.futuresApi.createFuturesOrder(
             this.settle,
-            retryOrder
+            marketFuturesOrder
           );
           
-          logger.warn(`✅ 去除 reduceOnly 后下单成功: ${params.contract}`);
-          return retryResult.body;
-        } catch (retryError: any) {
-          // 重试也失败，记录错误并继续抛出原始错误
-          const retryErrorDetails = {
-            message: retryError.message,
-            status: retryError.response?.status,
-            apiError: retryError.response?.body || retryError.response?.data,
-          };
-          logger.error("去除 reduceOnly 后重试仍然失败:", retryErrorDetails);
-          // 继续抛出原始错误
+          // 处理包含BigInt的响应对象
+          const marketOrderResultStr = JSON.stringify(marketOrderResult.body, (key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+          );
+          logger.info(`市价reduceOnly订单已提交: ${marketOrderResultStr}`);
+          return marketOrderResult.body;
+        } catch (marketError) {
+          logger.error(`市价reduceOnly订单也失败:`, marketError);
+          throw marketError;
         }
       }
       
-      // 特殊处理资金不足的情况（原始错误提示）
-      if (errorDetails.apiError?.label === "INSUFFICIENT_AVAILABLE") {
-        const msg = errorDetails.apiError.message || "可用保证金不足";
-        throw new Error(`资金不足，无法开仓 ${params.contract}: ${msg}`);
-      }
-      
-      // 抛出更详细的错误信息
-      const detailedMessage = errorDetails.apiError?.message || errorDetails.apiError?.label || error.message;
-      throw new Error(`下单失败: ${detailedMessage} (${params.contract}, size: ${adjustedSize})`);
+      logger.error(`下单失败:`, error);
+      throw error;
     }
   }
 
   /**
-   * 获取订单详情
+   * 获取订单信息
+   * Get order information
+   * @param orderId 订单ID Order ID
+   * @returns 订单信息 Order information
    */
-  async getOrder(orderId: string) {
+  async getOrder(orderId: string): Promise<BaseOrder> {
     try {
-      const result = await this.futuresApi.getFuturesOrder(
-        this.settle,
-        orderId
-      );
+      const result = await this.futuresApi.getFuturesOrder(this.settle, orderId);
       return result.body;
     } catch (error) {
-      logger.error(`获取订单 ${orderId} 详情失败:`, error as any);
+      logger.error(`获取订单 ${orderId} 信息失败:`, error);
       throw error;
     }
   }
 
   /**
    * 取消订单
+   * Cancel order
+   * @param orderId 订单ID Order ID
+   * @returns 取消结果 Cancellation result
    */
-  async cancelOrder(orderId: string) {
+  async cancelOrder(orderId: string): Promise<any> {
     try {
-      const result = await this.futuresApi.cancelFuturesOrder(
-        this.settle,
-        orderId
-      );
+      const result = await this.futuresApi.cancelFuturesOrder(this.settle, orderId);
       return result.body;
     } catch (error) {
-      logger.error(`取消订单 ${orderId} 失败:`, error as any);
+      logger.error(`取消订单 ${orderId} 失败:`, error);
       throw error;
     }
   }
 
   /**
    * 获取未成交订单
+   * Get open orders
+   * @param contract 合约代码 Contract symbol
+   * @returns 未成交订单列表 Open order list
    */
-  async getOpenOrders(contract?: string) {
+  async getOpenOrders(contract?: string): Promise<BaseOrder[]> {
     try {
-      const result = await this.futuresApi.listFuturesOrders(this.settle, "open", {
-        contract,
-      });
-      return result.body;
+      const params: any = {
+        limit: 100,
+      };
+      
+      if (contract) {
+        params.contract = contract;
+      }
+      
+      const result = await this.futuresApi.listFuturesOrders(this.settle, "open", params);
+      
+      return result.body || [];
     } catch (error) {
-      logger.error("获取未成交订单失败:", error as any);
+      logger.error(`获取未成交订单失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 设置仓位杠杆
+   * 设置杠杆倍数
+   * Set leverage
+   * @param contract 合约代码 Contract symbol
+   * @param leverage 杠杆倍数 Leverage multiplier
+   * @returns 设置结果 Setting result
    */
-  async setLeverage(contract: string, leverage: number) {
+  async setLeverage(contract: string, leverage: number): Promise<any> {
     try {
-      logger.info(`设置 ${contract} 杠杆为 ${leverage}x`);
       const result = await this.futuresApi.updatePositionLeverage(
         this.settle,
         contract,
         leverage.toString()
       );
       return result.body;
-    } catch (error: any) {
-      // 如果已有持仓，某些交易所不允许修改杠杆，这是正常的
-      // 记录警告但不抛出错误，让交易继续
-      logger.warn(`设置 ${contract} 杠杆失败（可能已有持仓）:`, error.message);
-      return null;
+    } catch (error) {
+      logger.error(`设置 ${contract} 杠杆为 ${leverage}x 失败:`, error);
+      throw error;
     }
   }
 
   /**
    * 获取资金费率
+   * Get funding rate
+   * @param contract 合约代码 Contract symbol
+   * @returns 资金费率信息 Funding rate information
    */
-  async getFundingRate(contract: string) {
+  async getFundingRate(contract: string): Promise<any> {
     try {
       const result = await this.futuresApi.listFuturesFundingRateHistory(
         this.settle,
         contract,
-        { limit: 1 }
+        {
+          limit: 1, // 只获取最新的资金费率
+        }
       );
-      return result.body[0];
+      return result.body[0] || {};
     } catch (error) {
-      logger.error(`获取 ${contract} 资金费率失败:`, error as any);
+      logger.error(`获取 ${contract} 资金费率失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 获取合约信息（包含持仓量等）
+   * 获取合约信息
+   * Get contract information
+   * @param contract 合约代码 Contract symbol
+   * @returns 合约信息 Contract information
    */
-  async getContractInfo(contract: string) {
-    try {
-      const result = await this.futuresApi.getFuturesContract(
-        this.settle,
-        contract
-      );
-      return result.body;
-    } catch (error) {
-      logger.error(`获取 ${contract} 合约信息失败:`, error as any);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取所有合约列表
-   */
-  async getAllContracts() {
+  async getContractInfo(contract: string): Promise<BaseContract> {
     try {
       const result = await this.futuresApi.listFuturesContracts(this.settle);
-      return result.body;
+      const contracts = result.body || [];
+      const contractInfo = contracts.find((c: any) => c.name === contract);
+      
+      if (!contractInfo) {
+        throw new Error(`未找到合约 ${contract} 的信息`);
+      }
+      
+      return contractInfo;
     } catch (error) {
-      logger.error("获取合约列表失败:", error as any);
+      logger.error(`获取 ${contract} 合约信息失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取所有合约信息
+   * Get all contract information
+   * @returns 合约信息列表 Contract information list
+   */
+  async getAllContracts(): Promise<BaseContract[]> {
+    try {
+      const result = await this.futuresApi.listFuturesContracts(this.settle);
+      return result.body || [];
+    } catch (error) {
+      logger.error(`获取所有合约信息失败:`, error);
       throw error;
     }
   }
 
   /**
    * 获取订单簿
+   * Get order book
+   * @param contract 合约代码 Contract symbol
+   * @param limit 深度档位 Depth level
+   * @returns 订单簿信息 Order book information
    */
-  async getOrderBook(contract: string, limit: number = 10) {
+  async getOrderBook(contract: string, limit: number = 20): Promise<any> {
     try {
       const result = await this.futuresApi.listFuturesOrderBook(
         this.settle,
         contract,
-        { limit }
+        {
+          limit,
+        }
       );
       return result.body;
     } catch (error) {
-      logger.error(`获取 ${contract} 订单簿失败:`, error as any);
+      logger.error(`获取 ${contract} 订单簿失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 获取历史成交记录（我的成交）
-   * 用于分析最近的交易历史和盈亏情况
-   * @param contract 合约名称（可选，不传则获取所有合约）
-   * @param limit 返回数量，默认10条
+   * 获取历史成交记录
+   * Get historical trades
+   * @param contract 合约代码 Contract symbol
+   * @param limit 数据条数 Number of data points
+   * @returns 历史成交记录列表 Historical trade list
    */
-  async getMyTrades(contract?: string, limit: number = 10) {
+  async getMyTrades(contract?: string, limit: number = 100): Promise<any[]> {
     try {
-      const options: any = { limit };
+      const params: any = {
+        limit,
+      };
+      
       if (contract) {
-        options.contract = contract;
+        params.contract = contract;
       }
       
-      // Gate.io API: 使用 getMyFuturesTrades 方法
-      // 注意：SDK 方法名可能是 getMyFuturesTrades 而不是 listMyTrades
-      const result = await this.futuresApi.getMyFuturesTrades(
-        this.settle,
-        options
-      );
-      return result.body;
+      const result = await this.futuresApi.getMyTrades(this.settle, params);
+      return result.body || [];
     } catch (error) {
-      logger.error(`获取我的历史成交记录失败:`, error as any);
+      logger.error(`获取历史成交记录失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 获取历史仓位记录（已平仓的仓位结算记录）
-   * @param contract 合约名称（可选，不传则获取所有合约）
-   * @param limit 返回数量，默认100条
-   * @param offset 偏移量，默认0，用于分页
+   * 获取历史仓位记录
+   * Get historical position records
+   * @param contract 合约代码 Contract symbol
+   * @param limit 数据条数 Number of data points
+   * @param offset 偏移量 Offset
+   * @returns 历史仓位记录列表 Historical position record list
    */
-  async getPositionHistory(contract?: string, limit: number = 100, offset: number = 0) {
+  async getPositionHistory(
+    contract?: string, 
+    limit: number = 100, 
+    offset: number = 0
+  ): Promise<any[]> {
     try {
-      const options: any = { limit, offset };
+      const params: any = {
+        limit,
+        offset,
+      };
+      
       if (contract) {
-        options.contract = contract;
+        params.contract = contract;
       }
       
-      // Gate.io API: 使用 listFuturesLiquidatedOrders 方法获取已清算仓位
-      // 注意：这个方法返回的是已清算（平仓）的仓位历史
-      const result = await this.futuresApi.listFuturesLiquidatedOrders(
-        this.settle,
-        options
-      );
-      return result.body;
+      const result = await this.futuresApi.listPositionClose(this.settle, params);
+      return result.body || [];
     } catch (error) {
-      logger.error(`获取历史仓位记录失败:`, error as any);
+      logger.error(`获取历史仓位记录失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 获取历史结算记录（更详细的历史仓位信息）
-   * @param contract 合约名称（可选，不传则获取所有合约）
-   * @param limit 返回数量，默认100条
-   * @param offset 偏移量，默认0，用于分页
+   * 获取历史结算记录
+   * Get historical settlement records
+   * @param contract 合约代码 Contract symbol
+   * @param limit 数据条数 Number of data points
+   * @param offset 偏移量 Offset
+   * @returns 历史结算记录列表 Historical settlement record list
    */
-  async getSettlementHistory(contract?: string, limit: number = 100, offset: number = 0) {
+  async getSettlementHistory(
+    contract?: string, 
+    limit: number = 100, 
+    offset: number = 0
+  ): Promise<any[]> {
     try {
-      const options: any = { limit, offset };
+      // 使用listPositionClose方法获取历史结算记录
+      const params: any = {
+        limit,
+        offset,
+      };
+      
       if (contract) {
-        options.contract = contract;
+        params.contract = contract;
       }
       
-      // Gate.io API: 使用 listFuturesSettlementHistory 方法获取结算历史
-      const result = await this.futuresApi.listFuturesSettlementHistory(
-        this.settle,
-        options
-      );
-      return result.body;
+      const result = await this.futuresApi.listPositionClose(this.settle, params);
+      return result.body || [];
     } catch (error) {
-      logger.error(`获取历史结算记录失败:`, error as any);
+      logger.error(`获取历史结算记录失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 获取已完成的订单历史
-   * @param contract 合约名称（可选）
-   * @param limit 返回数量，默认10条
+   * 获取历史订单记录
+   * Get historical order records
+   * @param contract 合约代码 Contract symbol
+   * @param limit 数据条数 Number of data points
+   * @returns 历史订单记录列表 Historical order record list
    */
-  async getOrderHistory(contract?: string, limit: number = 10) {
+  async getOrderHistory(contract?: string, limit: number = 100): Promise<any[]> {
     try {
-      const options: any = { limit };
+      const params: any = {
+        limit,
+      };
+      
       if (contract) {
-        options.contract = contract;
+        params.contract = contract;
       }
       
-      const result = await this.futuresApi.listFuturesOrders(
-        this.settle,
-        "finished",
-        options
-      );
-      return result.body;
+      const result = await this.futuresApi.listFuturesOrders(this.settle, "finished", params);
+      return result.body || [];
     } catch (error) {
-      logger.error(`获取订单历史失败:`, error as any);
+      logger.error(`获取历史订单记录失败:`, error);
       throw error;
     }
   }
 }
 
 /**
- * 全局 GATE 客户端实例（单例模式）
+ * 创建Gate.io客户端实例
+ * Create Gate.io client instance
+ * @param config 交易所配置 Exchange configuration
+ * @returns Gate.io客户端实例 Gate.io client instance
  */
-let gateClientInstance: GateClient | null = null;
-
-/**
- * 创建全局 GATE 客户端实例（单例模式）
- */
-export function createGateClient(): GateClient {
-  // 如果已存在实例，直接返回
-  if (gateClientInstance) {
-    return gateClientInstance;
+export function createGateClient(config?: ExchangeConfig): GateClient {
+  // 如果没有提供配置，使用默认配置
+  if (!config) {
+    config = {
+      apiKey: process.env.GATE_API_KEY || "",
+      apiSecret: process.env.GATE_API_SECRET || "",
+      sandbox: process.env.GATE_USE_TESTNET === 'true'
+    };
   }
-
-  const apiKey = process.env.GATE_API_KEY;
-  const apiSecret = process.env.GATE_API_SECRET;
-
-  if (!apiKey || !apiSecret) {
-    throw new Error("GATE_API_KEY 和 GATE_API_SECRET 必须在环境变量中设置");
-  }
-
-  // 创建并缓存实例
-  gateClientInstance = new GateClient(apiKey, apiSecret);
-  return gateClientInstance;
+  
+  return new GateClient(config);
 }
+
+// 为了保持向后兼容性，保留原有的构造函数
+export function createGateClientLegacy(apiKey: string, apiSecret: string): GateClient {
+  const config: ExchangeConfig = {
+    apiKey,
+    apiSecret,
+    sandbox: process.env.GATE_USE_TESTNET === 'true'
+  };
+  
+  return new GateClient(config);
+}
+
+export default GateClient;

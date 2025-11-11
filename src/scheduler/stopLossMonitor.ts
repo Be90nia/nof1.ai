@@ -317,8 +317,8 @@ async function executeStopLossClose(
           const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
           
           if (orderStatus.status === 'finished') {
-            const fillPrice = Number.parseFloat(orderStatus.fill_price || orderStatus.price || "0");
-            actualQuantity = Math.abs(Number.parseFloat(orderStatus.size || "0"));
+            const fillPrice = Number.parseFloat((orderStatus.fill_price || orderStatus.price || "0").toString());
+            actualQuantity = Math.abs(Number.parseFloat((orderStatus.size || "0").toString()));
             
             if (fillPrice > 0) {
               actualExitPrice = fillPrice;
@@ -465,7 +465,7 @@ async function checkStopLoss() {
     
     // 1. 获取所有持仓
     const gatePositions = await gateClient.getPositions();
-    const activePositions = gatePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = gatePositions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     
     if (activePositions.length === 0) {
       // 清空内存记录
@@ -477,13 +477,13 @@ async function checkStopLoss() {
     
     // 2. 检查每个持仓
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
-      const symbol = pos.contract.replace("_USDT", "");
+      const size = Number.parseInt((pos.size || "0").toString());
+      const symbol = (pos.contract || "").replace("_USDT", "");
       const side = size > 0 ? "long" : "short";
       const quantity = Math.abs(size);
       const entryPrice = Number.parseFloat(pos.entryPrice || "0");
       const currentPrice = Number.parseFloat(pos.markPrice || "0");
-      const leverage = Number.parseInt(pos.leverage || "1");
+      const leverage = Number.parseInt((pos.leverage || "1").toString());
       
       // 验证数据有效性
       if (entryPrice === 0 || currentPrice === 0 || leverage === 0) {

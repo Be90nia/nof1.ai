@@ -1059,13 +1059,13 @@ async function closeAllPositions(reason: string): Promise<void> {
     }
     
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
+      const size = Number.parseInt((pos.size || "0").toString());
       const contract = pos.contract;
-      const symbol = contract.replace("_USDT", "");
+      const symbol = (contract || "").replace("_USDT", "");
       
       try {
         await gateClient.placeOrder({
-          contract,
+          contract: contract || "",
           size: -size,
           price: 0, // 市价单必须传 price: 0
           reduceOnly: true, // 只减仓，不开新仓
@@ -1326,8 +1326,8 @@ async function executeTradingDecision() {
               const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
               
               if (orderStatus.status === 'finished') {
-                actualExitPrice = Number.parseFloat(orderStatus.fill_price || orderStatus.price || "0");
-                actualQuantity = Math.abs(Number.parseFloat(orderStatus.size || "0"));
+                actualExitPrice = Number.parseFloat((orderStatus.fill_price || orderStatus.price || "0").toString());
+                actualQuantity = Math.abs(Number.parseFloat((orderStatus.size || "0").toString()));
                 orderFilled = true;
                 
                 // 获取合约乘数

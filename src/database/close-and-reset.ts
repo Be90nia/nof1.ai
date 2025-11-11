@@ -115,7 +115,7 @@ async function closeAllPositions(): Promise<void> {
     logger.info("📊 获取当前持仓...");
     
     const positions = await gateClient.getPositions();
-    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     
     if (activePositions.length === 0) {
       logger.info("✅ 当前无持仓，跳过平仓");
@@ -125,8 +125,8 @@ async function closeAllPositions(): Promise<void> {
     logger.warn(`⚠️  发现 ${activePositions.length} 个持仓，开始平仓...`);
     
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
-      const contract = pos.contract;
+      const size = Number.parseInt((pos.size || "0").toString());
+      const contract = pos.contract || "";
       const symbol = contract.replace("_USDT", "");
       const side = size > 0 ? "多头" : "空头";
       const quantity = Math.abs(size);
@@ -257,17 +257,17 @@ async function syncPositions(): Promise<void> {
       logger.info(`🔄 同步 ${activePositions.length} 个持仓到数据库...`);
       
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
+        const size = Number.parseInt((pos.size || "0").toString());
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
-        const entryPrice = Number.parseFloat(pos.entryPrice || "0");
-        const currentPrice = Number.parseFloat(pos.markPrice || "0");
-        const leverage = Number.parseInt(pos.leverage || "1");
+        const symbol = (pos.contract || "").replace("_USDT", "");
+        const entryPrice = Number.parseFloat((pos.entryPrice || "0").toString());
+        const currentPrice = Number.parseFloat((pos.markPrice || "0").toString());
+        const leverage = Number.parseInt((pos.leverage || "1").toString());
         const side = size > 0 ? "long" : "short";
         const quantity = Math.abs(size);
-        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-        const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+        const pnl = Number.parseFloat((pos.unrealisedPnl || "0").toString());
+        const liqPrice = Number.parseFloat((pos.liqPrice || "0").toString());
         
         await client.execute({
           sql: `INSERT INTO positions 

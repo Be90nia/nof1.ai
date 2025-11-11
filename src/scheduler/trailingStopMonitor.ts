@@ -370,8 +370,8 @@ async function executeTrailingStopClose(
           const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
           
           if (orderStatus.status === 'finished') {
-            const fillPrice = Number.parseFloat(orderStatus.fill_price || orderStatus.price || "0");
-            actualQuantity = Math.abs(Number.parseFloat(orderStatus.size || "0"));
+            const fillPrice = Number.parseFloat((orderStatus.fill_price || orderStatus.price || "0").toString());
+            actualQuantity = Math.abs(Number.parseFloat((orderStatus.size || "0").toString()));
             
             if (fillPrice > 0) {
               actualExitPrice = fillPrice;
@@ -390,7 +390,7 @@ async function executeTrailingStopClose(
     if (actualExitPrice === 0) {
       try {
         const ticker = await gateClient.getFuturesTicker(contract);
-        actualExitPrice = Number.parseFloat(ticker.last || ticker.markPrice || "0");
+        actualExitPrice = Number.parseFloat((ticker.last || ticker.markPrice || "0").toString());
         
         if (actualExitPrice > 0) {
           logger.warn(`未能从订单获取价格，使用ticker价格: ${actualExitPrice}`);
@@ -525,8 +525,8 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       
       // 获取账户信息
       const account = await gateClient.getFuturesAccount();
-      const accountTotal = Number.parseFloat(account.total || "0");
-      const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
+      const accountTotal = Number.parseFloat((account.total || "0").toString());
+      const unrealisedPnl = Number.parseFloat((account.unrealisedPnl || "0").toString());
       const totalBalance = accountTotal + unrealisedPnl; // 包含未实现盈亏的真实总资产
       
       // 初始化峰值（首次运行）
@@ -572,7 +572,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
     
     // 2. 获取所有持仓
     const gatePositions = await gateClient.getPositions();
-    const activePositions = gatePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = gatePositions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     
     if (activePositions.length === 0) {
       // 清空内存记录
@@ -588,13 +588,13 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
     
     // 4. 检查每个持仓
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
-      const symbol = pos.contract.replace("_USDT", "");
+      const size = Number.parseInt((pos.size || "0").toString());
+      const symbol = (pos.contract || "").replace("_USDT", "");
       const side = size > 0 ? "long" : "short";
       const quantity = Math.abs(size);
-      const entryPrice = Number.parseFloat(pos.entryPrice || "0");
-      const currentPrice = Number.parseFloat(pos.markPrice || "0");
-      const leverage = Number.parseInt(pos.leverage || "1");
+      const entryPrice = Number.parseFloat((pos.entryPrice || "0").toString());
+      const currentPrice = Number.parseFloat((pos.markPrice || "0").toString());
+      const leverage = Number.parseInt((pos.leverage || "1").toString());
       
       // 验证数据有效性
       if (entryPrice === 0 || currentPrice === 0 || leverage === 0) {
@@ -693,7 +693,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
     
     // 6. 清理已平仓的记录
     const activeSymbols = new Set(
-      activePositions.map((p: any) => p.contract.replace("_USDT", ""))
+      activePositions.map((p: any) => (p.contract || "").replace("_USDT", ""))
     );
     
     for (const symbol of positionPnlHistory.keys()) {

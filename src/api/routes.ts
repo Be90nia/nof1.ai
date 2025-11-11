@@ -428,7 +428,7 @@ export function createApiRoutes() {
       // 获取当前持仓
       const allPositions = await gateClient.getPositions();
       const gatePosition = allPositions.find((p: any) => 
-        p.contract === contract && Number.parseInt(p.size || "0") !== 0
+        p.contract === contract && Number.parseInt((p.size || "0").toString()) !== 0
       );
       
       if (!gatePosition) {
@@ -439,11 +439,11 @@ export function createApiRoutes() {
       }
       
       // 获取持仓信息
-      const size = Number.parseInt(gatePosition.size || "0");
+      const size = Number.parseInt((gatePosition.size || "0").toString());
       const side = size > 0 ? "long" : "short";
-      const entryPrice = Number.parseFloat(gatePosition.entryPrice || "0");
-      const currentPrice = Number.parseFloat(gatePosition.markPrice || "0");
-      const leverage = Number.parseInt(gatePosition.leverage || "1");
+      const entryPrice = Number.parseFloat((gatePosition.entryPrice || "0").toString());
+      const currentPrice = Number.parseFloat((gatePosition.markPrice || "0").toString());
+      const leverage = Number.parseInt((gatePosition.leverage || "1").toString());
       const quantity = Math.abs(size);
       
       // 获取合约乘数（不同币种的合约乘数不同）
@@ -487,9 +487,9 @@ export function createApiRoutes() {
       
       if (order.id) {
         try {
-          const orderInfo = await gateClient.getOrder(order.id);
+          const orderInfo = await gateClient.getOrder(order.id.toString());
           if (orderInfo.status === "finished") {
-            actualExitPrice = Number.parseFloat(orderInfo.fillPrice || orderInfo.price || currentPrice.toString());
+            actualExitPrice = Number.parseFloat((orderInfo.fillPrice || orderInfo.price || currentPrice.toString()).toString());
             orderStatus = "filled";
           }
         } catch (error: any) {
