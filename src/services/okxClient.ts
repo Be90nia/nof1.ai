@@ -46,6 +46,16 @@ import {
   OkxFundingRate,
 } from "../types/exchange";
 
+// 导入Gate.io类型定义用于格式转换
+import {
+  FuturesAccount,
+  Position,
+  FuturesTicker,
+  FuturesOrder,
+  FuturesCandlestick,
+  FuturesContract,
+} from "gate-api";
+
 const logger = createLogger({
   name: "okx-client",
   level: "info",
@@ -116,6 +126,49 @@ export class OkxClient implements ExchangeClient {
   }
 
   /**
+   * Convert OKX symbol format to Gate.io symbol format
+   * 将OKX交易对格式转换为Gate.io格式
+   * @param symbol OKX symbol (e.g., "BTC-USDT-SWAP") or Gate.io symbol (e.g., "BTC_USDT")
+   * @returns Gate.io symbol (e.g., "BTC_USDT")
+   */
+  private okxToGateSymbol(symbol: string): string {
+    if (!symbol) return "";
+
+    // 如果已经是Gate.io格式，直接返回
+    if (symbol.includes("_") && !symbol.includes("-")) {
+      return symbol;
+    }
+
+    // 将OKX格式 "BTC-USDT-SWAP" 转换为Gate.io格式 "BTC_USDT"
+    if (symbol.includes("-") && symbol.includes("SWAP")) {
+      const parts = symbol.split("-");
+      if (parts.length >= 2) {
+        const base = parts[0];
+        const quote = parts[1];
+        // 返回Gate.io格式
+        return `${base}_${quote}`;
+      }
+    }
+
+    // 处理OKX另一种格式 "BTC/USDT:USDT"
+    if (symbol.includes("/") && symbol.includes(":")) {
+      const parts = symbol.split(":");
+      if (parts.length === 2) {
+        const pair = parts[0];
+        const pairParts = pair.split("/");
+        if (pairParts.length === 2) {
+          const base = pairParts[0];
+          const quote = pairParts[1];
+          // 返回Gate.io格式
+          return `${base}_${quote}`;
+        }
+      }
+    }
+
+    return symbol;
+  }
+
+  /**
    * 获取期货账户信息
    * Get futures account information
    * @param retries 重试次数 Retry count
@@ -135,28 +188,49 @@ export class OkxClient implements ExchangeClient {
         const accountData = accountInfo.info?.data?.[0];
         const accountDetails = accountData?.details?.[0];
 
-        // 转换为标准格式
-        const okxAccount: OkxAccount = {
-          // 基本信息
-          totalEquity: accountData?.totalEq || "0",
-          availableBalance: accountDetails?.availEq || "0",
-          usedBalance: accountDetails?.usedEq || "0",
-          margin: accountDetails?.imr || "0",
-          unrealizedPnl: accountDetails?.upl || "0",
-
-          // 风险信息
-          marginRatio: accountDetails?.mgnRatio || "0",
-          maintenanceMargin: accountDetails?.mmr || "0",
-
-          // 账户状态
-          accountState: accountData?.st || "normal",
-
-          // 其他信息
+        // 转换为Gate.io格式的标准格式
+        const gateAccount: FuturesAccount = {
+          // Gate.io格式的账户信息
+          total: accountData?.totalEq || "0",
+          unrealisedPnl: accountDetails?.upl || "0",
+          positionMargin: accountDetails?.imr || "0",
+          orderMargin: "0", // OKX中没有直接对应的字段
+          available: accountDetails?.availEq || "0",
+          point: "0", // OKX中没有积分系统
           currency: this.settle,
-          updateTime: accountData?.uTime || Date.now().toString(),
+          inDualMode: false, // OKX中没有此概念
+          enableCredit: false, // OKX中没有此概念
+          positionInitialMargin: accountDetails?.imr || "0",
+          maintenanceMargin: accountDetails?.mmr || "0",
+          bonus: "0", // OKX中没有奖金字段
+          enableEvolvedClassic: true, // 默认启用
+          crossOrderMargin: "0", // OKX中没有直接对应的字段
+          crossInitialMargin: accountDetails?.imr || "0",
+          crossMaintenanceMargin: accountDetails?.mmr || "0",
+          crossUnrealisedPnl: accountDetails?.upl || "0",
+          crossAvailable: accountDetails?.availEq || "0",
+          crossMarginBalance: accountData?.totalEq || "0",
+          crossMmr: accountDetails?.mmr || "0",
+          crossImr: accountDetails?.imr || "0",
+          isolatedPositionMargin: "0", // 默认为0
+          enableNewDualMode: false, // OKX中没有此概念
+          marginMode: 0, // 0表示全仓模式
+          enableTieredMm: true, // 默认启用分级保证金
+          history: {
+            dnw: "0", // 存取款历史，默认为0
+            pnl: accountDetails?.upl || "0", // 使用未实现盈亏
+            fee: "0", // 手续费历史，默认为0
+            refr: "0", // 推荐奖励，默认为0
+            fund: "0", // 资金费用，默认为0
+            pointDnw: "0", // 积分存取款，默认为0
+            pointFee: "0", // 积分手续费，默认为0
+            pointRefr: "0", // 积分推荐奖励，默认为0
+            bonusDnw: "0", // 奖金存取款，默认为0
+            bonusOffset: "0", // 奖金抵扣，默认为0
+          },
         };
 
-        return okxAccount;
+        return gateAccount;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -201,39 +275,47 @@ export class OkxClient implements ExchangeClient {
             return symbol && allowedSymbols.includes(symbol);
           })
           .map((p: any) => {
-            // 转换为标准格式
-            const okxPosition: OkxPosition = {
-              // 基本信息
-              symbol: p.symbol,
-              contract: p.symbol?.replace("/", "_")?.replace(":", "_") || "",
-              side: p.side,
-              size: parseFloat(p.contracts || "0"), // 使用 contracts 属性而不是 size
-              notional:
-                parseFloat(p.contracts || "0") * parseFloat(p.markPrice || "0"),
-
-              // 价格信息
-              entryPrice: parseFloat(p.entryPrice || "0"),
-              markPrice: parseFloat(p.markPrice || "0"),
-              indexPrice: parseFloat(p.indexPrice || "0"),
-
-              // 盈亏信息
-              unrealizedPnl: parseFloat(p.unrealizedPnl || "0"),
-              percentage: parseFloat(p.percentage || "0"),
-
-              // 保证金信息
-              initialMargin: parseFloat(p.initialMargin || "0"),
-              maintenanceMargin: parseFloat(p.maintenanceMargin || "0"),
-
-              // 杠杆信息
-              leverage: parseFloat(p.leverage || "1"),
-              marginMode: p.marginMode || "cross",
-
-              // 其他信息
-              liquidationPrice: parseFloat(p.liquidationPrice || "0"),
+            // 转换为Gate.io格式的标准格式
+            const gatePosition: Position = {
+              // Gate.io格式的持仓信息
+              user: 0, // OKX中没有用户ID字段，使用默认值
+              contract: this.okxToGateSymbol(p.symbol) || "",
+              size: parseFloat(p.contracts || "0").toString(),
+              leverage: p.leverage?.toString() || "1",
+              riskLimit: "100000000", // OKX中没有直接对应字段，使用默认值
+              leverageMax: "125", // OKX中没有直接对应字段，使用默认值
+              maintenanceRate: "0.005", // 默认维持保证金率
+              value: (
+                parseFloat(p.contracts || "0") * parseFloat(p.markPrice || "0")
+              ).toString(),
+              margin: p.initialMargin?.toString() || "0",
+              entryPrice: p.entryPrice?.toString() || "0",
+              liqPrice: p.liquidationPrice?.toString() || "0",
+              markPrice: p.markPrice?.toString() || "0",
+              initialMargin: p.initialMargin?.toString() || "0",
+              maintenanceMargin: p.maintenanceMargin?.toString() || "0",
+              unrealisedPnl: p.unrealizedPnl?.toString() || "0",
+              realisedPnl: "0", // OKX中没有直接对应字段，使用默认值
+              pnlPnl: "0", // OKX中没有直接对应字段，使用默认值
+              pnlFund: "0", // OKX中没有直接对应字段，使用默认值
+              pnlFee: "0", // OKX中没有直接对应字段，使用默认值
+              historyPnl: "0", // OKX中没有直接对应字段，使用默认值
+              lastClosePnl: "0", // OKX中没有直接对应字段，使用默认值
+              realisedPoint: "0", // OKX中没有积分系统，使用默认值
+              historyPoint: "0", // OKX中没有积分系统，使用默认值
+              adlRanking: 1, // OKX中没有直接对应字段，使用默认值
+              pendingOrders: 0, // OKX中没有直接对应字段，使用默认值
+              closeOrder: null, // OKX中没有直接对应字段，使用默认值
+              mode: p.marginMode === "cross" ? "single" : "isolated", // 转换保证金模式
+              crossLeverageLimit: "125", // OKX中没有直接对应字段，使用默认值
               updateTime: p.timestamp || Date.now(),
+              updateId: 1, // OKX中没有直接对应字段，使用默认值
+              openTime: 0, // OKX中没有直接对应字段，使用默认值
+              riskLimitTable: `${this.okxToGateSymbol(p.symbol) || ""}_DEFAULT`, // 默认风险限制表
+              averageMaintenanceRate: "0.005", // 默认平均维持保证金率
             };
 
-            return okxPosition;
+            return gatePosition;
           });
 
         return filteredPositions;
@@ -271,49 +353,48 @@ export class OkxClient implements ExchangeClient {
         // 使用CCXT获取行情信息
         const ticker = await this.client.fetchTicker(okxSymbol, undefined);
 
-        // 转换为标准格式
-        const okxTicker: OkxTicker = {
-          // 基本信息
-          symbol: ticker.symbol,
-          contract: contract,
-
-          // 价格信息
+        // 转换为Gate.io格式的标准格式
+        const gateTicker: FuturesTicker = {
+          // Gate.io格式的行情信息
+          contract: this.okxToGateSymbol(contract),
           last: parseFloat(ticker.last?.toString() || "0").toString(),
-          bid: parseFloat(ticker.bid?.toString() || "0").toString(),
-          ask: parseFloat(ticker.ask?.toString() || "0").toString(),
-          high: parseFloat(ticker.high?.toString() || "0").toString(),
-          low: parseFloat(ticker.low?.toString() || "0").toString(),
-          open: parseFloat(ticker.open?.toString() || "0").toString(),
-          close: parseFloat(ticker.close?.toString() || "0").toString(),
-
-          // 成交信息
-          volume: parseFloat(ticker.baseVolume?.toString() || "0").toString(),
-          quoteVolume: parseFloat(
-            ticker.quoteVolume?.toString() || "0"
-          ).toString(),
-
-          // 时间信息
-          timestamp: ticker.timestamp || Date.now(),
-          datetime: ticker.datetime || new Date().toISOString(),
-
-          // 其他信息
-          previousClose: parseFloat(
-            ticker.previousClose?.toString() || "0"
-          ).toString(),
-          change: parseFloat(ticker.change?.toString() || "0").toString(),
-          percentage: parseFloat(
+          changePercentage: parseFloat(
             ticker.percentage?.toString() || "0"
           ).toString(),
-          average: parseFloat(ticker.average?.toString() || "0").toString(),
-          vwap: parseFloat(ticker.vwap?.toString() || "0").toString(),
-
-          // 资金费率信息
+          totalSize: parseFloat(
+            ticker.baseVolume?.toString() || "0"
+          ).toString(),
+          low24h: parseFloat(ticker.low?.toString() || "0").toString(),
+          high24h: parseFloat(ticker.high?.toString() || "0").toString(),
+          volume24h: parseFloat(
+            ticker.quoteVolume?.toString() || "0"
+          ).toString(),
+          volume24hBase: parseFloat(
+            ticker.baseVolume?.toString() || "0"
+          ).toString(),
+          volume24hQuote: parseFloat(
+            ticker.quoteVolume?.toString() || "0"
+          ).toString(),
+          volume24hSettle: parseFloat(
+            ticker.quoteVolume?.toString() || "0"
+          ).toString(),
+          markPrice: parseFloat(
+            ticker.markPrice?.toString() || ticker.info?.markPx || "0"
+          ).toString(),
           fundingRate: parseFloat(ticker.info?.fundingRate || "0").toString(),
-          nextFundingTime: parseInt(ticker.info?.nextFundingTime || "0"),
-          markPrice: parseFloat(ticker.info?.markPx || "0").toString(),
+          fundingRateIndicative: parseFloat(
+            ticker.info?.fundingRate || "0"
+          ).toString(),
+          indexPrice: parseFloat(
+            ticker.indexPrice?.toString() || ticker.info?.idxPx || "0"
+          ).toString(),
+          lowestAsk: parseFloat(ticker.ask?.toString() || "0").toString(),
+          lowestSize: "0", // OKX中没有直接对应字段，使用默认值
+          highestBid: parseFloat(ticker.bid?.toString() || "0").toString(),
+          highestSize: "0", // OKX中没有直接对应字段，使用默认值
         };
 
-        return okxTicker;
+        return gateTicker;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -363,30 +444,27 @@ export class OkxClient implements ExchangeClient {
           }
         );
 
-        // 转换为标准格式
-        const okxCandles: OkxCandle[] = candles.map((candle: any) => {
+        // 转换为Gate.io格式的标准格式
+        const gateCandles: FuturesCandlestick[] = candles.map((candle: any) => {
           const [timestamp, open, high, low, close, volume] = candle;
 
+          // 计算成交总额（成交量 * 平均价格）
+          const avgPrice = (parseFloat(open) + parseFloat(close)) / 2;
+          const sum = (parseFloat(volume) * avgPrice).toString();
+
           return {
-            // 基本信息
-            symbol: okxSymbol,
-            contract: contract,
-            timeframe: interval,
-
-            // OHLCV数据
-            open: parseFloat(open),
-            high: parseFloat(high),
-            low: parseFloat(low),
-            close: parseFloat(close),
-            volume: parseFloat(volume),
-
-            // 时间信息
-            timestamp,
-            datetime: new Date(timestamp).toISOString(),
+            // Gate.io格式的K线数据
+            t: Math.floor(timestamp / 1000), // 转换为秒级时间戳
+            v: parseInt(volume),
+            c: parseFloat(close).toString(),
+            h: parseFloat(high).toString(),
+            l: parseFloat(low).toString(),
+            o: parseFloat(open).toString(),
+            sum: sum,
           };
         });
 
-        return okxCandles;
+        return gateCandles;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -541,35 +619,64 @@ export class OkxClient implements ExchangeClient {
         orderParams.params
       );
 
-      // 转换为标准格式
-      const okxOrder: OkxOrder = {
+      // 转换为Gate.io格式的BaseOrder
+      const baseOrder: BaseOrder = {
         // 基本信息
         id: orderResult.id,
-        symbol: orderResult.symbol,
-        contract: params.contract,
-        type: orderResult.type,
-        side: orderResult.side,
+        contract: this.okxToGateSymbol(params.contract),
 
         // 数量和价格
-        amount: parseFloat(orderResult.amount?.toString() || "0"),
-        price: parseFloat(orderResult.price?.toString() || "0"),
-        filled: parseFloat(orderResult.filled?.toString() || "0"),
-        remaining: parseFloat(orderResult.remaining?.toString() || "0"),
+        size: Math.abs(params.size),
+        price:
+          params.type === "limit"
+            ? (adjustedPrice || params.price)?.toString()
+            : "0",
 
-        // 状态信息
-        status: orderResult.status,
+        // 订单状态和类型
+        status: this.mapOrderStatus(orderResult.status),
+        tif: params.tif || "gtc",
+
+        // 标志位
+        isReduceOnly: params.reduceOnly || false,
+        isClose: params.reduceOnly || false,
+        isLiq: false,
+
+        // 成交信息
+        left: parseFloat(orderResult.remaining?.toString() || "0"),
+        fillPrice:
+          parseFloat(orderResult.average?.toString() || "0") > 0
+            ? parseFloat(orderResult.average?.toString() || "0").toString()
+            : "0",
 
         // 时间信息
-        timestamp: orderResult.timestamp || Date.now(),
-        datetime: orderResult.datetime || new Date().toISOString(),
+        createTime: (orderResult.timestamp || Date.now()) / 1000, // 转换为秒
+        finishTime:
+          orderResult.status === "closed" || orderResult.status === "filled"
+            ? (orderResult.timestamp || Date.now()) / 1000
+            : 0,
+        finishAs:
+          orderResult.status === "closed" || orderResult.status === "filled"
+            ? "filled"
+            : "-",
 
         // 其他信息
+        text: "api",
+        user: 0, // OKX API不直接提供用户ID，使用默认值
+        iceberg: 0, // 默认非冰山订单
+        stpId: 0,
+        stpAct: "-",
+        amendText: "-",
+
+        // 费用信息
         fee: orderResult.fee?.cost?.toString() || "0",
+        fee_currency: orderResult.fee?.currency || "USDT",
+
+        // 原始信息
         info: orderResult.info,
       };
 
-      logger.info(`订单已提交: ${JSON.stringify(okxOrder)}`);
-      return okxOrder;
+      logger.info(`订单已提交: ${JSON.stringify(baseOrder)}`);
+      return baseOrder;
     } catch (error) {
       logger.error(`下单失败:`, error);
       throw error;
@@ -602,27 +709,59 @@ export class OkxClient implements ExchangeClient {
         // 使用CCXT获取订单信息
         const order = await this.client.fetchOrder(orderId, okxSymbol);
 
-        // 转换为标准格式
-        const okxOrder: OkxOrder = {
-          orderId: order.id,
-          clientOrderId: order.clientOrderId || "",
-          symbol: order.symbol,
-          contract:
-            symbol || order.symbol?.replace("/", "_")?.replace(":", "_") || "",
+        // 转换为Gate.io格式的BaseOrder
+        const baseOrder: BaseOrder = {
+          // 基本信息
+          id: order.id,
+          contract: symbol
+            ? this.okxToGateSymbol(symbol)
+            : this.okxToGateSymbol(order.symbol || ""),
+
+          // 数量和价格
+          size: parseFloat(order.amount?.toString() || "0"),
           price: order.price?.toString() || "0",
-          size: order.amount?.toString() || "0",
-          side: order.side === "buy" ? "buy" : "sell",
-          type: this.mapOrderType(order.type),
+
+          // 订单状态和类型
           status: this.mapOrderStatus(order.status),
-          timestamp: order.timestamp?.toString() || "",
+          tif: "gtc", // 默认GTC，OKX API不直接提供此信息
+
+          // 标志位
+          isReduceOnly: order.info?.reduceOnly || false,
+          isClose: order.info?.reduceOnly || false,
+          isLiq: false,
+
+          // 成交信息
+          left: parseFloat(order.remaining?.toString() || "0"),
+          fillPrice: order.average?.toString() || "0",
+
+          // 时间信息
+          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
+          finishTime:
+            order.status === "closed" || order.status === "filled"
+              ? (order.timestamp || Date.now()) / 1000
+              : 0,
+          finishAs:
+            order.status === "closed" || order.status === "filled"
+              ? "filled"
+              : "-",
+
+          // 其他信息
+          text: "api",
+          user: 0, // OKX API不直接提供用户ID，使用默认值
+          iceberg: 0, // 默认非冰山订单
+          stpId: 0,
+          stpAct: "-",
+          amendText: "-",
+
+          // 费用信息
           fee: order.fee?.cost?.toString() || "0",
-          filled: order.filled?.toString() || "0",
-          remaining: order.remaining?.toString() || "0",
-          averagePrice: order.average?.toString() || "0",
+          fee_currency: order.fee?.currency || "USDT",
+
+          // 原始信息
           info: order.info,
         };
 
-        return okxOrder;
+        return baseOrder;
       } catch (error) {
         lastError = error as Error;
         console.error(`获取订单信息失败 (尝试 ${i + 1}/${retries}):`, error);
@@ -663,27 +802,59 @@ export class OkxClient implements ExchangeClient {
         // 使用CCXT取消订单
         const order = await this.client.cancelOrder(orderId, okxSymbol);
 
-        // 转换为标准格式
-        const okxOrder: OkxOrder = {
-          orderId: order.id,
-          clientOrderId: order.clientOrderId || "",
-          symbol: order.symbol,
-          contract:
-            symbol || order.symbol?.replace("/", "_")?.replace(":", "_") || "",
+        // 转换为Gate.io格式的BaseOrder
+        const baseOrder: BaseOrder = {
+          // 基本信息
+          id: order.id,
+          contract: symbol
+            ? this.okxToGateSymbol(symbol)
+            : this.okxToGateSymbol(order.symbol || ""),
+
+          // 数量和价格
+          size: parseFloat(order.amount?.toString() || "0"),
           price: order.price?.toString() || "0",
-          size: order.amount?.toString() || "0",
-          side: order.side === "buy" ? "buy" : "sell",
-          type: this.mapOrderType(order.type),
+
+          // 订单状态和类型
           status: this.mapOrderStatus(order.status),
-          timestamp: order.timestamp?.toString() || "",
+          tif: "gtc", // 默认GTC，OKX API不直接提供此信息
+
+          // 标志位
+          isReduceOnly: order.info?.reduceOnly || false,
+          isClose: order.info?.reduceOnly || false,
+          isLiq: false,
+
+          // 成交信息
+          left: parseFloat(order.remaining?.toString() || "0"),
+          fillPrice: order.average?.toString() || "0",
+
+          // 时间信息
+          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
+          finishTime:
+            order.status === "closed" || order.status === "filled"
+              ? (order.timestamp || Date.now()) / 1000
+              : 0,
+          finishAs:
+            order.status === "closed" || order.status === "filled"
+              ? "filled"
+              : "-",
+
+          // 其他信息
+          text: "api",
+          user: 0, // OKX API不直接提供用户ID，使用默认值
+          iceberg: 0, // 默认非冰山订单
+          stpId: 0,
+          stpAct: "-",
+          amendText: "-",
+
+          // 费用信息
           fee: order.fee?.cost?.toString() || "0",
-          filled: order.filled?.toString() || "0",
-          remaining: order.remaining?.toString() || "0",
-          averagePrice: order.average?.toString() || "0",
+          fee_currency: order.fee?.currency || "USDT",
+
+          // 原始信息
           info: order.info,
         };
 
-        return okxOrder;
+        return baseOrder;
       } catch (error) {
         lastError = error as Error;
         console.error(`取消订单失败 (尝试 ${i + 1}/${retries}):`, error);
@@ -718,28 +889,59 @@ export class OkxClient implements ExchangeClient {
       // 使用CCXT获取未成交订单
       const openOrders = await this.client.fetchOpenOrders();
 
-      // 转换为标准格式
-      const okxOrders: OkxOrder[] = openOrders.map((order: any) => {
+      // 转换为Gate.io格式的BaseOrder数组
+      const baseOrders: BaseOrder[] = openOrders.map((order: any) => {
         return {
-          orderId: order.id,
-          clientOrderId: order.clientOrderId || "",
-          symbol: order.symbol,
-          contract: order.symbol?.replace("/", "_")?.replace(":", "_") || "",
+          // 基本信息
+          id: order.id,
+          contract: this.okxToGateSymbol(order.symbol || ""),
+
+          // 数量和价格
+          size: parseFloat(order.amount?.toString() || "0"),
           price: order.price?.toString() || "0",
-          size: order.amount?.toString() || "0",
-          side: order.side === "buy" ? "buy" : "sell",
-          type: this.mapOrderType(order.type),
+
+          // 订单状态和类型
           status: this.mapOrderStatus(order.status),
-          timestamp: order.timestamp?.toString() || "",
+          tif: "gtc", // 默认GTC，OKX API不直接提供此信息
+
+          // 标志位
+          isReduceOnly: order.info?.reduceOnly || false,
+          isClose: order.info?.reduceOnly || false,
+          isLiq: false,
+
+          // 成交信息
+          left: parseFloat(order.remaining?.toString() || "0"),
+          fillPrice: order.average?.toString() || "0",
+
+          // 时间信息
+          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
+          finishTime:
+            order.status === "closed" || order.status === "filled"
+              ? (order.timestamp || Date.now()) / 1000
+              : 0,
+          finishAs:
+            order.status === "closed" || order.status === "filled"
+              ? "filled"
+              : "-",
+
+          // 其他信息
+          text: "api",
+          user: 0, // OKX API不直接提供用户ID，使用默认值
+          iceberg: 0, // 默认非冰山订单
+          stpId: 0,
+          stpAct: "-",
+          amendText: "-",
+
+          // 费用信息
           fee: order.fee?.cost?.toString() || "0",
-          filled: order.filled?.toString() || "0",
-          remaining: order.remaining?.toString() || "0",
-          averagePrice: order.average?.toString() || "0",
+          fee_currency: order.fee?.currency || "USDT",
+
+          // 原始信息
           info: order.info,
         };
       });
 
-      return okxOrders;
+      return baseOrders;
     } catch (error) {
       logger.error(`获取未成交订单失败:`, error);
       throw error;
@@ -796,17 +998,15 @@ export class OkxClient implements ExchangeClient {
           undefined
         );
 
-        // 转换为标准格式
-        const baseFundingRate: BaseFundingRate = {
-          symbol: symbol,
-          contract: okxSymbol,
-          fundingRate: fundingRate.fundingRate?.toString() || "0",
-          fundingTimestamp: fundingRate.fundingTimestamp || Date.now(),
-          nextFundingTimestamp: fundingRate.nextFundingTimestamp,
-          info: fundingRate.info,
+        // 转换为Gate.io格式的资金费率
+        const gateFundingRate = {
+          t: Math.floor((fundingRate.fundingTimestamp || Date.now()) / 1000), // 转换为秒级时间戳
+          r: fundingRate.fundingRate?.toString() || "0", // 资金费率
+          symbol: this.okxToGateSymbol(fundingRate.symbol || ""), // 添加转换后的合约名称
+          contract: this.okxToGateSymbol(fundingRate.symbol || ""), // 添加转换后的合约名称
         };
 
-        return baseFundingRate;
+        return gateFundingRate;
       } catch (error) {
         lastError = error as Error;
         console.error(`获取资金费率失败 (尝试 ${i + 1}/${retries}):`, error);
@@ -877,37 +1077,122 @@ export class OkxClient implements ExchangeClient {
         throw new Error(`未找到合约 ${contract} 的信息`);
       }
 
-      // 转换为标准格式
-      const okxContract: BaseContract = {
-        symbol: contractInfo.symbol,
-        contract: contract,
-        base: contractInfo.base || "",
-        quote: contractInfo.quote || "",
-        active: contractInfo.active || false,
-        type: contractInfo.type || "swap",
-        spot: contractInfo.spot || false,
-        margin: contractInfo.margin || false,
-        swap: contractInfo.swap || false,
-        future: contractInfo.future || false,
-        option: contractInfo.option || false,
-        contractSize: contractInfo.contractSize || 1,
-        linear: contractInfo.linear || false,
-        inverse: contractInfo.inverse || false,
-        expiry: contractInfo.expiry,
-        expiryDatetime: contractInfo.expiryDatetime,
-        precision: contractInfo.precision || { amount: 8, price: 8 },
-        limits: contractInfo.limits || {
-          amount: { min: 0, max: 0 },
-          price: { min: 0, max: 0 },
-        },
-        info: contractInfo.info || {},
+      // 获取当前价格信息
+      let markPrice = "0";
+      let indexPrice = "0";
+      let lastPrice = "0";
+      let fundingRate = "0";
+
+      try {
+        const ticker = await this.client.fetchTicker(contractForInfo);
+        markPrice = ticker.markPrice?.toString() || "0";
+        indexPrice = ticker.indexPrice?.toString() || "0";
+        lastPrice = ticker.last?.toString() || "0";
+        // 从info对象中获取资金费率
+        fundingRate = ticker.info?.fundingRate?.toString() || "0";
+      } catch (error) {
+        logger.warn(`获取 ${contract} 价格信息失败，使用默认值:`, error);
+      }
+
+      // 转换为Gate.io格式
+      const gateContract: BaseContract = {
+        // 基本信息
+        name: this.okxToGateSymbol(contract),
+        type: "direct", // Gate.io使用direct表示正向合约
+        quantoMultiplier: "1", // 默认值
+
+        // 杠杆信息
+        leverageMin: contractInfo.limits?.leverage?.min?.toString() || "1",
+        leverageMax: contractInfo.limits?.leverage?.max?.toString() || "100",
+
+        // 保证金率
+        maintenanceRate:
+          contractInfo.info?.maintMarginRatio?.toString() || "0.005",
+
+        // 价格标记类型
+        markType: "index", // Gate.io使用index标记类型
+
+        // 价格信息
+        markPrice: markPrice,
+        indexPrice: indexPrice,
+        lastPrice: lastPrice,
+
+        // 手续费率
+        makerFeeRate: contractInfo.info?.makerFeeRate?.toString() || "-0.0001",
+        takerFeeRate: contractInfo.info?.takerFeeRate?.toString() || "0.0005",
+
+        // 价格精度
+        orderPriceRound: this.getPricePrecision(
+          contractInfo.precision?.price || 8
+        ),
+        markPriceRound: this.getPricePrecision(
+          contractInfo.precision?.price || 8
+        ),
+
+        // 资金费率信息
+        fundingRate: fundingRate,
+        fundingInterval: 28800, // 8小时，默认值
+        fundingNextApply: Math.floor(Date.now() / 1000 / 28800) * 28800 + 28800, // 下次资金费率应用时间
+
+        // 风险限制
+        riskLimitBase: "1000000", // 默认值
+        riskLimitStep: "10000000", // 默认值
+        riskLimitMax: "100000000", // 默认值
+
+        // 订单限制
+        orderSizeMin: contractInfo.limits?.amount?.min || 1,
+        orderSizeMax: contractInfo.limits?.amount?.max || 1000000,
+        orderPriceDeviate: "0.02", // 默认值
+
+        // 推荐返佣
+        refDiscountRate: "0", // 默认值
+        refRebateRate: "0.2", // 默认值
+
+        // 交易ID和订单簿ID
+        orderbookId: 0, // 默认值
+        tradeId: 0, // 默认值
+        tradeSize: 0, // 默认值
+        positionSize: 0, // 默认值
+
+        // 时间信息
+        configChangeTime: Math.floor(Date.now() / 1000), // 默认值
+        createTime: Math.floor(Date.now() / 1000), // 默认值
+        launchTime: Math.floor(Date.now() / 1000), // 默认值
+
+        // 状态信息
+        inDelisting: false,
+        ordersLimit: 100, // 默认值
+        enableBonus: true, // 默认值
+        enableCredit: true, // 默认值
+        fundingCapRatio: "0.75", // 默认值
+        status: contractInfo.active ? "trading" : "closed",
       };
 
-      return okxContract;
+      return gateContract;
     } catch (error) {
       logger.error(`获取 ${contract} 合约信息失败:`, error);
       throw error;
     }
+  }
+
+  /**
+   * 获取价格精度字符串
+   * Get price precision string
+   * @param precision 价格精度
+   * @returns 价格精度字符串
+   */
+  private getPricePrecision(precision: number): string {
+    if (precision === 1) return "1";
+    if (precision === 2) return "0.01";
+    if (precision === 3) return "0.001";
+    if (precision === 4) return "0.0001";
+    if (precision === 5) return "0.00001";
+    if (precision === 6) return "0.000001";
+    if (precision === 7) return "0.0000001";
+    if (precision === 8) return "0.00000001";
+
+    // 对于更高精度，动态生成
+    return "0." + "0".repeat(precision - 1) + "1";
   }
 
   /**
@@ -934,7 +1219,7 @@ export class OkxClient implements ExchangeClient {
             return {
               // 基本信息
               symbol: market?.symbol || "",
-              contract: market?.symbol?.replace("-", "_") || "",
+              contract: this.okxToGateSymbol(market?.symbol || ""),
               base: market?.base || "",
               quote: market?.quote || "",
 
@@ -1138,7 +1423,7 @@ export class OkxClient implements ExchangeClient {
         // 转换为标准格式
         const baseOrderBook: BaseOrderBook = {
           symbol: symbol,
-          contract: okxSymbol,
+          contract: this.okxToGateSymbol(symbol),
           bids:
             orderBook.bids?.map(([price, amount]) => [
               parseFloat(price?.toString() || "0").toString(),
@@ -1210,7 +1495,7 @@ export class OkxClient implements ExchangeClient {
           id: trade.id,
           order: trade.order,
           symbol: symbol,
-          contract: okxSymbol,
+          contract: this.okxToGateSymbol(symbol),
           side: trade.side || "buy",
           amount: trade.amount?.toString() || "0",
           price: trade.price?.toString() || "0",
@@ -1280,7 +1565,9 @@ export class OkxClient implements ExchangeClient {
 
         // 使用OKX原生格式获取持仓信息
         console.log(`使用OKX原生格式获取持仓信息，交易对: ${okxSymbol}`);
-        const positions = await this.client.fetchPositions(okxSymbol ? [okxSymbol] : undefined);
+        const positions = await this.client.fetchPositions(
+          okxSymbol ? [okxSymbol] : undefined
+        );
 
         // 过滤出非零持仓
         const activePositions = positions.filter(
@@ -1291,8 +1578,7 @@ export class OkxClient implements ExchangeClient {
         const basePositionHistory: BasePositionHistory[] = activePositions.map(
           (position) => ({
             symbol: position.symbol,
-            contract:
-              position.symbol?.replace("/", "_")?.replace(":", "_") || "",
+            contract: this.okxToGateSymbol(position.symbol || ""),
             side: position.side || "long",
             size: position.contracts?.toString() || "0", // 使用 contracts 而不是 size
             notional: position.notional?.toString() || "0",
@@ -1394,7 +1680,7 @@ export class OkxClient implements ExchangeClient {
         const settlementHistory = settlementRecords.map((item: any) => {
           const type = parseInt(item.type);
           let settlementType = "unknown";
-          
+
           switch (type) {
             case 1:
               settlementType = "trade";
@@ -1411,9 +1697,12 @@ export class OkxClient implements ExchangeClient {
           }
 
           // 对于交易记录，使用tradeId作为ID；对于其他记录，使用billId
-          const recordId = type === 1 ? 
-            (item.tradeId ? `trade_${item.tradeId}` : item.billId) : 
-            item.billId;
+          const recordId =
+            type === 1
+              ? item.tradeId
+                ? `trade_${item.tradeId}`
+                : item.billId
+              : item.billId;
 
           return {
             id: recordId || "",
@@ -1436,7 +1725,9 @@ export class OkxClient implements ExchangeClient {
 
         // 如果不是最后一次尝试，等待一段时间再重试
         if (retries > 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * (4 - retries)));
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1000 * (4 - retries))
+          );
         }
         retries--;
       }
@@ -1452,7 +1743,7 @@ export class OkxClient implements ExchangeClient {
    * @returns 标准结算类型 Standard settlement type
    */
   private mapSettlementType(billType: string | number | undefined): string {
-    const type = typeof billType === 'string' ? parseInt(billType) : billType;
+    const type = typeof billType === "string" ? parseInt(billType) : billType;
     switch (type) {
       case 7:
         return "funding";
@@ -1508,7 +1799,7 @@ export class OkxClient implements ExchangeClient {
           orderId: order.id,
           clientOrderId: order.clientOrderId || "",
           symbol: order.symbol,
-          contract: order.symbol?.replace("/", "_")?.replace(":", "_") || "",
+          contract: this.okxToGateSymbol(order.symbol || ""),
           price: order.price?.toString() || "0",
           size: order.amount?.toString() || "0",
           side: order.side === "buy" ? "buy" : "sell",
@@ -1567,21 +1858,24 @@ export class OkxClient implements ExchangeClient {
       const orderHistory = await this.getOrderHistory(contract, limit * 2); // 获取更多订单以确保有足够的数据
 
       // 获取历史成交记录
-      const tradeHistory = await this.getMyTrades(contract || '', limit * 2);
+      const tradeHistory = await this.getMyTrades(contract || "", limit * 2);
 
       // 获取资金费率历史
-      const fundingRateHistory = await this.getFundingRateHistory(contract, limit);
+      const fundingRateHistory = await this.getFundingRateHistory(
+        contract,
+        limit
+      );
 
       // 合并所有数据并按时间排序
       const allRecords: any[] = [];
 
       // 处理订单记录，提取已平仓的订单
       orderHistory.forEach((order: any) => {
-        if (order.status === 'filled') {
+        if (order.status === "filled") {
           allRecords.push({
-            type: 'trade',
+            type: "trade",
             timestamp: parseInt(order.timestamp),
-            data: order
+            data: order,
           });
         }
       });
@@ -1589,18 +1883,18 @@ export class OkxClient implements ExchangeClient {
       // 处理成交记录
       tradeHistory.forEach((trade: any) => {
         allRecords.push({
-          type: 'trade',
+          type: "trade",
           timestamp: parseInt(trade.timestamp),
-          data: trade
+          data: trade,
         });
       });
 
       // 处理资金费率记录
       fundingRateHistory.forEach((funding: any) => {
         allRecords.push({
-          type: 'funding',
+          type: "funding",
           timestamp: parseInt(funding.timestamp),
-          data: funding
+          data: funding,
         });
       });
 
@@ -1615,25 +1909,25 @@ export class OkxClient implements ExchangeClient {
 
       // 处理每条记录
       for (const record of allRecords) {
-        if (record.type === 'trade') {
+        if (record.type === "trade") {
           const trade = record.data;
           const tradeId = trade.id || trade.tradeId;
-          
+
           // 避免重复处理同一笔成交
           if (processedTrades.has(tradeId)) {
             continue;
           }
           processedTrades.add(tradeId);
-          
-          const tradeAmount = parseFloat(trade.amount || '0');
-          const tradePrice = parseFloat(trade.price || '0');
+
+          const tradeAmount = parseFloat(trade.amount || "0");
+          const tradePrice = parseFloat(trade.price || "0");
           const tradeSide = trade.side;
-          const tradeFee = parseFloat(trade.fee?.cost || '0');
-          const tradeSymbol = trade.symbol || contract || '';
-          const currency = tradeSymbol.split('/')[0] || '';
+          const tradeFee = parseFloat(trade.fee?.cost || "0");
+          const tradeSymbol = trade.symbol || contract || "";
+          const currency = tradeSymbol.split("/")[0] || "";
 
           // 更新持仓
-          if (tradeSide === 'buy') {
+          if (tradeSide === "buy") {
             position += tradeAmount;
           } else {
             position -= tradeAmount;
@@ -1642,9 +1936,9 @@ export class OkxClient implements ExchangeClient {
           // 为每笔成交创建结算记录
           settlementRecords.push({
             id: `trade_${tradeId}`,
-            symbol: tradeSymbol,
-            contract: trade.contract || contract || '',
-            type: 'trade',
+            symbol: this.okxToGateSymbol(tradeSymbol),
+            contract: this.okxToGateSymbol(trade.contract || contract || ""),
+            type: "trade",
             amount: tradeAmount.toString(),
             currency: currency,
             fee: tradeFee.toString(),
@@ -1657,35 +1951,37 @@ export class OkxClient implements ExchangeClient {
               tradeId: tradeId,
               side: tradeSide,
               price: tradePrice,
-              amount: tradeAmount
-            }
+              amount: tradeAmount,
+            },
           });
-        } else if (record.type === 'funding') {
+        } else if (record.type === "funding") {
           const funding = record.data;
-          const fundingRate = parseFloat(funding.fundingRate || '0');
-          const notional = parseFloat(funding.notional || '0');
+          const fundingRate = parseFloat(funding.fundingRate || "0");
+          const notional = parseFloat(funding.notional || "0");
           const fundingFee = fundingRate * notional;
 
           totalPnL += fundingFee;
 
           settlementRecords.push({
             id: `funding_${funding.timestamp || record.timestamp}`,
-            symbol: funding.symbol || contract || '',
-            contract: funding.contract || contract || '',
-            type: 'funding',
-            amount: '0',
-            currency: funding.symbol?.split('/')[0] || '',
-            fee: '0',
+            symbol: this.okxToGateSymbol(funding.symbol || contract || ""),
+            contract: this.okxToGateSymbol(funding.contract || contract || ""),
+            type: "funding",
+            amount: "0",
+            currency: funding.symbol?.split("/")[0] || "",
+            fee: "0",
             pnl: fundingFee.toString(),
             timestamp: record.timestamp.toString(),
             datetime: new Date(record.timestamp).toISOString(),
-            info: funding
+            info: funding,
           });
         }
       }
 
       // 按时间戳倒序排列，最新的在前面
-      settlementRecords.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
+      settlementRecords.sort(
+        (a, b) => parseInt(b.timestamp) - parseInt(a.timestamp)
+      );
 
       // 限制返回的记录数量
       return settlementRecords.slice(0, limit);
@@ -1738,8 +2034,8 @@ export class OkxClient implements ExchangeClient {
           datetime: new Date(parseInt(item.timestamp)).toISOString(),
           fundingRate: item.fundingRate?.toString() || "0",
           notional: item.notional?.toString() || "0",
-          symbol: item.symbol || contract || "",
-          contract: item.symbol?.replace("/", "_")?.replace(":", "_") || contract || "",
+          symbol: this.okxToGateSymbol(item.symbol || contract || ""),
+          contract: this.okxToGateSymbol(item.symbol || contract || ""),
           info: item,
         };
       });
@@ -1756,16 +2052,16 @@ export class OkxClient implements ExchangeClient {
    * 映射订单状态
    * Map order status
    * @param status CCXT订单状态 CCXT order status
-   * @returns 标准订单状态 Standard order status
+   * @returns Gate.io格式的订单状态 Gate.io format order status
    */
   private mapOrderStatus(status: string | undefined): string {
     switch (status?.toLowerCase()) {
       case "open":
         return "open";
       case "closed":
-        return "filled";
+      case "filled":
+        return "finished";
       case "canceled":
-        return "cancelled";
       case "cancelled":
         return "cancelled";
       case "expired":
