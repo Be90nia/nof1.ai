@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -19,11 +19,11 @@
 import { Agent } from "@voltagent/core";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as tradingTools from "../tools/trading";
-import { createLogger } from "../utils/loggerUtils";
+import { createLogger, type LogLevel } from "../utils/loggerUtils";
 
 const logger = createLogger({
-  service: "analysis-agents",
-  level: process.env.LOG_LEVEL || "info",
+  name: "analysis-agents",
+  level: (process.env.LOG_LEVEL as LogLevel) || "info",
 });
 
 /**
@@ -51,13 +51,19 @@ export function createTechnicalAnalystAgent(marketDataContext?: any) {
 
   // 如果有市场数据上下文，添加到指令中
   if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(
+      marketDataContext,
+      null,
+      2
+    )}`;
   }
 
   const agent = new Agent({
     name: "技术分析Agent",
     instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
+    model: openai.chat(
+      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
+    ),
     tools: [
       tradingTools.getMarketPriceTool,
       tradingTools.getTechnicalIndicatorsTool,
@@ -97,13 +103,19 @@ export function createTrendAnalystAgent(marketDataContext?: any) {
 
   // 如果有市场数据上下文，添加到指令中
   if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(
+      marketDataContext,
+      null,
+      2
+    )}`;
   }
 
   const agent = new Agent({
     name: "趋势分析Agent",
     instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
+    model: openai.chat(
+      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
+    ),
     tools: [
       tradingTools.getMarketPriceTool,
       tradingTools.getTechnicalIndicatorsTool,
@@ -143,13 +155,19 @@ export function createRiskAssessorAgent(marketDataContext?: any) {
 
   // 如果有市场数据上下文，添加到指令中
   if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(
+      marketDataContext,
+      null,
+      2
+    )}`;
   }
 
   const agent = new Agent({
     name: "风险评估Agent",
     instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
+    model: openai.chat(
+      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
+    ),
     tools: [
       tradingTools.getMarketPriceTool,
       tradingTools.getTechnicalIndicatorsTool,
@@ -163,4 +181,3 @@ export function createRiskAssessorAgent(marketDataContext?: any) {
 
   return agent;
 }
-

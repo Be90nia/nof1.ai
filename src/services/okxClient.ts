@@ -648,15 +648,17 @@ export class OkxClient implements ExchangeClient {
             ? parseFloat(orderResult.average?.toString() || "0").toString()
             : "0",
 
-        // 时间信息
-        createTime: (orderResult.timestamp || Date.now()) / 1000, // 转换为秒
+        // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
+        createTime: Math.floor((orderResult.timestamp || Date.now()) / 1000),
         finishTime:
-          orderResult.status === "closed" || orderResult.status === "filled"
-            ? (orderResult.timestamp || Date.now()) / 1000
+          orderResult.status === "closed" || orderResult.status === "filled" || orderResult.status === "canceled" || orderResult.status === "cancelled"
+            ? Math.floor((orderResult.timestamp || Date.now()) / 1000)
             : 0,
         finishAs:
           orderResult.status === "closed" || orderResult.status === "filled"
             ? "filled"
+            : orderResult.status === "canceled" || orderResult.status === "cancelled"
+            ? "cancelled"
             : "-",
 
         // 其他信息
@@ -667,8 +669,8 @@ export class OkxClient implements ExchangeClient {
         stpAct: "-",
         amendText: "-",
 
-        // 费用信息
-        fee: orderResult.fee?.cost?.toString() || "0",
+        // 费用信息 - 确保费用为正数，与Gate.io保持一致
+        fee: orderResult.fee?.cost ? Math.abs(parseFloat(orderResult.fee.cost.toString())).toString() : "0",
         fee_currency: orderResult.fee?.currency || "USDT",
 
         // 原始信息
@@ -734,15 +736,17 @@ export class OkxClient implements ExchangeClient {
           left: parseFloat(order.remaining?.toString() || "0"),
           fillPrice: order.average?.toString() || "0",
 
-          // 时间信息
-          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
+          // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
+          createTime: Math.floor((order.timestamp || Date.now()) / 1000),
           finishTime:
-            order.status === "closed" || order.status === "filled"
-              ? (order.timestamp || Date.now()) / 1000
+            order.status === "closed" || order.status === "filled" || order.status === "canceled" || order.status === "cancelled"
+              ? Math.floor((order.timestamp || Date.now()) / 1000)
               : 0,
           finishAs:
             order.status === "closed" || order.status === "filled"
               ? "filled"
+              : order.status === "canceled" || order.status === "cancelled"
+              ? "cancelled"
               : "-",
 
           // 其他信息
@@ -753,8 +757,8 @@ export class OkxClient implements ExchangeClient {
           stpAct: "-",
           amendText: "-",
 
-          // 费用信息
-          fee: order.fee?.cost?.toString() || "0",
+          // 费用信息 - 确保费用为正数，与Gate.io保持一致
+          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息
@@ -802,6 +806,7 @@ export class OkxClient implements ExchangeClient {
         // 使用CCXT取消订单
         const order = await this.client.cancelOrder(orderId, okxSymbol);
 
+        console.log("取消订单结果:", order);
         // 转换为Gate.io格式的BaseOrder
         const baseOrder: BaseOrder = {
           // 基本信息
@@ -815,7 +820,7 @@ export class OkxClient implements ExchangeClient {
           price: order.price?.toString() || "0",
 
           // 订单状态和类型
-          status: this.mapOrderStatus(order.status),
+          status: order.info.sCode == 0 ? "finished" : "open", // 取消的订单状态为"finished"
           tif: "gtc", // 默认GTC，OKX API不直接提供此信息
 
           // 标志位
@@ -827,16 +832,10 @@ export class OkxClient implements ExchangeClient {
           left: parseFloat(order.remaining?.toString() || "0"),
           fillPrice: order.average?.toString() || "0",
 
-          // 时间信息
-          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
-          finishTime:
-            order.status === "closed" || order.status === "filled"
-              ? (order.timestamp || Date.now()) / 1000
-              : 0,
-          finishAs:
-            order.status === "closed" || order.status === "filled"
-              ? "filled"
-              : "-",
+          // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
+          createTime: Math.floor((order.timestamp || Date.now()) / 1000),
+          finishTime: Math.floor((order.timestamp || Date.now()) / 1000), // 取消订单时，finishTime应为当前时间
+          finishAs: "cancelled", // 取消订单时，finishAs应为"cancelled"
 
           // 其他信息
           text: "api",
@@ -846,8 +845,8 @@ export class OkxClient implements ExchangeClient {
           stpAct: "-",
           amendText: "-",
 
-          // 费用信息
-          fee: order.fee?.cost?.toString() || "0",
+          // 费用信息 - 确保费用为正数，与Gate.io保持一致
+          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息
@@ -913,15 +912,17 @@ export class OkxClient implements ExchangeClient {
           left: parseFloat(order.remaining?.toString() || "0"),
           fillPrice: order.average?.toString() || "0",
 
-          // 时间信息
-          createTime: (order.timestamp || Date.now()) / 1000, // 转换为秒
+          // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
+          createTime: Math.floor((order.timestamp || Date.now()) / 1000),
           finishTime:
-            order.status === "closed" || order.status === "filled"
-              ? (order.timestamp || Date.now()) / 1000
+            order.status === "closed" || order.status === "filled" || order.status === "canceled" || order.status === "cancelled"
+              ? Math.floor((order.timestamp || Date.now()) / 1000)
               : 0,
           finishAs:
             order.status === "closed" || order.status === "filled"
               ? "filled"
+              : (order.status === "canceled" || order.status === "cancelled")
+              ? "cancelled"
               : "-",
 
           // 其他信息
@@ -932,8 +933,8 @@ export class OkxClient implements ExchangeClient {
           stpAct: "-",
           amendText: "-",
 
-          // 费用信息
-          fee: order.fee?.cost?.toString() || "0",
+          // 费用信息 - 确保费用为正数，与Gate.io保持一致
+          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息
@@ -2063,7 +2064,7 @@ export class OkxClient implements ExchangeClient {
         return "finished";
       case "canceled":
       case "cancelled":
-        return "cancelled";
+        return "finished"; // 取消的订单在Gate.io中状态为"finished"
       case "expired":
         return "expired";
       case "rejected":
