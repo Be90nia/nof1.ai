@@ -30,6 +30,10 @@ import {
   BaseOrder,
   BaseCandle,
   BaseContract,
+  BaseFundingRate,
+  BaseOrderBook,
+  BaseTrade,
+  BasePositionHistory,
   ExchangeConverter,
   ExchangeConfig,
   ExchangeError,
@@ -182,6 +186,280 @@ class ExchangeConverterImpl implements ExchangeConverter {
       default:
         throw new Error(`Unsupported source exchange: ${sourceExchange}`);
     }
+  }
+
+  /**
+   * 资金费率信息转换
+   * Convert funding rate information
+   * @param data 资金费率数据 Funding rate data
+   * @param sourceExchange 源交易所 Source exchange
+   * @returns 统一格式的资金费率信息 Unified format funding rate information
+   */
+  convertFundingRate(data: any, sourceExchange: ExchangeType): BaseFundingRate {
+    switch (sourceExchange) {
+      case ExchangeType.GATEIO:
+        return this.convertFundingRateFromGateIo(data);
+      case ExchangeType.OKX:
+        return this.convertFundingRateFromOkx(data);
+      default:
+        throw new Error(`Unsupported source exchange: ${sourceExchange}`);
+    }
+  }
+
+  /**
+   * 订单簿信息转换
+   * Convert order book information
+   * @param data 订单簿数据 Order book data
+   * @param sourceExchange 源交易所 Source exchange
+   * @returns 统一格式的订单簿信息 Unified format order book information
+   */
+  convertOrderBook(data: any, sourceExchange: ExchangeType): BaseOrderBook {
+    switch (sourceExchange) {
+      case ExchangeType.GATEIO:
+        return this.convertOrderBookFromGateIo(data);
+      case ExchangeType.OKX:
+        return this.convertOrderBookFromOkx(data);
+      default:
+        throw new Error(`Unsupported source exchange: ${sourceExchange}`);
+    }
+  }
+
+  /**
+   * 交易记录信息转换
+   * Convert trade information
+   * @param data 交易记录数据 Trade data
+   * @param sourceExchange 源交易所 Source exchange
+   * @returns 统一格式的交易记录信息 Unified format trade information
+   */
+  convertTrade(data: any, sourceExchange: ExchangeType): BaseTrade {
+    switch (sourceExchange) {
+      case ExchangeType.GATEIO:
+        return this.convertTradeFromGateIo(data);
+      case ExchangeType.OKX:
+        return this.convertTradeFromOkx(data);
+      default:
+        throw new Error(`Unsupported source exchange: ${sourceExchange}`);
+    }
+  }
+
+  /**
+   * 持仓历史信息转换
+   * Convert position history information
+   * @param data 持仓历史数据 Position history data
+   * @param sourceExchange 源交易所 Source exchange
+   * @returns 统一格式的持仓历史信息 Unified format position history information
+   */
+  convertPositionHistory(data: any, sourceExchange: ExchangeType): BasePositionHistory {
+    switch (sourceExchange) {
+      case ExchangeType.GATEIO:
+        return this.convertPositionHistoryFromGateIo(data);
+      case ExchangeType.OKX:
+        return this.convertPositionHistoryFromOkx(data);
+      default:
+        throw new Error(`Unsupported source exchange: ${sourceExchange}`);
+    }
+  }
+
+  // ==================== 资金费率转换方法 ====================
+
+  /**
+   * 从Gate.io格式转换资金费率
+   * Convert funding rate from Gate.io format
+   * @param data Gate.io格式资金费率数据 Gate.io format funding rate data
+   * @returns 统一格式的资金费率信息 Unified format funding rate information
+   */
+  private convertFundingRateFromGateIo(data: any): BaseFundingRate {
+    return {
+      symbol: data.symbol || '',
+      contract: data.contract || '',
+      fundingRate: data.funding_rate?.toString() || '0',
+      fundingTimestamp: data.funding_timestamp || 0,
+      nextFundingTime: data.next_funding_time || 0,
+      markPrice: data.mark_price?.toString() || '0',
+      indexPrice: data.index_price?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      info: data.info || {},
+    };
+  }
+
+  /**
+   * 从OKX格式转换资金费率
+   * Convert funding rate from OKX format
+   * @param data OKX格式资金费率数据 OKX format funding rate data
+   * @returns 统一格式的资金费率信息 Unified format funding rate information
+   */
+  private convertFundingRateFromOkx(data: any): BaseFundingRate {
+    return {
+      symbol: data.symbol || '',
+      contract: data.symbol?.replace('/', '_').replace(':', '_') || '',
+      fundingRate: data.fundingRate?.toString() || data.funding_rate?.toString() || '0',
+      fundingTimestamp: data.fundingTimestamp || data.funding_timestamp || 0,
+      nextFundingTime: data.nextFundingTime || data.next_funding_time || 0,
+      markPrice: data.markPrice?.toString() || data.mark_price?.toString() || '0',
+      indexPrice: data.indexPrice?.toString() || data.index_price?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      info: data.info || {},
+    };
+  }
+
+  // ==================== 订单簿转换方法 ====================
+
+  /**
+   * 从Gate.io格式转换订单簿
+   * Convert order book from Gate.io format
+   * @param data Gate.io格式订单簿数据 Gate.io format order book data
+   * @returns 统一格式的订单簿信息 Unified format order book information
+   */
+  private convertOrderBookFromGateIo(data: any): BaseOrderBook {
+    return {
+      symbol: data.symbol || '',
+      contract: data.contract || '',
+      bids: (data.bids || []).map((bid: any) => ({
+        price: bid[0]?.toString() || '0',
+        amount: bid[1]?.toString() || '0',
+      })),
+      asks: (data.asks || []).map((ask: any) => ({
+        price: ask[0]?.toString() || '0',
+        amount: ask[1]?.toString() || '0',
+      })),
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      nonce: data.nonce || 0,
+      info: data.info || {},
+    };
+  }
+
+  /**
+   * 从OKX格式转换订单簿
+   * Convert order book from OKX format
+   * @param data OKX格式订单簿数据 OKX format order book data
+   * @returns 统一格式的订单簿信息 Unified format order book information
+   */
+  private convertOrderBookFromOkx(data: any): BaseOrderBook {
+    return {
+      symbol: data.symbol || '',
+      contract: data.symbol?.replace('/', '_').replace(':', '_') || '',
+      bids: (data.bids || []).map((bid: any) => ({
+        price: bid[0]?.toString() || '0',
+        amount: bid[1]?.toString() || '0',
+      })),
+      asks: (data.asks || []).map((ask: any) => ({
+        price: ask[0]?.toString() || '0',
+        amount: ask[1]?.toString() || '0',
+      })),
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      nonce: data.nonce || 0,
+      info: data.info || {},
+    };
+  }
+
+  // ==================== 交易记录转换方法 ====================
+
+  /**
+   * 从Gate.io格式转换交易记录
+   * Convert trade from Gate.io format
+   * @param data Gate.io格式交易记录数据 Gate.io format trade data
+   * @returns 统一格式的交易记录信息 Unified format trade information
+   */
+  private convertTradeFromGateIo(data: any): BaseTrade {
+    return {
+      id: data.id || '',
+      order: data.order || '',
+      symbol: data.symbol || '',
+      contract: data.contract || '',
+      side: data.side || 'buy',
+      amount: data.amount?.toString() || '0',
+      price: data.price?.toString() || '0',
+      cost: data.cost?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      fee: {
+        cost: data.fee?.cost?.toString() || '0',
+        currency: data.fee?.currency || 'USDT',
+        rate: data.fee?.rate?.toString(),
+      },
+      takerOrMaker: data.takerOrMaker || 'taker',
+      info: data.info || {},
+    };
+  }
+
+  /**
+   * 从OKX格式转换交易记录
+   * Convert trade from OKX format
+   * @param data OKX格式交易记录数据 OKX format trade data
+   * @returns 统一格式的交易记录信息 Unified format trade information
+   */
+  private convertTradeFromOkx(data: any): BaseTrade {
+    return {
+      id: data.id || '',
+      order: data.order || '',
+      symbol: data.symbol?.replace('/', '_').replace(':', '_') || '',
+      contract: data.symbol || '',
+      side: data.side || 'buy',
+      amount: data.amount?.toString() || '0',
+      price: data.price?.toString() || '0',
+      cost: data.cost?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      fee: {
+        cost: data.fee?.cost?.toString() || '0',
+        currency: data.fee?.currency || 'USDT',
+        rate: data.fee?.rate?.toString(),
+      },
+      takerOrMaker: data.takerOrMaker || 'taker',
+      info: data.info || {},
+    };
+  }
+
+  // ==================== 持仓历史转换方法 ====================
+
+  /**
+   * 从Gate.io格式转换持仓历史
+   * Convert position history from Gate.io format
+   * @param data Gate.io格式持仓历史数据 Gate.io format position history data
+   * @returns 统一格式的持仓历史信息 Unified format position history information
+   */
+  private convertPositionHistoryFromGateIo(data: any): BasePositionHistory {
+    return {
+      symbol: data.symbol || '',
+      contract: data.contract || '',
+      side: data.side || 'long',
+      size: data.size?.toString() || '0',
+      notional: data.notional?.toString() || '0',
+      entryPrice: data.entry_price?.toString() || data.entryPrice?.toString() || '0',
+      markPrice: data.mark_price?.toString() || data.markPrice?.toString() || '0',
+      unrealizedPnl: data.unrealized_pnl?.toString() || data.unrealizedPnl?.toString() || '0',
+      percentage: data.percentage?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      info: data.info || {},
+    };
+  }
+
+  /**
+   * 从OKX格式转换持仓历史
+   * Convert position history from OKX format
+   * @param data OKX格式持仓历史数据 OKX format position history data
+   * @returns 统一格式的持仓历史信息 Unified format position history information
+   */
+  private convertPositionHistoryFromOkx(data: any): BasePositionHistory {
+    return {
+      symbol: data.symbol || '',
+      contract: data.symbol?.replace('/', '_').replace(':', '_') || '',
+      side: data.side || 'long',
+      size: data.size?.toString() || data.contracts?.toString() || '0',
+      notional: data.notional?.toString() || '0',
+      entryPrice: data.entryPrice?.toString() || data.entry_price?.toString() || '0',
+      markPrice: data.markPrice?.toString() || data.mark_price?.toString() || '0',
+      unrealizedPnl: data.unrealizedPnl?.toString() || data.unrealized_pnl?.toString() || '0',
+      percentage: data.percentage?.toString() || '0',
+      timestamp: data.timestamp || Date.now(),
+      datetime: data.datetime || new Date().toISOString(),
+      info: data.info || {},
+    };
   }
 
   // ==================== Gate.io 转换方法 ====================
@@ -799,6 +1077,54 @@ export function convertCandle(data: any, sourceExchange?: ExchangeType): BaseCan
 export function convertContract(data: any, sourceExchange?: ExchangeType): BaseContract {
   const exchange = sourceExchange || getCurrentExchangeType();
   return exchangeConverter.convertContract(data, exchange);
+}
+
+/**
+ * 转换资金费率信息为统一格式
+ * Convert funding rate information to unified format
+ * @param data 资金费率数据 Funding rate data
+ * @param sourceExchange 源交易所 Source exchange
+ * @returns 统一格式的资金费率信息 Unified format funding rate information
+ */
+export function convertFundingRate(data: any, sourceExchange?: ExchangeType): BaseFundingRate {
+  const exchange = sourceExchange || getCurrentExchangeType();
+  return exchangeConverter.convertFundingRate(data, exchange);
+}
+
+/**
+ * 转换订单簿信息为统一格式
+ * Convert order book information to unified format
+ * @param data 订单簿数据 Order book data
+ * @param sourceExchange 源交易所 Source exchange
+ * @returns 统一格式的订单簿信息 Unified format order book information
+ */
+export function convertOrderBook(data: any, sourceExchange?: ExchangeType): BaseOrderBook {
+  const exchange = sourceExchange || getCurrentExchangeType();
+  return exchangeConverter.convertOrderBook(data, exchange);
+}
+
+/**
+ * 转换交易记录信息为统一格式
+ * Convert trade information to unified format
+ * @param data 交易记录数据 Trade data
+ * @param sourceExchange 源交易所 Source exchange
+ * @returns 统一格式的交易记录信息 Unified format trade information
+ */
+export function convertTrade(data: any, sourceExchange?: ExchangeType): BaseTrade {
+  const exchange = sourceExchange || getCurrentExchangeType();
+  return exchangeConverter.convertTrade(data, exchange);
+}
+
+/**
+ * 转换持仓历史信息为统一格式
+ * Convert position history information to unified format
+ * @param data 持仓历史数据 Position history data
+ * @param sourceExchange 源交易所 Source exchange
+ * @returns 统一格式的持仓历史信息 Unified format position history information
+ */
+export function convertPositionHistory(data: any, sourceExchange?: ExchangeType): BasePositionHistory {
+  const exchange = sourceExchange || getCurrentExchangeType();
+  return exchangeConverter.convertPositionHistory(data, exchange);
 }
 
 export default exchangeConverter;
