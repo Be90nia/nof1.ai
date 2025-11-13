@@ -238,7 +238,9 @@ export class OkxClient implements ExchangeClient {
         lastError = error;
         if (i < retries) {
           const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
-          logger.warn(`获取账户余额失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          logger.warn(
+            `获取账户余额失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -285,7 +287,7 @@ export class OkxClient implements ExchangeClient {
             const contracts = parseFloat(p.contracts || "0");
             // 根据OKX的side字段确定持仓方向，并转换为带符号的size
             const signedSize = p.side === "long" ? contracts : -contracts;
-            
+
             const gatePosition: Position = {
               // Gate.io格式的持仓信息
               user: 0, // OKX中没有用户ID字段，使用默认值
@@ -410,7 +412,11 @@ export class OkxClient implements ExchangeClient {
         lastError = error;
         if (i < retries) {
           const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
-          logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          logger.warn(
+            `获取 ${contract} 价格失败，重试 ${
+              i + 1
+            }/${retries}，${delay}ms后重试...`
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
