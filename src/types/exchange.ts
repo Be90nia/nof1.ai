@@ -79,6 +79,17 @@ export interface BaseTicker {
   [key: string]: any;
 }
 
+// 基础期货行情信息接口
+export interface BaseFuturesTicker extends BaseTicker {
+  funding_rate?: string;
+  fundingRate?: string;
+  next_funding_time?: string;
+  nextFundingTime?: string;
+  open_interest?: string;
+  openInterest?: string;
+  [key: string]: any;
+}
+
 // 基础订单信息接口（以Gate.io为基准）
 export interface BaseOrder {
   id?: string | number;
