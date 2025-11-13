@@ -21,7 +21,7 @@
  */
 
 import { createLogger } from "../utils/loggerUtils";
-import { createGateClient } from "./gateClient";
+import { createOkxClient } from "./okxClient";
 
 const logger = createLogger({
   name: "multi-timeframe",
@@ -209,7 +209,7 @@ export async function analyzeTimeframe(
   symbol: string,
   config: TimeframeConfig
 ): Promise<TimeframeIndicators> {
-  const gateClient = createGateClient();
+  const gateClient = createOkxClient();
   const contract = `${symbol}_USDT`;
   
   // 获取K线数据

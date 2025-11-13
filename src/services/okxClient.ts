@@ -82,8 +82,11 @@ export class OkxClient implements ExchangeClient {
       password: config.passphrase || "",
       sandbox: config.sandbox || false,
       enableRateLimit: true,
+      timeout: 30000, // 增加超时时间到30秒
+      rateLimit: 100, // 增加请求间隔到100ms
       options: {
         defaultType: "swap", // 默认使用永续合约
+        adjustForTimeDifference: true, // 启用时间差调整
       },
     });
 
@@ -234,8 +237,9 @@ export class OkxClient implements ExchangeClient {
       } catch (error) {
         lastError = error;
         if (i < retries) {
-          logger.warn(`获取账户余额失败，重试 ${i + 1}/${retries}...`);
-          await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
+          const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
+          logger.warn(`获取账户余额失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
@@ -276,11 +280,17 @@ export class OkxClient implements ExchangeClient {
           })
           .map((p: any) => {
             // 转换为Gate.io格式的标准格式
+            // 在Gate.io中，size字段的正负值表示持仓方向（正数为做多，负数为做空）
+            // 而在OKX中，持仓方向通过side字段表示，需要转换
+            const contracts = parseFloat(p.contracts || "0");
+            // 根据OKX的side字段确定持仓方向，并转换为带符号的size
+            const signedSize = p.side === "long" ? contracts : -contracts;
+            
             const gatePosition: Position = {
               // Gate.io格式的持仓信息
               user: 0, // OKX中没有用户ID字段，使用默认值
               contract: this.okxToGateSymbol(p.symbol) || "",
-              size: parseFloat(p.contracts || "0") as any,
+              size: signedSize.toString(), // 确保size是字符串类型，并包含方向信息
               leverage: p.leverage?.toString() || "1",
               riskLimit: "100000000", // OKX中没有直接对应字段，使用默认值
               leverageMax: "125", // OKX中没有直接对应字段，使用默认值
@@ -322,8 +332,9 @@ export class OkxClient implements ExchangeClient {
       } catch (error) {
         lastError = error;
         if (i < retries) {
-          logger.warn(`获取持仓失败，重试 ${i + 1}/${retries}...`);
-          await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
+          const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
+          logger.warn(`获取持仓失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
@@ -398,8 +409,9 @@ export class OkxClient implements ExchangeClient {
       } catch (error) {
         lastError = error;
         if (i < retries) {
-          logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}...`);
-          await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1))); // 递增延迟
+          const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
+          logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
@@ -512,7 +524,7 @@ export class OkxClient implements ExchangeClient {
   }): Promise<BaseOrder> {
     // 将Gate.io格式的参数转换为OKX格式
     const okxParams = this.convertGateToOkxOrderParams(params);
-    
+
     // 调用原有的OKX下单方法
     return this.placeOrderOkx(okxParams);
   }
@@ -549,30 +561,30 @@ export class OkxClient implements ExchangeClient {
   } {
     // 确定订单类型：有价格则为限价单，否则为市价单
     const type = gateParams.price && gateParams.price > 0 ? "limit" : "market";
-    
+
     // 确定买卖方向：size为正则为买入，为负则为卖出
     const side = gateParams.size > 0 ? "buy" : "sell";
-    
+
     // 对于OKX，size始终为正数，方向由side参数决定
     const size = Math.abs(gateParams.size);
-    
+
     // 默认持仓方向为net（双向持仓模式）
     const posSide = "net";
-    
+
     // 转换止盈止损参数
     let stopLossPrice: number | undefined;
     let takeProfitPrice: number | undefined;
-    
+
     // 如果提供了stopLoss，将其作为stopLossPrice
     if (gateParams.stopLoss) {
       stopLossPrice = gateParams.stopLoss;
     }
-    
+
     // 如果提供了takeProfit，将其作为takeProfitPrice
     if (gateParams.takeProfit) {
       takeProfitPrice = gateParams.takeProfit;
     }
-    
+
     return {
       contract: gateParams.contract,
       size,
@@ -747,13 +759,17 @@ export class OkxClient implements ExchangeClient {
         // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
         createTime: Math.floor((orderResult.timestamp || Date.now()) / 1000),
         finishTime:
-          orderResult.status === "closed" || orderResult.status === "filled" || orderResult.status === "canceled" || orderResult.status === "cancelled"
+          orderResult.status === "closed" ||
+          orderResult.status === "filled" ||
+          orderResult.status === "canceled" ||
+          orderResult.status === "cancelled"
             ? Math.floor((orderResult.timestamp || Date.now()) / 1000)
             : 0,
         finishAs:
           orderResult.status === "closed" || orderResult.status === "filled"
             ? "filled"
-            : orderResult.status === "canceled" || orderResult.status === "cancelled"
+            : orderResult.status === "canceled" ||
+              orderResult.status === "cancelled"
             ? "cancelled"
             : "-",
 
@@ -766,7 +782,9 @@ export class OkxClient implements ExchangeClient {
         amendText: "-",
 
         // 费用信息 - 确保费用为正数，与Gate.io保持一致
-        fee: orderResult.fee?.cost ? Math.abs(parseFloat(orderResult.fee.cost.toString())).toString() : "0",
+        fee: orderResult.fee?.cost
+          ? Math.abs(parseFloat(orderResult.fee.cost.toString())).toString()
+          : "0",
         fee_currency: orderResult.fee?.currency || "USDT",
 
         // 原始信息
@@ -835,7 +853,10 @@ export class OkxClient implements ExchangeClient {
           // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
           createTime: Math.floor((order.timestamp || Date.now()) / 1000),
           finishTime:
-            order.status === "closed" || order.status === "filled" || order.status === "canceled" || order.status === "cancelled"
+            order.status === "closed" ||
+            order.status === "filled" ||
+            order.status === "canceled" ||
+            order.status === "cancelled"
               ? Math.floor((order.timestamp || Date.now()) / 1000)
               : 0,
           finishAs:
@@ -854,7 +875,9 @@ export class OkxClient implements ExchangeClient {
           amendText: "-",
 
           // 费用信息 - 确保费用为正数，与Gate.io保持一致
-          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
+          fee: order.fee?.cost
+            ? Math.abs(parseFloat(order.fee.cost.toString())).toString()
+            : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息
@@ -942,7 +965,9 @@ export class OkxClient implements ExchangeClient {
           amendText: "-",
 
           // 费用信息 - 确保费用为正数，与Gate.io保持一致
-          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
+          fee: order.fee?.cost
+            ? Math.abs(parseFloat(order.fee.cost.toString())).toString()
+            : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息
@@ -1011,13 +1036,16 @@ export class OkxClient implements ExchangeClient {
           // 时间信息 - 使用秒级时间戳，与Gate.io保持一致
           createTime: Math.floor((order.timestamp || Date.now()) / 1000),
           finishTime:
-            order.status === "closed" || order.status === "filled" || order.status === "canceled" || order.status === "cancelled"
+            order.status === "closed" ||
+            order.status === "filled" ||
+            order.status === "canceled" ||
+            order.status === "cancelled"
               ? Math.floor((order.timestamp || Date.now()) / 1000)
               : 0,
           finishAs:
             order.status === "closed" || order.status === "filled"
               ? "filled"
-              : (order.status === "canceled" || order.status === "cancelled")
+              : order.status === "canceled" || order.status === "cancelled"
               ? "cancelled"
               : "-",
 
@@ -1030,7 +1058,9 @@ export class OkxClient implements ExchangeClient {
           amendText: "-",
 
           // 费用信息 - 确保费用为正数，与Gate.io保持一致
-          fee: order.fee?.cost ? Math.abs(parseFloat(order.fee.cost.toString())).toString() : "0",
+          fee: order.fee?.cost
+            ? Math.abs(parseFloat(order.fee.cost.toString())).toString()
+            : "0",
           fee_currency: order.fee?.currency || "USDT",
 
           // 原始信息

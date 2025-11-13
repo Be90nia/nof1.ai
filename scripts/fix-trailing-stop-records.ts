@@ -7,7 +7,7 @@
 
 import "dotenv/config";
 import { createClient } from "@libsql/client";
-import { createGateClient } from "../src/services/gateClient";
+import { createOkxClient } from "../src/services/okxClient";
 import { getQuantoMultiplier } from "../src/utils/contractUtils";
 
 const dbClient = createClient({
@@ -15,7 +15,7 @@ const dbClient = createClient({
 });
 
 async function fixTrailingStopRecords() {
-  const gateClient = createGateClient();
+  const gateClient = createOkxClient();
   
   try {
     console.log("开始修复移动止盈交易记录...\n");

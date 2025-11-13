@@ -23,7 +23,7 @@
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { createLogger } from "../utils/loggerUtils";
-import { createGateClient } from "../services/gateClient";
+import { createOkxClient } from "../services/okxClient";
 
 const logger = createLogger({
   name: "sync-positions",
@@ -74,8 +74,8 @@ async function syncPositionsOnly() {
       logger.info("✅ 数据库表创建完成");
     }
     
-    // 3. 从 Gate.io 获取持仓
-    const gateClient = createGateClient();
+    // 3. 从 OKX 获取持仓
+    const gateClient = createOkxClient();
     const positions = await gateClient.getPositions();
     const activePositions = positions.filter((p: any) => Number.parseInt((p.size || "0").toString()) !== 0);
     

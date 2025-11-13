@@ -21,7 +21,7 @@
  * 用于输出账号合约的历史仓位记录
  */
 
-import { createGateClient } from "../src/services/gateClient.js";
+import { createOkxClient } from "../src/services/okxClient.js";
 import { createLogger } from "../src/utils/loggerUtils";
 
 const logger = createLogger({
@@ -31,7 +31,7 @@ const logger = createLogger({
 
 async function queryPositionHistory() {
   try {
-    const gateClient = createGateClient();
+    const gateClient = createOkxClient();
     
     logger.info("=".repeat(80));
     logger.info("开始查询历史仓位记录...");

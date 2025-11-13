@@ -41,7 +41,7 @@
 
 import { createLogger } from "../utils/loggerUtils";
 import { createClient } from "@libsql/client";
-import { createGateClient } from "../services/gateClient";
+import { createOkxClient } from "../services/okxClient";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
@@ -133,7 +133,7 @@ async function executePartialClose(
   totalClosedPercent: number,
   stage: string
 ): Promise<boolean> {
-  const gateClient = createGateClient();
+  const gateClient = createOkxClient();
   const contract = `${symbol}_USDT`;
   
   try {
@@ -380,7 +380,7 @@ async function checkPartialProfitConditions() {
   }
   
   try {
-    const gateClient = createGateClient();
+    const gateClient = createOkxClient();
     
     // 1. 获取所有持仓
     const gatePositions = await gateClient.getPositions();

@@ -21,7 +21,7 @@
  */
 
 import "dotenv/config";
-import { createGateClient } from "../src/services/gateClient";
+import { createOkxClient } from "../src/services/okxClient";
 import { createLogger } from "../src/utils/loggerUtils";
 
 const logger = createLogger({
@@ -37,7 +37,7 @@ async function queryContracts() {
     console.log("=====================================\n");
 
     // 创建 Gate.io 客户端
-    const gateClient = createGateClient();
+    const gateClient = createOkxClient();
     
     // 获取所有合约
     console.log("🔍 正在获取合约列表...\n");
