@@ -344,7 +344,6 @@ export function createApiRoutes() {
         symbols.map(async (symbol) => {
           try {
             const contract = `${symbol}_USDT`;
-            console.log(`获取 ${contract} 价格...`);
             const ticker = await gateClient.getFuturesTicker(contract);
             prices[symbol] = Number.parseFloat(ticker.last || "0");
           } catch (error: any) {
