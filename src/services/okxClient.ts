@@ -280,7 +280,7 @@ export class OkxClient implements ExchangeClient {
               // Gate.io格式的持仓信息
               user: 0, // OKX中没有用户ID字段，使用默认值
               contract: this.okxToGateSymbol(p.symbol) || "",
-              size: parseFloat(p.contracts || "0").toString(),
+              size: parseFloat(p.contracts || "0") as any,
               leverage: p.leverage?.toString() || "1",
               riskLimit: "100000000", // OKX中没有直接对应字段，使用默认值
               leverageMax: "125", // OKX中没有直接对应字段，使用默认值
@@ -306,7 +306,7 @@ export class OkxClient implements ExchangeClient {
               adlRanking: 1, // OKX中没有直接对应字段，使用默认值
               pendingOrders: 0, // OKX中没有直接对应字段，使用默认值
               closeOrder: null, // OKX中没有直接对应字段，使用默认值
-              mode: p.marginMode === "cross" ? "single" : "isolated", // 转换保证金模式
+              mode: (p.marginMode === "cross" ? "single" : "isolated") as any, // 转换保证金模式
               crossLeverageLimit: "125", // OKX中没有直接对应字段，使用默认值
               updateTime: p.timestamp || Date.now(),
               updateId: 1, // OKX中没有直接对应字段，使用默认值
@@ -318,7 +318,7 @@ export class OkxClient implements ExchangeClient {
             return gatePosition;
           });
 
-        return filteredPositions;
+        return filteredPositions as any;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -495,12 +495,108 @@ export class OkxClient implements ExchangeClient {
   }
 
   /**
-   * 下单
-   * Place order
-   * @param params 下单参数 Order parameters
+   * 下单 - 兼容Gate.io格式的入参
+   * Place order - Compatible with Gate.io format input parameters
+   * @param params 下单参数 Order parameters (Gate.io格式)
    * @returns 订单信息 Order information
    */
   async placeOrder(params: {
+    contract: string;
+    size: number;
+    price?: number;
+    tif?: string;
+    reduceOnly?: boolean;
+    autoSize?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): Promise<BaseOrder> {
+    // 将Gate.io格式的参数转换为OKX格式
+    const okxParams = this.convertGateToOkxOrderParams(params);
+    
+    // 调用原有的OKX下单方法
+    return this.placeOrderOkx(okxParams);
+  }
+
+  /**
+   * 将Gate.io格式的下单参数转换为OKX格式
+   * Convert Gate.io format order parameters to OKX format
+   * @param gateParams Gate.io格式的下单参数 Gate.io format order parameters
+   * @returns OKX格式的下单参数 OKX format order parameters
+   */
+  private convertGateToOkxOrderParams(gateParams: {
+    contract: string;
+    size: number;
+    price?: number;
+    tif?: string;
+    reduceOnly?: boolean;
+    autoSize?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): {
+    contract: string;
+    size: number;
+    price?: number;
+    type?: string;
+    side?: string;
+    tif?: string;
+    reduceOnly?: boolean;
+    autoSize?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+    stopLossPrice?: number;
+    takeProfitPrice?: number;
+    posSide?: "long" | "short" | "net";
+  } {
+    // 确定订单类型：有价格则为限价单，否则为市价单
+    const type = gateParams.price && gateParams.price > 0 ? "limit" : "market";
+    
+    // 确定买卖方向：size为正则为买入，为负则为卖出
+    const side = gateParams.size > 0 ? "buy" : "sell";
+    
+    // 对于OKX，size始终为正数，方向由side参数决定
+    const size = Math.abs(gateParams.size);
+    
+    // 默认持仓方向为net（双向持仓模式）
+    const posSide = "net";
+    
+    // 转换止盈止损参数
+    let stopLossPrice: number | undefined;
+    let takeProfitPrice: number | undefined;
+    
+    // 如果提供了stopLoss，将其作为stopLossPrice
+    if (gateParams.stopLoss) {
+      stopLossPrice = gateParams.stopLoss;
+    }
+    
+    // 如果提供了takeProfit，将其作为takeProfitPrice
+    if (gateParams.takeProfit) {
+      takeProfitPrice = gateParams.takeProfit;
+    }
+    
+    return {
+      contract: gateParams.contract,
+      size,
+      price: gateParams.price,
+      type,
+      side,
+      tif: gateParams.tif,
+      reduceOnly: gateParams.reduceOnly,
+      autoSize: gateParams.autoSize,
+      stopLoss: gateParams.stopLoss,
+      takeProfit: gateParams.takeProfit,
+      stopLossPrice,
+      takeProfitPrice,
+      posSide,
+    };
+  }
+
+  /**
+   * OKX原生下单方法
+   * Native OKX place order method
+   * @param params 下单参数 Order parameters (OKX格式)
+   * @returns 订单信息 Order information
+   */
+  async placeOrderOkx(params: {
     contract: string;
     size: number;
     price?: number;
