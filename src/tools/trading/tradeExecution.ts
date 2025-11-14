@@ -482,7 +482,7 @@ export const openPositionTool = createTool({
 
         while (retryCount < maxRetries) {
           try {
-            const orderDetail = await client.getOrder(order.id.toString());
+            const orderDetail = await client.getOrder(order.id.toString(), contract);
             finalOrderStatus = orderDetail.status;
             actualFillSize = Math.abs(
               Number.parseInt((orderDetail.size || "0").toString()) -
@@ -931,7 +931,7 @@ export const closePositionTool = createTool({
 
         while (retryCount < maxRetries) {
           try {
-            const orderDetail = await client.getOrder(order.id.toString());
+            const orderDetail = await client.getOrder(order.id.toString(), contract);
             finalOrderStatus = orderDetail.status;
             const filled = Math.abs(
               Number.parseInt((orderDetail.size || "0").toString()) -
@@ -1153,7 +1153,7 @@ export const closePositionTool = createTool({
         if (dbPosition.sl_order_id) {
           try {
             // 先获取订单状态
-            const orderDetail = await client.getOrder(dbPosition.sl_order_id);
+            const orderDetail = await client.getOrder(dbPosition.sl_order_id, contract);
             // 只取消未完成的订单（open状态）
             if (orderDetail.status === "open") {
               await client.cancelOrder(dbPosition.sl_order_id);
@@ -1169,7 +1169,7 @@ export const closePositionTool = createTool({
         if (dbPosition.tp_order_id) {
           try {
             // 先获取订单状态
-            const orderDetail = await client.getOrder(dbPosition.tp_order_id);
+            const orderDetail = await client.getOrder(dbPosition.tp_order_id, contract);
             // 只取消未完成的订单（open状态）
             if (orderDetail.status === "open") {
               await client.cancelOrder(dbPosition.tp_order_id);

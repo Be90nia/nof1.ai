@@ -191,11 +191,35 @@ export class OkxClient implements ExchangeClient {
         const accountData = accountInfo.info?.data?.[0];
         const accountDetails = accountData?.details?.[0];
 
+        // 获取所有持仓信息，计算未实现盈亏总和
+        let totalUnrealisedPnl = "0";
+        try {
+          const positions = await this.client.fetchPositions(
+            undefined,
+            undefined
+          );
+          let pnlSum = 0;
+
+          // 计算所有持仓的未实现盈亏总和
+          positions.forEach((pos: any) => {
+            if (parseFloat(pos.contracts || "0") !== 0) {
+              const pnl = parseFloat(pos.unrealizedPnl || "0");
+              pnlSum += pnl;
+            }
+          });
+
+          totalUnrealisedPnl = pnlSum.toString();
+          logger.info(`计算得到未实现盈亏总和: ${totalUnrealisedPnl}`);
+        } catch (posError) {
+          logger.warn(`获取持仓信息失败，使用账户默认值: ${posError}`);
+          totalUnrealisedPnl = accountDetails?.upl || "0";
+        }
+
         // 转换为Gate.io格式的标准格式
         const gateAccount: FuturesAccount = {
           // Gate.io格式的账户信息
           total: accountData?.totalEq || "0",
-          unrealisedPnl: accountDetails?.upl || "0",
+          unrealisedPnl: totalUnrealisedPnl, // 使用计算得到的未实现盈亏总和
           positionMargin: accountDetails?.imr || "0",
           orderMargin: "0", // OKX中没有直接对应的字段
           available: accountDetails?.availEq || "0",
@@ -210,7 +234,7 @@ export class OkxClient implements ExchangeClient {
           crossOrderMargin: "0", // OKX中没有直接对应的字段
           crossInitialMargin: accountDetails?.imr || "0",
           crossMaintenanceMargin: accountDetails?.mmr || "0",
-          crossUnrealisedPnl: accountDetails?.upl || "0",
+          crossUnrealisedPnl: totalUnrealisedPnl, // 使用计算得到的未实现盈亏总和
           crossAvailable: accountDetails?.availEq || "0",
           crossMarginBalance: accountData?.totalEq || "0",
           crossMmr: accountDetails?.mmr || "0",
@@ -221,7 +245,7 @@ export class OkxClient implements ExchangeClient {
           enableTieredMm: true, // 默认启用分级保证金
           history: {
             dnw: "0", // 存取款历史，默认为0
-            pnl: accountDetails?.upl || "0", // 使用未实现盈亏
+            pnl: totalUnrealisedPnl, // 使用计算得到的未实现盈亏总和
             fee: "0", // 手续费历史，默认为0
             refr: "0", // 推荐奖励，默认为0
             fund: "0", // 资金费用，默认为0
@@ -335,7 +359,9 @@ export class OkxClient implements ExchangeClient {
         lastError = error;
         if (i < retries) {
           const delay = Math.min(1000 * Math.pow(2, i), 5000); // 指数退避，最大5秒
-          logger.warn(`获取持仓失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`);
+          logger.warn(
+            `获取持仓失败，重试 ${i + 1}/${retries}，${delay}ms后重试...`
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }

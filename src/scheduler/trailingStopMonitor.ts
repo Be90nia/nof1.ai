@@ -367,7 +367,7 @@ async function executeTrailingStopClose(
         await new Promise(resolve => setTimeout(resolve, 500));
         
         try {
-          const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
+          const orderStatus = await gateClient.getOrder(order.id?.toString() || "", contract);
           
           if (orderStatus.status === 'finished') {
             const fillPrice = Number.parseFloat((orderStatus.fill_price || orderStatus.price || "0").toString());

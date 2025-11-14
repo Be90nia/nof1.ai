@@ -344,7 +344,7 @@ export function createApiRoutes() {
         symbols.map(async (symbol) => {
           try {
             const contract = `${symbol}_USDT`;
-            console.log(`获取 ${contract} 价格...`);
+            // console.log(`获取 ${contract} 价格...`);
             const ticker = await gateClient.getFuturesTicker(contract);
             prices[symbol] = Number.parseFloat(ticker.last || "0");
           } catch (error: any) {
@@ -520,7 +520,10 @@ export function createApiRoutes() {
 
       if (order.id) {
         try {
-          const orderInfo = await gateClient.getOrder(order.id.toString());
+          const orderInfo = await gateClient.getOrder(
+            order.id.toString(),
+            contract
+          );
           if (orderInfo.status === "finished") {
             actualExitPrice = Number.parseFloat(
               (

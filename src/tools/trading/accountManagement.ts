@@ -156,12 +156,13 @@ export const checkOrderStatusTool = createTool({
   description: "检查指定订单的详细状态，包括成交价格、成交数量等",
   parameters: z.object({
     orderId: z.string().describe("订单ID"),
+    contract: z.string().optional().describe("合约名称，如BTC_USDT"),
   }),
-  execute: async ({ orderId }) => {
+  execute: async ({ orderId, contract }) => {
     const client = createOkxClient();
 
     try {
-      const orderDetail = await client.getOrder(orderId);
+      const orderDetail = await client.getOrder(orderId, contract);
 
       const totalSize = Math.abs(
         Number.parseInt((orderDetail.size || "0").toString())
