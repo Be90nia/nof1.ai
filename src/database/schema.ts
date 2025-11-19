@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -24,15 +24,15 @@ export interface Trade {
   id: number;
   order_id: string;
   symbol: string;
-  side: 'long' | 'short';
-  type: 'open' | 'close';
+  side: "long" | "short";
+  type: "open" | "close";
   price: number;
   quantity: number;
   leverage: number;
   pnl?: number;
   fee?: number;
   timestamp: string;
-  status: 'pending' | 'filled' | 'cancelled';
+  status: "pending" | "filled" | "cancelled";
 }
 
 export interface Position {
@@ -44,7 +44,7 @@ export interface Position {
   liquidation_price: number;
   unrealized_pnl: number;
   leverage: number;
-  side: 'long' | 'short';
+  side: "long" | "short";
   profit_target?: number;
   stop_loss?: number;
   tp_order_id?: string;
@@ -204,4 +204,3 @@ CREATE INDEX IF NOT EXISTS idx_signals_symbol ON trading_signals(symbol);
 CREATE INDEX IF NOT EXISTS idx_history_timestamp ON account_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions(timestamp);
 `;
-
