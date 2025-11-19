@@ -228,6 +228,20 @@ export function createApiRoutes() {
 
       // 转换数据库格式到前端需要的格式
       const trades = result.rows.map((row: any) => {
+        // 计算实际币的数量 = 合约张数 * quantoMultiplier
+        // 对于BTC/USDT，quantoMultiplier = 0.01
+        // 对于ETH/USDT，quantoMultiplier = 0.1
+        // 对于其他币种，quantoMultiplier = 1
+        let quantoMultiplier = 1;
+        if (row.symbol === 'BTC') {
+          quantoMultiplier = 0.01;
+        } else if (row.symbol === 'ETH') {
+          quantoMultiplier = 0.1;
+        }
+        
+        const contractQuantity = row.quantity ? Number.parseFloat(row.quantity) : 0;
+        const actualQuantity = contractQuantity * quantoMultiplier;
+        
         return {
           id: row.id,
           orderId: row.order_id,
@@ -235,7 +249,8 @@ export function createApiRoutes() {
           side: row.side, // long/short
           type: row.type, // open/close
           price: Number.parseFloat(row.price || "0"),
-          quantity: Number.parseFloat(row.quantity || "0"),
+          quantity: actualQuantity, // 使用实际币的数量
+          contractQuantity: contractQuantity, // 保留合约张数信息
           leverage: Number.parseInt(row.leverage || "1"),
           pnl: row.pnl ? Number.parseFloat(row.pnl) : null,
           fee: Number.parseFloat(row.fee || "0"),

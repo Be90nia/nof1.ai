@@ -365,8 +365,8 @@ class TradingMonitor {
                             <td><span class="symbol">${trade.symbol}</span></td>
                             <td><span class="type ${typeClass}">${typeText}</span></td>
                             <td><span class="side ${sideClass}">${sideText}</span></td>
-                            <td>${trade.price.toFixed(2)}</td>
-                            <td>${trade.quantity}</td>
+                            <td>$${trade.price < 1 ? trade.price.toFixed(6) : trade.price.toFixed(2)}</td>
+                            <td>${Number(trade.quantity).toFixed(6)}</td>
                             <td>${trade.leverage}x</td>
                             <td>${trade.fee.toFixed(4)}</td>
                             <td>${pnlHtml}</td>
