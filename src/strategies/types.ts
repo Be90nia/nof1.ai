@@ -32,7 +32,7 @@
  * - multi-agent-consensus: 陪审团策略
  * - alpha-beta: Alpha Beta策略，零策略指导的AI完全自主决策
  */
-export type TradingStrategy = "conservative" | "balanced" | "aggressive" | "aggressive-team" | "ultra-short" | "swing-trend" | "medium-long" | "rebate-farming" | "ai-autonomous" | "multi-agent-consensus" | "alpha-beta";
+export type TradingStrategy = "conservative" | "balanced" | "aggressive" | "aggressive-team" | "ultra-short" | "swing-trend" | "medium-long" | "rebate-farming" | "ai-autonomous" | "multi-agent-consensus" | "alpha-beta" | "cai-sen";
 
 /**
  * 策略提示词生成上下文
@@ -50,6 +50,201 @@ export interface StrategyPromptContext {
   maxHoldingHours: number;
   /** 交易的币种列表，如['BTC', 'ETH'] */
   tradingSymbols: string[];
+}
+
+/**
+ * 交易信号信心度
+ * Trading signal confidence level
+ */
+export enum SignalConfidence {
+  /** 高信心度 High confidence */
+  HIGH = 'HIGH',
+  /** 中等信心度 Medium confidence */
+  MEDIUM = 'MEDIUM',
+  /** 低信心度 Low confidence */
+  LOW = 'LOW'
+}
+
+/**
+ * 蔡森策略七分位价格区域
+ * Cai Sen strategy seven-segment price zones
+ */
+export enum SevenSegmentZone {
+  /** 高于暴跌前高点 Above pre-crash high */
+  ABOVE_PRE_CRASH_HIGH = 'above_pre_crash_high',
+  /** 在6/7区域（接近高点） In 6/7 zone (near high) */
+  IN_6_7_ZONE = 'in_6_7_zone',
+  /** 在1/2区域（中间位置） In 1/2 zone (middle position) */
+  IN_1_2_ZONE = 'in_1_2_zone',
+  /** 在1/7区域（接近低点） In 1/7 zone (near low) */
+  IN_1_7_ZONE = 'in_1_7_zone',
+  /** 在更低的1/7区域 In lower 1/7 zone */
+  IN_LOWER_1_7_ZONE = 'in_lower_1_7_zone',
+  /** 接近暴跌前低点 Near pre-crash low */
+  NEAR_PRE_CRASH_LOW = 'near_pre_crash_low',
+  /** 低于暴跌前低点 Below pre-crash low */
+  BELOW_PRE_CRASH_LOW = 'below_pre_crash_low'
+}
+
+/**
+ * 蔡森策略多时间框架分析结果
+ * Cai Sen strategy multi-timeframe analysis result
+ */
+export interface MultiTimeframeAnalysis {
+  /** 日线分析结果 Daily analysis result */
+  daily: {
+    /** 趋势方向 Trend direction */
+    trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+    /** 趋势强度 Trend strength */
+    strength: number;
+    /** 关键支撑位 Key support level */
+    support: number;
+    /** 关键阻力位 Key resistance level */
+    resistance: number;
+  };
+  /** 小时线分析结果 Hourly analysis result */
+  hourly: {
+    /** 趋势方向 Trend direction */
+    trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+    /** 趋势强度 Trend strength */
+    strength: number;
+    /** 关键支撑位 Key support level */
+    support: number;
+    /** 关键阻力位 Key resistance level */
+    resistance: number;
+  };
+  /** 5分钟线分析结果 5-minute analysis result */
+  fiveMin: {
+    /** 趋势方向 Trend direction */
+    trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+    /** 趋势强度 Trend strength */
+    strength: number;
+    /** 关键支撑位 Key support level */
+    support: number;
+    /** 关键阻力位 Key resistance level */
+    resistance: number;
+  };
+  /** 综合信号 Composite signal */
+  compositeSignal: {
+    /** 信号方向 Signal direction */
+    direction: 'LONG' | 'SHORT' | 'HOLD';
+    /** 信号信心度 Signal confidence */
+    confidence: SignalConfidence;
+    /** 信号得分 Signal score */
+    score: number;
+  };
+}
+
+/**
+ * 蔡森策略七分位分析结果
+ * Cai Sen strategy seven-segment analysis result
+ */
+export interface SevenSegmentAnalysis {
+  /** 是否检测到暴跌 Whether crash is detected */
+  crashDetected: boolean;
+  /** 暴跌幅度 Crash magnitude */
+  crashMagnitude: number;
+  /** 暴跌前最高价 Pre-crash high price */
+  preCrashHigh: number;
+  /** 暴跌前最低价 Pre-crash low price */
+  preCrashLow: number;
+  /** 七分位单位 Seven-segment unit */
+  segmentUnit: number;
+  /** 七分位水平 Seven-segment levels */
+  segmentLevels: {
+    /** 1/7水平 1/7 level */
+    level1_7: number;
+    /** 2/7水平 2/7 level */
+    level2_7: number;
+    /** 3/7水平 3/7 level */
+    level3_7: number;
+    /** 4/7水平 4/7 level */
+    level4_7: number;
+    /** 5/7水平 5/7 level */
+    level5_7: number;
+    /** 6/7水平 6/7 level */
+    level6_7: number;
+  };
+  /** 当前价格所在区域 Current price zone */
+  currentZone: SevenSegmentZone;
+  /** 恢复信号 Recovery signal */
+  recoverySignal: {
+    /** 信号方向 Signal direction */
+    direction: 'LONG' | 'SHORT' | 'HOLD';
+    /** 信号信心度 Signal confidence */
+    confidence: SignalConfidence;
+    /** 恢复阶段 Recovery phase */
+    phase: 'PHASE_1' | 'PHASE_2' | 'PHASE_3';
+  };
+}
+
+/**
+ * 蔡森策略动态点位分析结果
+ * Cai Sen strategy dynamic point analysis result
+ */
+export interface DynamicPointAnalysis {
+  /** 支撑位 Support levels */
+  supportLevels: number[];
+  /** 阻力位 Resistance levels */
+  resistanceLevels: number[];
+  /** 斐波那契回撤位 Fibonacci retracement levels */
+  fibonacciLevels: {
+    /** 0.382回撤位 0.382 retracement */
+    level0_382: number;
+    /** 0.500回撤位 0.500 retracement */
+    level0_500: number;
+    /** 0.618回撤位 0.618 retracement */
+    level0_618: number;
+  };
+  /** 建议入场点位 Suggested entry points */
+  entryPoints: {
+    /** 多头入场点 Long entry point */
+    long: number;
+    /** 空头入场点 Short entry point */
+    short: number;
+  };
+  /** 建议止损点位 Suggested stop loss points */
+  stopLossPoints: {
+    /** 多头止损点 Long stop loss point */
+    long: number;
+    /** 空头止损点 Short stop loss point */
+    short: number;
+  };
+  /** 建议止盈点位 Suggested take profit points */
+  takeProfitPoints: {
+    /** 第一止盈点 First take profit point */
+    tp1: number;
+    /** 第二止盈点 Second take profit point */
+    tp2: number;
+    /** 第三止盈点 Third take profit point */
+    tp3: number;
+  };
+}
+
+/**
+ * 蔡森策略分析结果
+ * Cai Sen strategy analysis result
+ */
+export interface CaiSenAnalysisResult {
+  /** 多时间框架分析 Multi-timeframe analysis */
+  multiTimeframe: MultiTimeframeAnalysis;
+  /** 七分位分析 Seven-segment analysis */
+  sevenSegment: SevenSegmentAnalysis;
+  /** 动态点位分析 Dynamic point analysis */
+  dynamicPoint: DynamicPointAnalysis;
+  /** 最终交易信号 Final trading signal */
+  finalSignal: {
+    /** 信号方向 Signal direction */
+    direction: 'LONG' | 'SHORT' | 'HOLD';
+    /** 信号信心度 Signal confidence */
+    confidence: SignalConfidence;
+    /** 信号理由 Signal reason */
+    reason: string;
+  };
+  /** 建议仓位 Suggested position size */
+  suggestedPosition: number;
+  /** 风险回报比 Risk-reward ratio */
+  riskRewardRatio: number;
 }
 
 /**
@@ -193,5 +388,99 @@ export interface StrategyParams {
    * 注意：此字段仅在 enableCodeLevelProtection = true 时有意义
    */
   allowAiOverrideProtection?: boolean;
+  
+  /**
+   * 蔡森策略特定参数
+   * Cai Sen strategy specific parameters
+   */
+  caiSen?: {
+    /** 
+     * 多时间框架分析参数 
+     * Multi-timeframe analysis parameters
+     */
+    timeframeAnalysis: {
+      /** 日线分析权重 Daily analysis weight */
+      dailyWeight: number;
+      /** 小时线分析权重 Hourly analysis weight */
+      hourlyWeight: number;
+      /** 5分钟线分析权重 5-minute analysis weight */
+      fiveMinWeight: number;
+      /** 趋势确认阈值 Trend confirmation threshold */
+      trendConfirmationThreshold: number;
+    };
+    
+    /** 
+     * 七分位策略参数 
+     * Seven-segment strategy parameters
+     */
+    sevenSegmentStrategy: {
+      /** 暴跌检测阈值 Crash detection threshold */
+      crashDetectionThreshold: number;
+      /** 七分位计算周期 Seven-segment calculation period */
+      calculationPeriod: number;
+      /** 恢复信号置信度 Recovery signal confidence */
+      recoveryConfidence: {
+        /** 1/7区域置信度 1/7 zone confidence */
+        zone1_7: number;
+        /** 1/2区域置信度 1/2 zone confidence */
+        zone1_2: number;
+        /** 6/7区域置信度 6/7 zone confidence */
+        zone6_7: number;
+      };
+    };
+    
+    /** 
+     * 动态点位交易参数 
+     * Dynamic point trading parameters
+     */
+    dynamicPointTrading: {
+      /** 斐波那契回撤位 Fibonacci retracement levels */
+      fibonacciLevels: number[];
+      /** 波动率调整系数 Volatility adjustment coefficient */
+      volatilityAdjustment: number;
+      /** 成交量密集区权重 Volume profile weight */
+      volumeProfileWeight: number;
+    };
+    
+    /** 
+     * AI动态订单执行参数 
+     * AI dynamic order execution parameters
+     */
+    aiOrderExecution: {
+      /** 信号权重配置 Signal weight configuration */
+      signalWeights: {
+        /** 趋势信号权重 Trend signal weight */
+        trend: number;
+        /** 突破信号权重 Breakout signal weight */
+        breakout: number;
+        /** RSI指标权重 RSI indicator weight */
+        rsi: number;
+      };
+      /** 信心度阈值 Confidence thresholds */
+      confidenceThresholds: {
+        /** 高信心度阈值 High confidence threshold */
+        high: number;
+        /** 中信心度阈值 Medium confidence threshold */
+        medium: number;
+      };
+      /** 滑点调整比例 Slippage adjustment ratio */
+      slippageAdjustment: number;
+    };
+    
+    /** 
+     * 风险管理参数 
+     * Risk management parameters
+     */
+    riskManagement: {
+      /** ATR计算周期 ATR calculation period */
+      atrPeriod: number;
+      /** 止损系数 Stop loss coefficient */
+      stopLossCoefficient: number;
+      /** 波动率调整因子 Volatility adjustment factor */
+      volatilityFactor: number;
+      /** 分批止盈比例 Batch take profit ratios */
+      batchTakeProfitRatios: number[];
+    };
+  };
 }
 

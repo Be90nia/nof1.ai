@@ -93,7 +93,8 @@ export function getTradingStrategy(): TradingStrategy {
     strategy === "rebate-farming" ||
     strategy === "ai-autonomous" ||
     strategy === "multi-agent-consensus" ||
-    strategy === "alpha-beta"
+    strategy === "alpha-beta" ||
+    strategy === "cai-sen"
   ) {
     return strategy;
   }

@@ -48,6 +48,7 @@ export { getRebateFarmingStrategy, generateRebateFarmingPrompt } from "./rebateF
 export { getAiAutonomousStrategy, generateAiAutonomousPrompt } from "./aiAutonomous";  // AI自主策略
 export { getMultiAgentConsensusStrategy, generateMultiAgentConsensusPrompt } from "./multiAgentConsensus";  // 多Agent共识策略
 export { getAlphaBetaStrategy, generateAlphaBetaPrompt } from "./alphaBeta";  // Alpha Beta策略
+export { getCaiSenStrategy, generateCaiSenPrompt } from "./caiSen";  // 蔡森策略
 
 import type { TradingStrategy, StrategyParams, StrategyPromptContext } from "./types";
 import { getUltraShortStrategy, generateUltraShortPrompt } from "./ultraShort";
@@ -61,6 +62,7 @@ import { getRebateFarmingStrategy, generateRebateFarmingPrompt } from "./rebateF
 import { getAiAutonomousStrategy, generateAiAutonomousPrompt } from "./aiAutonomous";
 import { getMultiAgentConsensusStrategy, generateMultiAgentConsensusPrompt } from "./multiAgentConsensus";
 import { getAlphaBetaStrategy, generateAlphaBetaPrompt } from "./alphaBeta";
+import { getCaiSenStrategy, generateCaiSenPrompt } from "./caiSen";
 
 /**
  * 获取策略参数（基于 MAX_LEVERAGE 动态计算）
@@ -104,6 +106,8 @@ export function getStrategyParams(strategy: TradingStrategy, maxLeverage: number
       return getMultiAgentConsensusStrategy(maxLeverage);
     case "alpha-beta":
       return getAlphaBetaStrategy(maxLeverage);
+    case "cai-sen":
+      return getCaiSenStrategy(maxLeverage);
     default:
       return getAiAutonomousStrategy(maxLeverage);
   }
@@ -162,6 +166,8 @@ export function generateStrategySpecificPrompt(
       return generateMultiAgentConsensusPrompt(params, context);
     case "alpha-beta":
       return generateAlphaBetaPrompt(params, context);
+    case "cai-sen":
+      return generateCaiSenPrompt(params, context);
     default:
       return generateAiAutonomousPrompt(params, context);
   }

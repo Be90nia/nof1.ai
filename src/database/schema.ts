@@ -103,6 +103,15 @@ export interface SystemConfig {
   updated_at: string;
 }
 
+export interface CaiSenMonitorData {
+  id: number;
+  symbol: string;
+  timestamp: number;
+  data_type: string;
+  data_json: string;
+  created_at: string;
+}
+
 /**
  * SQL 建表语句
  */
@@ -196,11 +205,24 @@ CREATE TABLE IF NOT EXISTS system_config (
   updated_at TEXT NOT NULL
 );
 
+-- 蔡森策略监控数据表
+CREATE TABLE IF NOT EXISTS cai_sen_monitor_data (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  data_type TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
-CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
-CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON trading_signals(timestamp);
-CREATE INDEX IF NOT EXISTS idx_signals_symbol ON trading_signals(symbol);
-CREATE INDEX IF NOT EXISTS idx_history_timestamp ON account_history(timestamp);
-CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
+CREATE INDEX IF NOT EXISTS idx_account_history_timestamp ON account_history(timestamp);
+CREATE INDEX IF NOT EXISTS idx_trading_signals_timestamp ON trading_signals(timestamp);
+CREATE INDEX IF NOT EXISTS idx_trading_signals_symbol ON trading_signals(symbol);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_timestamp ON agent_decisions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_cai_sen_monitor_timestamp ON cai_sen_monitor_data(timestamp);
+CREATE INDEX IF NOT EXISTS idx_cai_sen_monitor_symbol ON cai_sen_monitor_data(symbol);
+CREATE INDEX IF NOT EXISTS idx_cai_sen_monitor_type ON cai_sen_monitor_data(data_type);
 `;

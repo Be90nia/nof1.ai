@@ -25,6 +25,7 @@ import { startAccountRecorder } from "./scheduler/accountRecorder";
 import { startTrailingStopMonitor, stopTrailingStopMonitor } from "./scheduler/trailingStopMonitor";
 import { startStopLossMonitor, stopStopLossMonitor } from "./scheduler/stopLossMonitor";
 import { startPartialProfitMonitor, stopPartialProfitMonitor } from "./scheduler/partialProfitMonitor";
+import { startCaiSenMonitor, stopCaiSenMonitor } from "./scheduler/caiSenMonitor";
 import { initDatabase } from "./database/init";
 import { RISK_PARAMS } from "./config/riskParams";
 import { getStrategyParams, getTradingStrategy } from "./agents/tradingAgent";
@@ -91,6 +92,10 @@ async function main() {
   // 8. 启动分批止盈监控器（每10秒检查一次）
   logger.info("启动分批止盈监控器...");
   startPartialProfitMonitor();
+  
+  // 9. 启动蔡森策略监控器（每10秒检查一次）
+  logger.info("启动蔡森策略监控器...");
+  startCaiSenMonitor();
   
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
@@ -176,6 +181,11 @@ async function gracefulShutdown(signal: string) {
     logger.info("正在停止止损监控器...");
     stopStopLossMonitor();
     logger.info("止损监控器已停止");
+    
+    // 停止蔡森策略监控器
+    logger.info("正在停止蔡森策略监控器...");
+    stopCaiSenMonitor();
+    logger.info("蔡森策略监控器已停止");
     
     // 关闭服务器
     if (server) {
