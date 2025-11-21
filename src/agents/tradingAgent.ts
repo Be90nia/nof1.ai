@@ -1593,13 +1593,34 @@ ${strategySpecificContent}
 
 /**
  * 创建交易 Agent
- * @param intervalMinutes 交易间隔（分钟）
- * @param marketDataContext 市场数据上下文（可选，用于子Agent）
+ * Create trading agent with strategy pattern
+ * @param intervalMinutes 交易间隔（分钟） Trading interval (minutes)
+ * @param marketDataContext 市场数据上下文（可选，用于子Agent） Market data context (optional, for sub-agents)
  */
 export async function createTradingAgent(
   intervalMinutes: number = 5,
   marketDataContext?: any
 ) {
+  // 获取当前策略
+  const strategy = getTradingStrategy();
+  logger.info(`使用交易策略: ${strategy}`);
+  
+  // 创建通用依赖项
+  const commonDependencies = await createCommonDependencies();
+  
+  // 根据策略类型创建对应的Agent
+  if (strategy === "cai-sen") {
+    return await createCaiSenStrategyAgent(intervalMinutes, marketDataContext, commonDependencies);
+  }
+  
+  return await createStandardStrategyAgent(strategy, intervalMinutes, marketDataContext, commonDependencies);
+}
+
+/**
+ * 创建通用依赖项
+ * Create common dependencies shared by all agents
+ */
+async function createCommonDependencies() {
   // 使用 OpenAI SDK，通过配置 baseURL 兼容 OpenRouter 或其他供应商
   const openai = createOpenAI({
     apiKey: process.env.OPENAI_API_KEY || "",
@@ -1613,12 +1634,88 @@ export async function createTradingAgent(
     }),
   });
 
-  // 获取当前策略
-  const strategy = getTradingStrategy();
-  logger.info(`使用交易策略: ${strategy}`);
+  // 定义标准交易工具集
+  const tradingToolsSet = [
+    tradingTools.getMarketPriceTool,
+    tradingTools.getTechnicalIndicatorsTool,
+    tradingTools.getFundingRateTool,
+    tradingTools.getOrderBookTool,
+    tradingTools.openPositionTool,
+    tradingTools.closePositionTool,
+    tradingTools.cancelOrderTool,
+    tradingTools.getAccountBalanceTool,
+    tradingTools.getPositionsTool,
+    tradingTools.getOpenOrdersTool,
+    tradingTools.checkOrderStatusTool,
+    tradingTools.calculateRiskTool,
+    tradingTools.syncPositionsTool,
+  ];
 
+  return { openai, memory, tradingToolsSet };
+}
+
+/**
+ * 创建蔡森策略Agent
+ * Create Cai Sen strategy agent
+ */
+async function createCaiSenStrategyAgent(
+  intervalMinutes: number,
+  marketDataContext: any,
+  dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] }
+) {
+  logger.info("创建蔡森策略独立Agent...");
+  const { createCaiSenAgent } = await import("./caisenAgent");
+  
+  // 创建蔡森Agent配置
+  const caiSenConfig = {
+    intervalMinutes,
+    marketDataContext,
+    enableDetailedLogging: true,
+    tools: dependencies.tradingToolsSet, // 复用标准工具集
+    openai: dependencies.openai, // 复用OpenAI客户端
+    memory: dependencies.memory, // 复用内存管理器
+  };
+  
+  // 创建蔡森Agent
+  const caiSenAgent = await createCaiSenAgent(caiSenConfig);
+  logger.info("蔡森策略独立Agent创建完成");
+  
+  return caiSenAgent;
+}
+
+/**
+ * 创建标准策略Agent
+ * Create standard strategy agent
+ */
+async function createStandardStrategyAgent(
+  strategy: string,
+  intervalMinutes: number,
+  marketDataContext: any,
+  dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] }
+) {
+  // 创建子Agent
+  const subAgents = await createSubAgentsForStrategy(strategy, marketDataContext);
+  
+  // 创建标准交易Agent
+  return new Agent({
+    name: "trading-agent",
+    instructions: generateInstructions(strategy as any, intervalMinutes),
+    model: dependencies.openai.chat(
+      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
+    ),
+    tools: dependencies.tradingToolsSet, // 使用标准工具集
+    subAgents,
+    memory: dependencies.memory,
+    logger,
+  });
+}
+
+/**
+ * 根据策略类型创建对应的子Agent
+ * Create sub-agents based on strategy type
+ */
+async function createSubAgentsForStrategy(strategy: string, marketDataContext?: any): Promise<Agent[] | undefined> {
   // 如果是多Agent共识策略，创建子Agent
-  let subAgents: Agent[] | undefined;
   if (strategy === "multi-agent-consensus") {
     logger.info("创建陪审团策略的子Agent（陪审团成员）...");
     const {
@@ -1627,8 +1724,7 @@ export async function createTradingAgent(
       createRiskAssessorAgent,
     } = await import("./analysisAgents");
 
-    // 传递市场数据上下文给子Agent
-    subAgents = [
+    const subAgents = [
       createTechnicalAnalystAgent(marketDataContext),
       createTrendAnalystAgent(marketDataContext),
       createRiskAssessorAgent(marketDataContext),
@@ -1636,6 +1732,7 @@ export async function createTradingAgent(
     logger.info(
       "陪审团成员创建完成：技术分析Agent、趋势分析Agent、风险评估Agent"
     );
+    return subAgents;
   }
 
   // 如果是激进团策略，创建子Agent
@@ -1648,8 +1745,7 @@ export async function createTradingAgent(
       createAggressiveTeamRiskControlExpertAgent,
     } = await import("./aggressiveTeamAgents");
 
-    // 传递市场数据上下文给子Agent
-    subAgents = [
+    const subAgents = [
       createAggressiveTeamTrendExpertAgent(marketDataContext),
       createAggressiveTeamPredictionExpertAgent(marketDataContext),
       createAggressiveTeamMoneyFlowExpertAgent(marketDataContext),
@@ -1658,33 +1754,9 @@ export async function createTradingAgent(
     logger.info(
       "激进团团员创建完成：趋势分析专家、预测分析专家、资金流向分析专家、风险控制专家"
     );
+    return subAgents;
   }
 
-  const agent = new Agent({
-    name: "trading-agent",
-    instructions: generateInstructions(strategy, intervalMinutes),
-    model: openai.chat(
-      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
-    ),
-    tools: [
-      tradingTools.getMarketPriceTool,
-      tradingTools.getTechnicalIndicatorsTool,
-      tradingTools.getFundingRateTool,
-      tradingTools.getOrderBookTool,
-      tradingTools.openPositionTool,
-      tradingTools.closePositionTool,
-      tradingTools.cancelOrderTool,
-      tradingTools.getAccountBalanceTool,
-      tradingTools.getPositionsTool,
-      tradingTools.getOpenOrdersTool,
-      tradingTools.checkOrderStatusTool,
-      tradingTools.calculateRiskTool,
-      tradingTools.syncPositionsTool,
-    ],
-    subAgents,
-    memory,
-    logger,
-  });
-
-  return agent;
+  // 其他策略不使用子Agent
+  return undefined;
 }

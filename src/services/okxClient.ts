@@ -414,7 +414,7 @@ export class OkxClient {
 
         // 记录原始持仓数据（用于调试）
         if (data && data.length > 0) {
-          logger.info(
+          logger.debug(
             `OKX 原始持仓数据 (${data.length} 个):`,
             data.slice(0, 3).map((p: any) => ({
               instId: p.instId,

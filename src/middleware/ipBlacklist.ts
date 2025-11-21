@@ -93,6 +93,34 @@ function getClientIp(c: Context): string {
     return cfIp.trim();
   }
 
+  // 检查 X-Client-IP
+  const xClientIp = c.req.header("x-client-ip");
+  if (xClientIp) {
+    logger.debug(`从 X-Client-IP 获取 IP: ${xClientIp}`);
+    return xClientIp.trim();
+  }
+
+  // 检查 X-Forwarded
+  const xForwarded = c.req.header("x-forwarded");
+  if (xForwarded) {
+    logger.debug(`从 X-Forwarded 获取 IP: ${xForwarded}`);
+    return xForwarded.trim();
+  }
+
+  // 检查 Forwarded-For
+  const forwardedFor2 = c.req.header("forwarded-for");
+  if (forwardedFor2) {
+    logger.debug(`从 Forwarded-For 获取 IP: ${forwardedFor2}`);
+    return forwardedFor2.trim();
+  }
+
+  // 检查 Forwarded
+  const forwarded = c.req.header("forwarded");
+  if (forwarded) {
+    logger.debug(`从 Forwarded 获取 IP: ${forwarded}`);
+    return forwarded.trim();
+  }
+
   // 尝试从 Hono 的环境变量中获取
   const env = c.env as any;
   if (env?.ip) {
@@ -100,8 +128,20 @@ function getClientIp(c: Context): string {
     return env.ip;
   }
 
-  // 如果都获取不到，记录警告
-  logger.warn("无法获取客户端 IP，使用 unknown");
+  // 尝试从请求的连接信息中获取
+  try {
+    const connection = c.req.raw as any;
+    if (connection?.socket?.remoteAddress) {
+      const ip = connection.socket.remoteAddress;
+      logger.debug(`从连接信息获取 IP: ${ip}`);
+      return ip;
+    }
+  } catch (error) {
+    // 忽略错误，继续尝试其他方法
+  }
+
+  // 如果都获取不到，记录调试信息而不是警告
+  logger.debug("无法获取客户端 IP，使用 unknown");
   return "unknown";
 }
 

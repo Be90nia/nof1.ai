@@ -79,7 +79,7 @@ let isRunning = false;
 /**
  * 检查当前策略是否为蔡森策略
  */
-function isCaiSenStrategy(): boolean {
+export function isCaiSenStrategy(): boolean {
   const strategy = getTradingStrategy();
   return strategy === "cai-sen";
 }
@@ -96,7 +96,7 @@ function isCodeLevelProtectionEnabled(): boolean {
 /**
  * 获取蔡森策略参数配置
  */
-function getCaiSenParams() {
+export function getCaiSenParams() {
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
   
@@ -342,7 +342,7 @@ async function recordCaiSenMonitorData(symbol: string, data: any): Promise<void>
 /**
  * 获取K线数据
  */
-async function getKlineData(symbol: string, interval: string, limit: number = 100): Promise<any[]> {
+export async function getKlineData(symbol: string, interval: string, limit: number = 100): Promise<any[]> {
   const exchangeClient = createExchangeClient();
   
   try {
@@ -367,9 +367,9 @@ async function getKlineData(symbol: string, interval: string, limit: number = 10
 }
 
 /**
- * 获取当前持仓信息
+ * 获取当前持仓
  */
-async function getCurrentPositions(): Promise<any[]> {
+export async function getCurrentPositions(): Promise<any[]> {
   const exchangeClient = createExchangeClient();
   
   try {
@@ -384,7 +384,7 @@ async function getCurrentPositions(): Promise<any[]> {
 /**
  * 获取当前价格
  */
-async function getCurrentPrice(symbol: string): Promise<number> {
+export async function getCurrentPrice(symbol: string): Promise<number> {
   const exchangeClient = createExchangeClient();
   
   try {
