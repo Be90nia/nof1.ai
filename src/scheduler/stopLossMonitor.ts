@@ -47,6 +47,8 @@ import { createExchangeClient } from "../services/exchangeClient";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
+import { AIStopLossJudger } from "../agents/aiStopLossJudgment";
+import { iterationCount } from "./tradingLoop";
 
 const logger = createLogger({
   name: "stop-loss-monitor",
@@ -118,6 +120,7 @@ const positionMonitorHistory = new Map<
 
 let monitorInterval: NodeJS.Timeout | null = null;
 let isRunning = false;
+let aiStopLossJudger: AIStopLossJudger | null = null;
 
 /**
  * 检查当前策略是否启用代码级止损
@@ -487,7 +490,7 @@ async function executeStopLossClose(
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [
         getChinaTimeISO(),
-        0, // 由止损触发，非AI周期
+        iterationCount, // 使用当前AI策略回合数
         JSON.stringify({
           trigger: "stop_loss",
           symbol,
@@ -606,21 +609,68 @@ async function checkStopLoss() {
         logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
         logger.error(`  止损线: ${thresholdInfo.threshold.toFixed(2)}%`);
 
-        // 执行止损平仓
-        const success = await executeStopLossClose(
-          symbol,
-          side,
-          quantity,
-          entryPrice,
-          currentPrice,
-          leverage,
-          pnlPercent,
-          thresholdInfo.threshold,
-          `${thresholdInfo.level} - ${thresholdInfo.description}`
-        );
+        // 使用AI判断是否为偶发性波动
+        let shouldStopLoss = true;
+        let aiJudgment = "未启用AI判断";
 
-        if (success) {
-          logger.info(`${symbol} 止损平仓成功`);
+        try {
+          // 初始化AI判断器（如果尚未初始化）
+          if (!aiStopLossJudger) {
+            aiStopLossJudger = new AIStopLossJudger();
+            await aiStopLossJudger.initialize();
+          }
+
+          // 使用AI判断当前市场情况
+          const judgment = await aiStopLossJudger.judgeStopLoss(
+            pos.id || `${symbol}_${Date.now()}`,
+            symbol,
+            pnlPercent,
+            leverage
+          );
+
+          // 根据AI判断结果决定是否执行止损
+          if (
+            judgment.recommendedAction === "hold_position" &&
+            judgment.confidence >= 0.7
+          ) {
+            shouldStopLoss = false;
+            aiJudgment = `AI建议继续持仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+          } else if (judgment.recommendedAction === "reduce_position") {
+            // 减少仓位的情况，暂时执行止损，但记录AI建议
+            aiJudgment = `AI建议减少仓位(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+          } else {
+            aiJudgment = `AI建议平仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+          }
+
+          logger.info(`AI判断结果: ${aiJudgment}`);
+        } catch (error: any) {
+          logger.warn(`AI判断失败，使用传统止损: ${error.message}`);
+          // AI判断失败时，默认执行止损
+          shouldStopLoss = true;
+        }
+
+        // 根据AI判断结果决定是否执行止损
+        if (shouldStopLoss) {
+          // 执行止损平仓
+          const success = await executeStopLossClose(
+            symbol,
+            side,
+            quantity,
+            entryPrice,
+            currentPrice,
+            leverage,
+            pnlPercent,
+            thresholdInfo.threshold,
+            `${thresholdInfo.level} - ${thresholdInfo.description} (AI确认: ${aiJudgment})`
+          );
+
+          if (success) {
+            logger.info(`${symbol} 止损平仓成功 (AI确认: ${aiJudgment})`);
+          }
+        } else {
+          logger.info(
+            `${symbol} AI判断为偶发性波动，暂不执行止损: ${aiJudgment}`
+          );
         }
       } else {
         // 每10次检查输出一次调试日志
@@ -682,6 +732,7 @@ export function startStopLossMonitor() {
   logger.info(`启动止损监控（自动止损系统 - ${params.name}策略）`);
   logger.info(`  当前策略: ${strategy} (${params.name})`);
   logger.info("  检查间隔: 10秒");
+  logger.info("  AI判断: 已启用，用于区分偶发性波动和行情异常");
   logger.info(`  低风险: ${config.lowRisk.description}`);
   logger.info(`  中风险: ${config.mediumRisk.description}`);
   logger.info(`  高风险: ${config.highRisk.description}`);
@@ -709,6 +760,11 @@ export function stopStopLossMonitor() {
   if (monitorInterval) {
     clearInterval(monitorInterval);
     monitorInterval = null;
+  }
+
+  // 清理AI判断器
+  if (aiStopLossJudger) {
+    aiStopLossJudger = null;
   }
 
   positionMonitorHistory.clear();

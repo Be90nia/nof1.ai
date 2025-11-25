@@ -37,6 +37,9 @@ export class OkxClient {
   private readonly isTestnet: boolean;
   private readonly useWebSocket: boolean;
   private positionModeSet: boolean = false;
+  private serverTimeOffset: number = 0; // 服务器时间偏移量（毫秒）
+  private lastServerTimeSync: number = 0; // 上次同步服务器时间的时间戳
+  private readonly SERVER_TIME_SYNC_INTERVAL = 5 * 60 * 1000; // 5分钟同步一次服务器时间
 
   constructor(apiKey: string, apiSecret: string, passphrase: string) {
     this.apiKey = apiKey;
@@ -66,7 +69,23 @@ export class OkxClient {
       logger.info("使用 REST API 获取行情数据");
     }
 
+    // 初始化时同步服务器时间
+    this.initServerTimeSync();
+
     logger.info("OKX API 客户端初始化完成");
+  }
+
+  /**
+   * 初始化服务器时间同步
+   * Initialize server time synchronization
+   */
+  private async initServerTimeSync(): Promise<void> {
+    try {
+      await this.getServerTime();
+      logger.info("OKX 服务器时间同步初始化完成");
+    } catch (error) {
+      logger.warn("初始化OKX服务器时间同步失败，将使用本地时间:", error);
+    }
   }
 
   /**
@@ -81,6 +100,58 @@ export class OkxClient {
       logger.error("WebSocket 连接初始化失败:", error);
       // 不抛出错误，允许降级到 REST API
     }
+  }
+
+  /**
+   * 获取OKX服务器时间
+   * Get OKX server time
+   * @returns {Promise<string>} ISO格式的时间戳 ISO format timestamp
+   */
+  private async getServerTime(): Promise<string> {
+    try {
+      const url = `${this.baseUrl}/api/v5/public/time`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.code !== "0") {
+        throw new Error(`获取服务器时间失败: ${data.msg}`);
+      }
+
+      // OKX返回的时间戳是毫秒级
+      const serverTimestamp = parseInt(data.data[0].ts);
+      const localTimestamp = Date.now();
+
+      // 计算服务器时间与本地时间的偏移量
+      this.serverTimeOffset = serverTimestamp - localTimestamp;
+      this.lastServerTimeSync = localTimestamp;
+
+      logger.debug(`服务器时间同步完成，偏移量: ${this.serverTimeOffset}ms`);
+
+      // 返回服务器时间的ISO格式
+      return new Date(serverTimestamp).toISOString();
+    } catch (error) {
+      logger.error("获取OKX服务器时间失败:", error);
+      // 如果获取服务器时间失败，使用本地时间
+      return new Date().toISOString();
+    }
+  }
+
+  /**
+   * 获取同步后的时间戳
+   * Get synchronized timestamp
+   * @returns {string} ISO格式的时间戳 ISO format timestamp
+   */
+  private async getTimestamp(): Promise<string> {
+    const now = Date.now();
+
+    // 如果距离上次同步超过设定间隔，重新同步服务器时间
+    if (now - this.lastServerTimeSync > this.SERVER_TIME_SYNC_INTERVAL) {
+      await this.getServerTime();
+    }
+
+    // 使用本地时间加上偏移量来模拟服务器时间
+    const syncedTime = new Date(now + this.serverTimeOffset);
+    return syncedTime.toISOString();
   }
 
   /**
@@ -107,7 +178,8 @@ export class OkxClient {
     params?: Record<string, any>,
     body?: Record<string, any>
   ): Promise<any> {
-    const timestamp = new Date().toISOString();
+    // 使用同步后的时间戳
+    const timestamp = await this.getTimestamp();
 
     // 构建查询字符串
     let queryString = "";
@@ -166,6 +238,47 @@ export class OkxClient {
 
       // OKX API 返回格式: {code, msg, data}
       if (data.code !== "0") {
+        // 如果是时间戳过期错误，尝试重新同步时间并重试一次
+        if (data.code === "50102" && this.lastServerTimeSync > 0) {
+          logger.warn("检测到时间戳过期错误，重新同步服务器时间并重试");
+          // 强制重新同步服务器时间
+          this.lastServerTimeSync = 0;
+          const newTimestamp = await this.getTimestamp();
+
+          // 重新生成签名
+          const newSign = this.sign(newTimestamp, method, requestPath, bodyStr);
+          headers["OK-ACCESS-TIMESTAMP"] = newTimestamp;
+          headers["OK-ACCESS-SIGN"] = newSign;
+
+          // 重试请求
+          const retryResponse = await fetch(url, {
+            method,
+            headers,
+            body: bodyStr || undefined,
+          });
+
+          const retryData = await retryResponse.json();
+          if (retryData.code === "0") {
+            return retryData.data;
+          } else {
+            // 重试也失败，抛出错误
+            let detailedError = retryData.msg;
+            if (
+              retryData.data &&
+              Array.isArray(retryData.data) &&
+              retryData.data.length > 0
+            ) {
+              const firstError = retryData.data[0];
+              if (firstError.sMsg) {
+                detailedError = `${retryData.msg} - ${firstError.sMsg} (sCode: ${firstError.sCode})`;
+              }
+            }
+            throw new Error(
+              `OKX API Error: ${detailedError} (code: ${retryData.code})`
+            );
+          }
+        }
+
         // 如果有详细的错误数据，提取出来
         let detailedError = data.msg;
         if (data.data && Array.isArray(data.data) && data.data.length > 0) {
@@ -1126,8 +1239,10 @@ export class OkxClient {
     try {
       // 获取当前持仓
       const positions = await this.getPositions();
-      const targetPosition = positions.find(p => p.contract === params.contract);
-      
+      const targetPosition = positions.find(
+        (p) => p.contract === params.contract
+      );
+
       if (!targetPosition || parseFloat(targetPosition.size) === 0) {
         logger.warn(`合约 ${params.contract} 无持仓，无需平仓`);
         return null;
@@ -1135,8 +1250,10 @@ export class OkxClient {
 
       // 确定平仓数量
       const positionSize = Math.abs(parseFloat(targetPosition.size));
-      const closeSize = params.size ? Math.min(params.size, positionSize) : positionSize;
-      
+      const closeSize = params.size
+        ? Math.min(params.size, positionSize)
+        : positionSize;
+
       // 确定平仓方向（与持仓方向相反）
       const isLong = parseFloat(targetPosition.size) > 0;
       const orderSize = isLong ? -closeSize : closeSize;
@@ -1147,7 +1264,7 @@ export class OkxClient {
         size: orderSize,
         price: params.price || 0, // 不指定价格则使用市价
         reduceOnly: true, // 确保只减仓
-        tif: params.price ? "gtc" : "ioc" // 市价单使用IOC
+        tif: params.price ? "gtc" : "ioc", // 市价单使用IOC
       });
 
       logger.info(`平仓订单已提交: ${params.contract}, 数量: ${orderSize}`);

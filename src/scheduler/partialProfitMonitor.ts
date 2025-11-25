@@ -45,6 +45,7 @@ import { createExchangeClient } from "../services/exchangeClient";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
+import { iterationCount } from "./tradingLoop";
 
 const logger = createLogger({
   name: "partial-profit-monitor",
@@ -295,7 +296,7 @@ async function executePartialClose(
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [
         getChinaTimeISO(),
-        0, // 由分批止盈触发，非AI周期
+        iterationCount, // 使用当前AI策略回合数
         JSON.stringify({ trigger: "partial_profit", symbol, pnlPercent, closePercent, totalClosedPercent }),
         decisionText,
         JSON.stringify([{ action: "partial_close", symbol, percentage: closePercent, reason: "partial_profit" }]),

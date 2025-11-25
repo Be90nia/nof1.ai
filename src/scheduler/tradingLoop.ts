@@ -1068,6 +1068,99 @@ async function checkAccountThresholds(accountInfo: any): Promise<boolean> {
 }
 
 /**
+ * 检查蔡森策略的激活条件
+ * 只有当满足特定市场条件时才激活蔡森策略
+ *
+ * @param marketData 市场数据
+ * @param accountInfo 账户信息
+ * @param positions 当前持仓
+ * @returns 是否激活蔡森策略
+ */
+function checkCaiSenActivationConditions(
+  marketData: any,
+  accountInfo: any,
+  positions: any[]
+): boolean {
+  // 1. 检查账户余额是否满足最低要求
+  const minBalance = 100; // 最低100 USDT
+  if (accountInfo.totalBalance < minBalance) {
+    logger.info(
+      `【蔡森策略】账户余额不足: ${accountInfo.totalBalance.toFixed(
+        2
+      )} USDT < ${minBalance} USDT`
+    );
+    return false;
+  }
+
+  // 2. 检查是否有足够的交易币种数据
+  const validSymbols = SYMBOLS.filter((symbol) => {
+    const data = marketData[symbol];
+    return data && data.price > 0 && data.rsi14 >= 0 && data.rsi14 <= 100;
+  });
+
+  if (validSymbols.length < 2) {
+    logger.info(`【蔡森策略】有效交易币种不足: ${validSymbols.length} < 2`);
+    return false;
+  }
+
+  // 3. 检查市场波动性 - 至少有一个币种波动超过阈值
+  const volatilityThreshold = 2; // 2% 波动率阈值
+  let hasVolatility = false;
+
+  for (const symbol of validSymbols) {
+    const data = marketData[symbol];
+    if (Math.abs(data.change24h) >= volatilityThreshold) {
+      hasVolatility = true;
+      break;
+    }
+  }
+
+  if (!hasVolatility) {
+    logger.info(`【蔡森策略】市场波动不足，未达到${volatilityThreshold}%阈值`);
+    return false;
+  }
+
+  // 4. 检查持仓数量限制
+  const maxPositions = 5; // 最多5个持仓
+  if (positions.length >= maxPositions) {
+    logger.info(
+      `【蔡森策略】持仓数量已达上限: ${positions.length} >= ${maxPositions}`
+    );
+    return false;
+  }
+
+  // 5. 检查是否有币种处于超买或超卖状态
+  let hasExtremeCondition = false;
+  for (const symbol of validSymbols) {
+    const data = marketData[symbol];
+    // RSI < 30 为超卖，RSI > 70 为超买
+    if (data.rsi14 < 30 || data.rsi14 > 70) {
+      hasExtremeCondition = true;
+      break;
+    }
+  }
+
+  if (!hasExtremeCondition) {
+    logger.info(`【蔡森策略】市场未出现超买超卖条件，RSI均在30-70范围内`);
+    return false;
+  }
+
+  // 所有条件满足，激活蔡森策略
+  logger.info(`【蔡森策略】激活条件全部满足:`);
+  logger.info(
+    `  - 账户余额: ${accountInfo.totalBalance.toFixed(
+      2
+    )} USDT >= ${minBalance} USDT`
+  );
+  logger.info(`  - 有效币种: ${validSymbols.length} >= 2`);
+  logger.info(`  - 市场波动: 超过${volatilityThreshold}%`);
+  logger.info(`  - 持仓数量: ${positions.length} < ${maxPositions}`);
+  logger.info(`  - 极端条件: 存在RSI超买(>70)或超卖(<30)状态`);
+
+  return true;
+}
+
+/**
  * 执行交易决策
  * 优化：增强错误处理和数据验证，确保数据实时准确
  */
@@ -1565,7 +1658,27 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
 
-    // 9. 生成提示词并调用 Agent
+    // 9. 检查是否激活蔡森策略
+    const currentStrategy = getTradingStrategy();
+    let shouldUseCaiSenStrategy = false;
+
+    if (currentStrategy === "cai-sen") {
+      // 检查蔡森策略的激活条件
+      shouldUseCaiSenStrategy = checkCaiSenActivationConditions(
+        marketData,
+        accountInfo,
+        positions
+      );
+
+      if (shouldUseCaiSenStrategy) {
+        logger.info("【蔡森策略】激活条件满足，启用蔡森策略进行交易决策");
+      } else {
+        logger.info("【蔡森策略】激活条件未满足，跳过本次交易决策");
+        return; // 如果条件不满足，跳过本次循环
+      }
+    }
+
+    // 10. 生成提示词并调用 Agent
     const prompt = generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
@@ -1838,3 +1951,15 @@ export function setTradingStartTime(time: Date) {
 export function setIterationCount(count: number) {
   iterationCount = count;
 }
+
+/**
+ * 获取当前迭代计数
+ */
+export function getIterationCount() {
+  return iterationCount;
+}
+
+/**
+ * 导出迭代计数变量，供其他模块使用
+ */
+export { iterationCount };
