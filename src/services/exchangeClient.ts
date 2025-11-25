@@ -134,6 +134,15 @@ export interface IExchangeClient {
    * 获取已完成的订单历史
    */
   getOrderHistory(contract?: string, limit?: number): Promise<any[]>;
+
+  /**
+   * 平仓 - 直接平掉指定合约的持仓
+   */
+  closePosition(params: {
+    contract: string;
+    size?: number; // 可选，不指定则平掉全部持仓
+    price?: number; // 可选，不指定则使用市价
+  }): Promise<any>;
 }
 
 /**

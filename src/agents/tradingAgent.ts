@@ -1604,16 +1604,25 @@ export async function createTradingAgent(
   // 获取当前策略
   const strategy = getTradingStrategy();
   logger.info(`使用交易策略: ${strategy}`);
-  
+
   // 创建通用依赖项
   const commonDependencies = await createCommonDependencies();
-  
+
   // 根据策略类型创建对应的Agent
   if (strategy === "cai-sen") {
-    return await createCaiSenStrategyAgent(intervalMinutes, marketDataContext, commonDependencies);
+    return await createCaiSenStrategyAgent(
+      intervalMinutes,
+      marketDataContext,
+      commonDependencies
+    );
   }
-  
-  return await createStandardStrategyAgent(strategy, intervalMinutes, marketDataContext, commonDependencies);
+
+  return await createStandardStrategyAgent(
+    strategy,
+    intervalMinutes,
+    marketDataContext,
+    commonDependencies
+  );
 }
 
 /**
@@ -1665,7 +1674,168 @@ async function createCaiSenStrategyAgent(
 ) {
   logger.info("创建蔡森策略独立Agent...");
   const { createCaiSenAgent } = await import("./caisenAgent");
-  
+
+  // 导入蔡森策略相关组件
+  const { CaiSenStandardizedInterface } = await import(
+    "../scheduler/caiSenStandardizedInterface"
+  );
+  const { CaiSenBatchClosingSystem } = await import(
+    "../scheduler/caiSenBatchClosingSystem"
+  );
+  const { CaiSenDynamicThresholdSetting } = await import(
+    "../scheduler/caiSenDynamicThresholdSetting"
+  );
+  const { createCaiSenTradingTools } = await import("./caisenTradingTools");
+
+  // 创建蔡森策略系统组件
+  const mockExchangeClient = {
+    getPosition: () => Promise.resolve({}),
+    closePosition: () => Promise.resolve({}),
+    getMarketData: () => Promise.resolve({}),
+    getKlines: () => Promise.resolve({}),
+  };
+
+  const mockStrategyConfig = {
+    name: "蔡森策略",
+    description: "多时间框架分析+七分位策略引擎+动态点位交易系统",
+    leverageMin: 15,
+    leverageMax: 22,
+    leverageRecommend: {
+      normal: "15倍",
+      good: "19倍",
+      strong: "22倍",
+    },
+    positionSizeMin: 20,
+    positionSizeMax: 27,
+    positionSizeRecommend: {
+      normal: "20-23%",
+      good: "23-25%",
+      strong: "25-27%",
+    },
+    stopLoss: {
+      low: -15,
+      mid: -10,
+      high: -8,
+    },
+    trailingStop: {
+      level1: { trigger: 20, stopAt: 12 },
+      level2: { trigger: 40, stopAt: 25 },
+      level3: { trigger: 60, stopAt: 40 },
+    },
+    partialTakeProfit: {
+      stage1: { trigger: 15, closePercent: 30 },
+      stage2: { trigger: 30, closePercent: 50 },
+      stage3: { trigger: 50, closePercent: 100 },
+    },
+    peakDrawdownProtection: 30,
+    volatilityAdjustment: {
+      highVolatility: { leverageFactor: 0.7, positionFactor: 0.8 },
+      normalVolatility: { leverageFactor: 1.0, positionFactor: 1.0 },
+      lowVolatility: { leverageFactor: 1.2, positionFactor: 1.1 },
+    },
+    entryCondition: "Default entry condition",
+    riskTolerance: "Medium",
+    tradingStyle: "Swing",
+    enableCodeLevelProtection: true,
+    allowAiOverrideProtection: false,
+    caiSen: {
+      timeframeAnalysis: {
+        dailyWeight: 0.4,
+        hourlyWeight: 0.35,
+        fiveMinWeight: 0.25,
+        trendConfirmationThreshold: 0.7,
+      },
+      sevenSegmentStrategy: {
+        crashDetectionThreshold: 0.15,
+        calculationPeriod: 24,
+        recoveryConfidence: {
+          zone1_7: 0.8,
+          zone1_2: 0.85,
+          zone6_7: 0.9,
+        },
+      },
+      dynamicPointTrading: {
+        fibonacciLevels: [0.236, 0.382, 0.5, 0.618, 0.786],
+        volatilityAdjustment: 0.2,
+        volumeProfileWeight: 0.3,
+      },
+      aiOrderExecution: {
+        signalWeights: {
+          trend: 0.4,
+          breakout: 0.3,
+          rsi: 0.3,
+        },
+        confidenceThresholds: {
+          high: 0.8,
+          medium: 0.5,
+        },
+        slippageAdjustment: 0.001,
+      },
+      riskManagement: {
+        atrPeriod: 14,
+        stopLossCoefficient: 2.0,
+        volatilityFactor: 1.5,
+        batchTakeProfitRatios: [1.0, 2.0, 3.0],
+      },
+    },
+  };
+
+  // 初始化蔡森策略系统组件
+  const batchClosingSystem = new CaiSenBatchClosingSystem(
+    mockExchangeClient as any,
+    mockStrategyConfig
+  );
+
+  // 创建蔡森AI参数控制机制
+  const { CaiSenAiParameterControl } = await import(
+    "../scheduler/caiSenAiParameterControl"
+  );
+  const aiParameterControl = new CaiSenAiParameterControl(
+    {
+      enableParameterValidation: true,
+      enableVersionControl: true,
+      maxParameterHistory: 100,
+      expirationCheckInterval: 60000,
+      enableAutoCleanup: true,
+      compatibilityCheck: {
+        enabled: true,
+        minCompatibleVersion: 1,
+      },
+    },
+    mockExchangeClient as any,
+    mockStrategyConfig,
+    batchClosingSystem
+  );
+
+  const dynamicThresholdSetting = new CaiSenDynamicThresholdSetting(
+    {
+      maxThresholdCount: 100,
+      enableThresholdValidation: true,
+      enableThresholdCaching: true,
+      enableAutoCalculation: true,
+      enableAutoUpdate: true, // 添加缺失的属性
+      enableThresholdExpiration: true,
+      defaultThresholdExpiration: 24 * 60 * 60 * 1000, // 24 hours
+      calculationInterval: 5000,
+      updateInterval: 10000,
+      cacheExpiration: 60000,
+    },
+    batchClosingSystem,
+    aiParameterControl
+  );
+
+  const caiSenInterface = new CaiSenStandardizedInterface(
+    {} as any, // gapPeriodTakeover
+    batchClosingSystem,
+    aiParameterControl, // aiParameterControl
+    {} as any, // openingMonitoringAssociation
+    {} as any, // batchClosingInstructionRecognizer
+    dynamicThresholdSetting
+  );
+
+  // 创建蔡森交易工具集
+  const caiSenTradingTools = createCaiSenTradingTools(caiSenInterface, true);
+
   // 创建蔡森Agent配置
   const caiSenConfig = {
     intervalMinutes,
@@ -1674,12 +1844,13 @@ async function createCaiSenStrategyAgent(
     tools: dependencies.tradingToolsSet, // 复用标准工具集
     openai: dependencies.openai, // 复用OpenAI客户端
     memory: dependencies.memory, // 复用内存管理器
+    caiSenTradingTools, // 添加蔡森交易工具集
   };
-  
+
   // 创建蔡森Agent
   const caiSenAgent = await createCaiSenAgent(caiSenConfig);
   logger.info("蔡森策略独立Agent创建完成");
-  
+
   return caiSenAgent;
 }
 
@@ -1694,8 +1865,11 @@ async function createStandardStrategyAgent(
   dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] }
 ) {
   // 创建子Agent
-  const subAgents = await createSubAgentsForStrategy(strategy, marketDataContext);
-  
+  const subAgents = await createSubAgentsForStrategy(
+    strategy,
+    marketDataContext
+  );
+
   // 创建标准交易Agent
   return new Agent({
     name: "trading-agent",
@@ -1714,7 +1888,10 @@ async function createStandardStrategyAgent(
  * 根据策略类型创建对应的子Agent
  * Create sub-agents based on strategy type
  */
-async function createSubAgentsForStrategy(strategy: string, marketDataContext?: any): Promise<Agent[] | undefined> {
+async function createSubAgentsForStrategy(
+  strategy: string,
+  marketDataContext?: any
+): Promise<Agent[] | undefined> {
   // 如果是多Agent共识策略，创建子Agent
   if (strategy === "multi-agent-consensus") {
     logger.info("创建陪审团策略的子Agent（陪审团成员）...");

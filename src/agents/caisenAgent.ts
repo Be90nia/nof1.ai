@@ -1,27 +1,36 @@
 /**
  * 蔡森策略独立Agent实现
  * Cai Sen Strategy Independent Agent Implementation
- * 
+ *
  * 该文件实现了一个独立的蔡森策略Agent，包含完整的多时间框架分析、七分位策略引擎、
  * 动态点位交易系统和AI动态订单执行器功能。该Agent可以独立运行，也可以集成到
  * 主交易系统中，通过策略切换机制与其他Agent协同工作。
- * 
+ *
  * This file implements an independent Cai Sen strategy agent with complete multi-timeframe analysis,
  * seven-segment strategy engine, dynamic point trading system, and AI dynamic order execution.
  * The agent can run independently or be integrated into the main trading system, working
  * with other agents through strategy switching mechanisms.
  */
 
-import { Agent, Memory } from "@voltagent/core";
+import { Agent, Memory, createTool } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
 import { createLogger } from "../utils/loggerUtils";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as tradingTools from "../tools/trading";
 import { getCaiSenStrategy } from "../strategies/caiSen";
-import { getKlineData, getCurrentPositions, getCurrentPrice } from "../scheduler/caiSenMonitor";
+import {
+  getKlineData,
+  getCurrentPositions,
+  getCurrentPrice,
+} from "../scheduler/caiSenMonitor";
 import { RISK_PARAMS } from "../config/riskParams";
 import { isCaiSenStrategy } from "../scheduler/caiSenMonitor";
 import { getCaiSenParams } from "../scheduler/caiSenMonitor";
+import {
+  createCaiSenTradingTools,
+  CaiSenTradingTools,
+} from "./caisenTradingTools";
+import { z } from "zod";
 
 // 创建日志记录器
 const logger = createLogger({ name: "caisen-agent", level: "info" });
@@ -51,12 +60,8 @@ function getAccountRiskConfig(): AccountRiskConfig {
     extremeStopLossPercent: Number.parseFloat(
       process.env.EXTREME_STOP_LOSS_PERCENT || "10"
     ),
-    maxHoldingHours: Number.parseFloat(
-      process.env.MAX_HOLDING_HOURS || "24"
-    ),
-    maxPositions: Number.parseFloat(
-      process.env.MAX_POSITIONS || "5"
-    ),
+    maxHoldingHours: Number.parseFloat(process.env.MAX_HOLDING_HOURS || "24"),
+    maxPositions: Number.parseFloat(process.env.MAX_POSITIONS || "5"),
   };
 }
 
@@ -75,6 +80,8 @@ export interface CaiSenAgentConfig {
   tools?: any[];
   openai?: any;
   memory?: Memory;
+  /** 蔡森交易工具集 CaiSen trading tools */
+  caiSenTradingTools?: CaiSenTradingTools;
 }
 
 /**
@@ -110,7 +117,7 @@ export interface CaiSenAgentState {
 /**
  * 生成蔡森策略专属提示词
  * Generate specialized prompt for Cai Sen strategy
- * 
+ *
  * @param config Agent配置 Agent configuration
  * @returns 蔡森策略提示词 Cai Sen strategy prompt
  */
@@ -119,14 +126,14 @@ function generateCaiSenPrompt(config: CaiSenAgentConfig): string {
   const strategy = getCaiSenStrategy(85); // 默认使用最大杠杆85
   const riskConfig = getAccountRiskConfig();
   const caiSenParams = getCaiSenParams();
-  
+
   // 计算杠杆推荐值
   const levMin = strategy.leverageMin;
   const levMax = strategy.leverageMax;
   const levNormal = levMin;
   const levGood = Math.ceil((levMin + levMax) / 2);
   const levStrong = levMax;
-  
+
   return `
 【蔡森策略 - 多时间框架分析+七分位策略引擎】
 
@@ -260,6 +267,14 @@ function generateCaiSenPrompt(config: CaiSenAgentConfig): string {
 - 持仓管理：openPosition（市价单）、closePosition（市价单）、cancelOrder
 - 账户信息：getAccountBalance、getPositions、getOpenOrders
 - 风险分析：calculateRisk、checkOrderStatus
+- 蔡森策略专用：setBatchClosing、cancelBatchClosing、setStopProfitLoss、getBatchClosingStatus、getStopProfitLossStatus
+
+蔡森策略专用工具说明：
+- setBatchClosing：设置分批平仓策略，支持自定义批次数量、比例和触发条件
+- cancelBatchClosing：取消已设置的分批平仓策略
+- setStopProfitLoss：设置止盈止损策略，支持固定值、百分比、ATR等多种计算方式
+- getBatchClosingStatus：查询指定持仓的分批平仓状态
+- getStopProfitLossStatus：查询指定持仓的止盈止损状态
 
 世界顶级交易员行动准则：
 
@@ -324,10 +339,10 @@ function generateCaiSenPrompt(config: CaiSenAgentConfig): string {
 /**
  * 创建蔡森策略独立Agent
  * Create an independent Cai Sen strategy agent
- * 
+ *
  * @param config Agent配置 Agent configuration
  * @returns 蔡森策略Agent实例 Cai Sen strategy agent instance
- * 
+ *
  * @example
  * ```typescript
  * // 创建蔡森策略Agent
@@ -335,40 +350,202 @@ function generateCaiSenPrompt(config: CaiSenAgentConfig): string {
  *   intervalMinutes: 5,
  *   enableDetailedLogging: true
  * });
- * 
+ *
  * // 执行交易分析
  * const result = await caiSenAgent.run();
  * ```
  */
-export async function createCaiSenAgent(config: CaiSenAgentConfig): Promise<Agent> {
+export async function createCaiSenAgent(
+  config: CaiSenAgentConfig
+): Promise<Agent> {
   // 使用传入的依赖项或创建新的
-  const openai = config.openai || createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+  const openai =
+    config.openai ||
+    createOpenAI({
+      apiKey: process.env.OPENAI_API_KEY || "",
+      baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+    });
 
-  const memory = config.memory || new Memory({
-    storage: new LibSQLMemoryAdapter({
-      url: "file:./.voltagent/caisen-memory.db",
-      logger: logger.child({ component: "libsql" }),
-    }),
-  });
+  const memory =
+    config.memory ||
+    new Memory({
+      storage: new LibSQLMemoryAdapter({
+        url: "file:./.voltagent/caisen-memory.db",
+        logger: logger.child({ component: "libsql" }),
+      }),
+    });
 
-  // 使用传入的工具集或默认工具集
-  const tools = config.tools || [
-    tradingTools.getMarketPriceTool,
-    tradingTools.getTechnicalIndicatorsTool,
-    tradingTools.getFundingRateTool,
-    tradingTools.getOrderBookTool,
-    tradingTools.openPositionTool,
-    tradingTools.closePositionTool,
-    tradingTools.cancelOrderTool,
-    tradingTools.getAccountBalanceTool,
-    tradingTools.getPositionsTool,
-    tradingTools.getOpenOrdersTool,
-    tradingTools.checkOrderStatusTool,
-    tradingTools.calculateRiskTool,
-    tradingTools.syncPositionsTool,
+  // 创建或使用传入的蔡森交易工具集
+  let caiSenTradingTools = config.caiSenTradingTools;
+  if (!caiSenTradingTools) {
+    // 如果没有提供交易工具集，需要创建一个默认的
+    // 这里需要导入 CaiSenStandardizedInterface，但由于循环依赖问题，我们使用空对象
+    // 实际使用时，应该在外部创建并传入
+    logger.warn("未提供蔡森交易工具集，某些功能可能不可用");
+  }
+
+  // 创建蔡森策略专用工具
+  const caiSenSpecificTools = caiSenTradingTools
+    ? [
+        createTool({
+          name: "setBatchClosing",
+          description: "设置分批平仓策略，支持自定义批次数量、比例和触发条件",
+          parameters: z.object({
+            positionId: z.string().describe("持仓ID"),
+            batchCount: z
+              .number()
+              .min(1)
+              .max(10)
+              .describe("分批平仓的批次数量"),
+            batchPercentages: z
+              .array(z.number())
+              .describe("每批次平仓的百分比"),
+            triggerConditions: z
+              .array(
+                z.object({
+                  type: z
+                    .enum(["profit", "loss", "time", "price", "custom"])
+                    .describe("触发条件类型"),
+                  value: z.number().describe("触发条件值"),
+                  parameters: z.record(z.any()).optional().describe("触发参数"),
+                })
+              )
+              .describe("触发条件列表"),
+            executionStrategy: z
+              .enum(["immediate", "gradual", "adaptive"])
+              .describe("执行策略"),
+            delayTime: z.number().optional().describe("延迟时间"),
+            expirationTime: z.number().optional().describe("过期时间戳"),
+            metadata: z.record(z.any()).optional().describe("元数据"),
+          }),
+          execute: async (args) => caiSenTradingTools.setBatchClosing(args),
+        }),
+        createTool({
+          name: "cancelBatchClosing",
+          description: "取消已设置的分批平仓策略",
+          parameters: z.object({
+            batchId: z.string().describe("分批ID"),
+          }),
+          execute: async (args) =>
+            caiSenTradingTools.cancelBatchClosing(args.batchId),
+        }),
+        createTool({
+          name: "setStopProfitLoss",
+          description:
+            "设置止盈止损策略，支持固定值、百分比、ATR等多种计算方式",
+          parameters: z.object({
+            positionId: z.string().describe("持仓ID"),
+            stopLoss: z
+              .object({
+                enabled: z.boolean().describe("是否启用止损"),
+                type: z
+                  .enum([
+                    "fixed",
+                    "percentage",
+                    "atr",
+                    "bollinger",
+                    "fibonacci",
+                    "pivot",
+                    "custom",
+                  ])
+                  .describe("止损类型"),
+                value: z.number().describe("止损值"),
+                parameters: z.record(z.any()).optional().describe("止损参数"),
+                trailing: z.boolean().optional().describe("是否为移动止损"),
+                trailingParameters: z
+                  .object({
+                    step: z.number().describe("移动步长"),
+                    direction: z.enum(["up", "down"]).describe("移动方向"),
+                  })
+                  .optional()
+                  .describe("移动止损参数"),
+              })
+              .optional()
+              .describe("止损配置"),
+            takeProfit: z
+              .object({
+                enabled: z.boolean().describe("是否启用止盈"),
+                type: z
+                  .enum([
+                    "fixed",
+                    "percentage",
+                    "atr",
+                    "bollinger",
+                    "fibonacci",
+                    "pivot",
+                    "custom",
+                  ])
+                  .describe("止盈类型"),
+                value: z.number().describe("止盈值"),
+                parameters: z.record(z.any()).optional().describe("止盈参数"),
+                partial: z.boolean().optional().describe("是否分批止盈"),
+                partialParameters: z
+                  .object({
+                    batchCount: z.number().describe("分批数量"),
+                    batchPercentages: z.array(z.number()).describe("分批比例"),
+                    triggerConditions: z
+                      .array(
+                        z.object({
+                          type: z
+                            .enum(["profit", "time", "price", "custom"])
+                            .describe("触发类型"),
+                          value: z.number().describe("触发值"),
+                          parameters: z
+                            .record(z.any())
+                            .optional()
+                            .describe("触发参数"),
+                        })
+                      )
+                      .describe("触发条件"),
+                  })
+                  .optional()
+                  .describe("分批止盈参数"),
+              })
+              .optional()
+              .describe("止盈配置"),
+            metadata: z.record(z.any()).optional().describe("元数据"),
+          }),
+          execute: async (args) => caiSenTradingTools.setStopProfitLoss(args),
+        }),
+        createTool({
+          name: "getBatchClosingStatus",
+          description: "查询指定持仓的分批平仓状态",
+          parameters: z.object({
+            positionId: z.string().describe("持仓ID"),
+          }),
+          execute: async (args) =>
+            caiSenTradingTools.getBatchClosingStatus(args.positionId),
+        }),
+        createTool({
+          name: "getStopProfitLossStatus",
+          description: "查询指定持仓的止盈止损状态",
+          parameters: z.object({
+            positionId: z.string().describe("持仓ID"),
+          }),
+          execute: async (args) =>
+            caiSenTradingTools.getStopProfitLossStatus(args.positionId),
+        }),
+      ]
+    : [];
+
+  // 使用传入的工具集或默认工具集，并添加蔡森策略专用工具
+  const tools = [
+    ...(config.tools || [
+      tradingTools.getMarketPriceTool,
+      tradingTools.getTechnicalIndicatorsTool,
+      tradingTools.getFundingRateTool,
+      tradingTools.getOrderBookTool,
+      tradingTools.openPositionTool,
+      tradingTools.closePositionTool,
+      tradingTools.cancelOrderTool,
+      tradingTools.getAccountBalanceTool,
+      tradingTools.getPositionsTool,
+      tradingTools.getOpenOrdersTool,
+      tradingTools.checkOrderStatusTool,
+      tradingTools.calculateRiskTool,
+      tradingTools.syncPositionsTool,
+    ]),
+    ...caiSenSpecificTools,
   ];
 
   // 记录Agent创建日志
@@ -378,6 +555,8 @@ export async function createCaiSenAgent(config: CaiSenAgentConfig): Promise<Agen
     hasCustomTools: !!config.tools,
     hasCustomMemory: !!config.memory,
     hasCustomOpenAI: !!config.openai,
+    hasCaiSenTradingTools: !!caiSenTradingTools,
+    caiSenSpecificToolsCount: caiSenSpecificTools.length,
   });
 
   // 创建蔡森策略Agent
@@ -398,7 +577,7 @@ export async function createCaiSenAgent(config: CaiSenAgentConfig): Promise<Agen
 /**
  * 蔡森策略Agent管理器类
  * Cai Sen strategy agent manager class
- * 
+ *
  * 该类负责管理蔡森策略Agent的生命周期，包括创建、启动、停止和状态监控。
  * This class manages the lifecycle of the Cai Sen strategy agent, including creation, startup, shutdown, and status monitoring.
  */
@@ -415,13 +594,13 @@ export class CaiSenAgentManager {
   /**
    * 初始化蔡森策略Agent
    * Initialize the Cai Sen strategy agent
-   * 
+   *
    * @param config Agent配置 Agent configuration
    */
   async initialize(config: CaiSenAgentConfig): Promise<void> {
     this.config = config;
     this.agent = await createCaiSenAgent(config);
-    
+
     logger.info("蔡森策略Agent初始化完成", {
       intervalMinutes: config.intervalMinutes,
     });
@@ -443,7 +622,7 @@ export class CaiSenAgentManager {
 
     this.isRunning = true;
     this.state.status = "analyzing";
-    
+
     logger.info("启动蔡森策略Agent", {
       intervalMinutes: this.config.intervalMinutes,
     });
@@ -452,17 +631,17 @@ export class CaiSenAgentManager {
     this.runInterval = setInterval(async () => {
       try {
         this.state.status = "analyzing";
-        
+
         // 生成提示词
         const prompt = generateCaiSenPrompt(this.config!);
-        
+
         // 执行Agent
         const result = await this.agent!.generateText(prompt);
-        
+
         // 更新状态
         this.state.status = "monitoring";
         this.state.lastAnalysisTime = new Date();
-        
+
         logger.debug("蔡森策略Agent执行完成", { result });
       } catch (error) {
         logger.error("蔡森策略Agent执行错误", { error });
@@ -494,7 +673,7 @@ export class CaiSenAgentManager {
 
     this.isRunning = false;
     this.state.status = "idle";
-    
+
     if (this.runInterval) {
       clearInterval(this.runInterval);
       this.runInterval = undefined;
@@ -506,7 +685,7 @@ export class CaiSenAgentManager {
   /**
    * 获取Agent状态
    * Get the agent status
-   * 
+   *
    * @returns Agent状态 Agent status
    */
   getState(): CaiSenAgentState {
@@ -516,7 +695,7 @@ export class CaiSenAgentManager {
   /**
    * 更新Agent状态
    * Update the agent state
-   * 
+   *
    * @param newState 新状态 New state
    */
   updateState(newState: Partial<CaiSenAgentState>): void {
@@ -526,7 +705,7 @@ export class CaiSenAgentManager {
   /**
    * 检查Agent是否在运行
    * Check if the agent is running
-   * 
+   *
    * @returns 是否在运行 Whether it's running
    */
   isActive(): boolean {

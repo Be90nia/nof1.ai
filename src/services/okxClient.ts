@@ -1113,6 +1113,50 @@ export class OkxClient {
       throw error;
     }
   }
+
+  /**
+   * 平仓 - 直接平掉指定合约的持仓
+   * @param params 平仓参数
+   */
+  async closePosition(params: {
+    contract: string;
+    size?: number; // 可选，不指定则平掉全部持仓
+    price?: number; // 可选，不指定则使用市价
+  }) {
+    try {
+      // 获取当前持仓
+      const positions = await this.getPositions();
+      const targetPosition = positions.find(p => p.contract === params.contract);
+      
+      if (!targetPosition || parseFloat(targetPosition.size) === 0) {
+        logger.warn(`合约 ${params.contract} 无持仓，无需平仓`);
+        return null;
+      }
+
+      // 确定平仓数量
+      const positionSize = Math.abs(parseFloat(targetPosition.size));
+      const closeSize = params.size ? Math.min(params.size, positionSize) : positionSize;
+      
+      // 确定平仓方向（与持仓方向相反）
+      const isLong = parseFloat(targetPosition.size) > 0;
+      const orderSize = isLong ? -closeSize : closeSize;
+
+      // 执行平仓订单
+      const result = await this.placeOrder({
+        contract: params.contract,
+        size: orderSize,
+        price: params.price || 0, // 不指定价格则使用市价
+        reduceOnly: true, // 确保只减仓
+        tif: params.price ? "gtc" : "ioc" // 市价单使用IOC
+      });
+
+      logger.info(`平仓订单已提交: ${params.contract}, 数量: ${orderSize}`);
+      return result;
+    } catch (error: any) {
+      logger.error(`平仓失败: ${params.contract}`, error);
+      throw error;
+    }
+  }
 }
 
 /**
