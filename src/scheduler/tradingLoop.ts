@@ -16,23 +16,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createClient } from "@libsql/client";
 /**
  * 交易循环 - 定时执行交易决策
  */
 import cron from "node-cron";
-import { createLogger } from "../utils/loggerUtils";
-import { createClient } from "@libsql/client";
 import {
   createTradingAgent,
   generateTradingPrompt,
   getAccountRiskConfig,
-  getTradingStrategy,
   getStrategyParams,
+  getTradingStrategy,
 } from "../agents/tradingAgent";
-import { createExchangeClient } from "../services/exchangeClient";
-import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
+import { createExchangeClient } from "../services/exchangeClient";
 import { getQuantoMultiplier } from "../utils/contractUtils";
+import { createLogger } from "../utils/loggerUtils";
+import { getChinaTimeISO } from "../utils/timeUtils";
 
 const logger = createLogger({
   name: "trading-loop",
@@ -53,10 +53,19 @@ let iterationCount = 0;
 // 账户风险配置
 let accountRiskConfig = getAccountRiskConfig();
 
+// 交易循环定时器
+let tradingLoopTimer: NodeJS.Timeout | null = null;
+
+// 持仓监控定时器
+let positionMonitorTimer: NodeJS.Timeout | null = null;
+
+// 监控状态
+let isMonitoringActive = false;
+
 /**
  * 确保数值是有效的有限数字，否则返回默认值
  */
-function ensureFinite(value: number, defaultValue: number = 0): number {
+function ensureFinite(value: number, defaultValue = 0): number {
   if (!Number.isFinite(value)) {
     return defaultValue;
   }
@@ -163,7 +172,11 @@ async function collectMarketData() {
       if (!dataQuality.macd) issues.push("MACD无效");
       if (!dataQuality.rsi14) issues.push("RSI14无效或超出范围");
       if (!dataQuality.volume) issues.push("成交量无效");
-      if (indicators.volume === 0) issues.push("当前成交量为0");
+      // 测试网环境下忽略零成交量警告
+      const isTestnet =
+        process.env.GATE_USE_TESTNET === "true" ||
+        process.env.OKX_USE_TESTNET === "true";
+      if (!isTestnet && indicators.volume === 0) issues.push("当前成交量为0");
 
       if (issues.length > 0) {
         logger.warn(
@@ -352,7 +365,7 @@ function calculateIndicators(candles: any[]) {
       if (Array.isArray(c)) {
         return Number.parseFloat(c[2]);
       }
-      return NaN;
+      return Number.NaN;
     })
     .filter((n) => Number.isFinite(n));
 
@@ -537,19 +550,19 @@ async function getAccountInfo() {
 }
 
 /**
- * 从 Gate.io 同步持仓到数据库
+ * 从交易所同步持仓到数据库
  * 优化：确保持仓数据的准确性和完整性
  * 数据库中的持仓记录主要用于：
  * 1. 保存止损止盈订单ID等元数据
  * 2. 提供历史查询和监控页面展示
- * 实时持仓数据应该直接从 Gate.io 获取
+ * 实时持仓数据应该直接从交易所获取
  */
-async function syncPositionsFromGate(cachedPositions?: any[]) {
+async function syncPositionsFromExchange(cachedPositions?: any[]) {
   const exchangeClient = createExchangeClient();
 
   try {
     // 如果提供了缓存数据，使用缓存；否则重新获取
-    const gatePositions =
+    const exchangePositions =
       cachedPositions || (await exchangeClient.getPositions());
     const dbResult = await dbClient.execute(
       "SELECT symbol, sl_order_id, tp_order_id, stop_loss, profit_target, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage FROM positions"
@@ -558,15 +571,15 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       dbResult.rows.map((row: any) => [row.symbol, row])
     );
 
-    // 检查 Gate.io 是否有持仓（可能 API 有延迟）
-    const activeGatePositions = gatePositions.filter(
+    // 检查交易所是否有持仓（可能 API 有延迟）
+    const activeExchangePositions = exchangePositions.filter(
       (p: any) => Number.parseInt(p.size || "0") !== 0
     );
 
-    // 如果 Gate.io 返回0个持仓但数据库有持仓，可能是 API 延迟，不清空数据库
-    if (activeGatePositions.length === 0 && dbResult.rows.length > 0) {
+    // 如果交易所返回0个持仓但数据库有持仓，可能是 API 延迟，不清空数据库
+    if (activeExchangePositions.length === 0 && dbResult.rows.length > 0) {
       logger.warn(
-        `Gate.io 返回0个持仓，但数据库有 ${dbResult.rows.length} 个持仓，可能是 API 延迟，跳过同步`
+        `交易所返回0个持仓，但数据库有 ${dbResult.rows.length} 个持仓，可能是 API 延迟，跳过同步`
       );
       return;
     }
@@ -575,7 +588,7 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
 
     let syncedCount = 0;
 
-    for (const pos of gatePositions) {
+    for (const pos of exchangePositions) {
       const size = Number.parseInt(pos.size || "0");
       if (size === 0) continue;
 
@@ -645,12 +658,12 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       syncedCount++;
     }
 
-    const activeGatePositionsCount = gatePositions.filter(
+    const activeExchangePositionsCount = exchangePositions.filter(
       (p: any) => Number.parseInt(p.size || "0") !== 0
     ).length;
-    if (activeGatePositionsCount > 0 && syncedCount === 0) {
+    if (activeExchangePositionsCount > 0 && syncedCount === 0) {
       logger.error(
-        `Gate.io 有 ${activeGatePositionsCount} 个持仓，但数据库同步失败！`
+        `交易所有 ${activeExchangePositionsCount} 个持仓，但数据库同步失败！`
       );
     }
   } catch (error) {
@@ -659,17 +672,17 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
 }
 
 /**
- * 获取持仓信息 - 直接从 Gate.io 获取最新数据
- * @param cachedGatePositions 可选，已获取的原始Gate持仓数据，避免重复调用API
+ * 获取持仓信息 - 直接从交易所获取最新数据
+ * @param cachedExchangePositions 可选，已获取的原始交易所持仓数据，避免重复调用API
  * @returns 格式化后的持仓数据
  */
-async function getPositions(cachedGatePositions?: any[]) {
+async function getPositions(cachedExchangePositions?: any[]) {
   const exchangeClient = createExchangeClient();
 
   try {
     // 如果提供了缓存数据，使用缓存；否则重新获取
-    const gatePositions =
-      cachedGatePositions || (await exchangeClient.getPositions());
+    const exchangePositions =
+      cachedExchangePositions || (await exchangeClient.getPositions());
 
     // 从数据库获取持仓的开仓时间、峰值盈利和杠杆数（数据库中保存了正确的数据）
     const dbResult = await dbClient.execute(
@@ -689,7 +702,7 @@ async function getPositions(cachedGatePositions?: any[]) {
     );
 
     // 过滤并格式化持仓
-    const positions = gatePositions
+    const positions = exchangePositions
       .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
       .map((p: any) => {
         const size = Number.parseInt(p.size || "0");
@@ -755,7 +768,7 @@ async function getPositions(cachedGatePositions?: any[]) {
  * 获取历史成交记录（最近10条）
  * 从数据库获取历史交易记录（监控页的交易历史）
  */
-async function getTradeHistory(limit: number = 10) {
+async function getTradeHistory(limit = 10) {
   try {
     // 从数据库获取历史交易记录
     const result = await dbClient.execute({
@@ -799,7 +812,7 @@ async function getTradeHistory(limit: number = 10) {
 /**
  * 获取最近N次的AI决策记录
  */
-async function getRecentDecisions(limit: number = 3) {
+async function getRecentDecisions(limit = 3) {
   try {
     const result = await dbClient.execute({
       sql: `SELECT timestamp, iteration, decision, account_value, positions_count 
@@ -1068,103 +1081,10 @@ async function checkAccountThresholds(accountInfo: any): Promise<boolean> {
 }
 
 /**
- * 检查蔡森策略的激活条件
- * 只有当满足特定市场条件时才激活蔡森策略
- *
- * @param marketData 市场数据
- * @param accountInfo 账户信息
- * @param positions 当前持仓
- * @returns 是否激活蔡森策略
- */
-function checkCaiSenActivationConditions(
-  marketData: any,
-  accountInfo: any,
-  positions: any[]
-): boolean {
-  // 1. 检查账户余额是否满足最低要求
-  const minBalance = 100; // 最低100 USDT
-  if (accountInfo.totalBalance < minBalance) {
-    logger.info(
-      `【蔡森策略】账户余额不足: ${accountInfo.totalBalance.toFixed(
-        2
-      )} USDT < ${minBalance} USDT`
-    );
-    return false;
-  }
-
-  // 2. 检查是否有足够的交易币种数据
-  const validSymbols = SYMBOLS.filter((symbol) => {
-    const data = marketData[symbol];
-    return data && data.price > 0 && data.rsi14 >= 0 && data.rsi14 <= 100;
-  });
-
-  if (validSymbols.length < 2) {
-    logger.info(`【蔡森策略】有效交易币种不足: ${validSymbols.length} < 2`);
-    return false;
-  }
-
-  // 3. 检查市场波动性 - 至少有一个币种波动超过阈值
-  const volatilityThreshold = 2; // 2% 波动率阈值
-  let hasVolatility = false;
-
-  for (const symbol of validSymbols) {
-    const data = marketData[symbol];
-    if (Math.abs(data.change24h) >= volatilityThreshold) {
-      hasVolatility = true;
-      break;
-    }
-  }
-
-  if (!hasVolatility) {
-    logger.info(`【蔡森策略】市场波动不足，未达到${volatilityThreshold}%阈值`);
-    return false;
-  }
-
-  // 4. 检查持仓数量限制
-  const maxPositions = 5; // 最多5个持仓
-  if (positions.length >= maxPositions) {
-    logger.info(
-      `【蔡森策略】持仓数量已达上限: ${positions.length} >= ${maxPositions}`
-    );
-    return false;
-  }
-
-  // 5. 检查是否有币种处于超买或超卖状态
-  let hasExtremeCondition = false;
-  for (const symbol of validSymbols) {
-    const data = marketData[symbol];
-    // RSI < 30 为超卖，RSI > 70 为超买
-    if (data.rsi14 < 30 || data.rsi14 > 70) {
-      hasExtremeCondition = true;
-      break;
-    }
-  }
-
-  if (!hasExtremeCondition) {
-    logger.info(`【蔡森策略】市场未出现超买超卖条件，RSI均在30-70范围内`);
-    return false;
-  }
-
-  // 所有条件满足，激活蔡森策略
-  logger.info(`【蔡森策略】激活条件全部满足:`);
-  logger.info(
-    `  - 账户余额: ${accountInfo.totalBalance.toFixed(
-      2
-    )} USDT >= ${minBalance} USDT`
-  );
-  logger.info(`  - 有效币种: ${validSymbols.length} >= 2`);
-  logger.info(`  - 市场波动: 超过${volatilityThreshold}%`);
-  logger.info(`  - 持仓数量: ${positions.length} < ${maxPositions}`);
-  logger.info(`  - 极端条件: 存在RSI超买(>70)或超卖(<30)状态`);
-
-  return true;
-}
-
-/**
  * 执行交易决策
  * 优化：增强错误处理和数据验证，确保数据实时准确
  */
-async function executeTradingDecision() {
+export async function executeTradingDecision() {
   iterationCount++;
   const minutesElapsed = Math.floor(
     (Date.now() - tradingStartTime.getTime()) / 60000
@@ -1228,12 +1148,12 @@ async function executeTradingDecision() {
     // 3. 同步持仓信息（优化：只调用一次API，避免重复）
     try {
       const exchangeClient = createExchangeClient();
-      const rawGatePositions = await exchangeClient.getPositions();
+      const rawExchangePositions = await exchangeClient.getPositions();
 
       // 添加详细日志：显示原始持仓数据
       logger.info(
-        `Gate.io 原始持仓数据: ${JSON.stringify(
-          rawGatePositions.map((p: any) => ({
+        `交易所原始持仓数据: ${JSON.stringify(
+          rawExchangePositions.map((p: any) => ({
             contract: p.contract,
             size: p.size,
             entryPrice: p.entryPrice,
@@ -1243,7 +1163,7 @@ async function executeTradingDecision() {
       );
 
       // 使用同一份数据进行处理和同步，避免重复调用API
-      positions = await getPositions(rawGatePositions);
+      positions = await getPositions(rawExchangePositions);
 
       // 添加详细日志：显示处理后的持仓数据
       logger.info(`处理后的持仓数量: ${positions.length}`);
@@ -1261,7 +1181,7 @@ async function executeTradingDecision() {
         );
       }
 
-      await syncPositionsFromGate(rawGatePositions);
+      await syncPositionsFromExchange(rawExchangePositions);
 
       const dbPositions = await dbClient.execute(
         "SELECT COUNT(*) as count FROM positions"
@@ -1269,9 +1189,11 @@ async function executeTradingDecision() {
       const dbCount = (dbPositions.rows[0] as any).count;
 
       if (positions.length !== dbCount) {
-        logger.warn(`持仓同步不一致: Gate=${positions.length}, DB=${dbCount}`);
+        logger.warn(
+          `持仓同步不一致: 交易所=${positions.length}, DB=${dbCount}`
+        );
         // 再次同步，使用同一份数据
-        await syncPositionsFromGate(rawGatePositions);
+        await syncPositionsFromExchange(rawExchangePositions);
       }
     } catch (error) {
       logger.error("持仓同步失败:", error as any);
@@ -1663,19 +1585,9 @@ async function executeTradingDecision() {
     let shouldUseCaiSenStrategy = false;
 
     if (currentStrategy === "cai-sen") {
-      // 检查蔡森策略的激活条件
-      shouldUseCaiSenStrategy = checkCaiSenActivationConditions(
-        marketData,
-        accountInfo,
-        positions
-      );
-
-      if (shouldUseCaiSenStrategy) {
-        logger.info("【蔡森策略】激活条件满足，启用蔡森策略进行交易决策");
-      } else {
-        logger.info("【蔡森策略】激活条件未满足，跳过本次交易决策");
-        return; // 如果条件不满足，跳过本次循环
-      }
+      // 蔡森策略始终激活，每次都执行Agent决策
+      shouldUseCaiSenStrategy = true;
+      logger.info("【蔡森策略】激活条件满足，启用蔡森策略进行交易决策");
     }
 
     // 10. 生成提示词并调用 Agent
@@ -1809,7 +1721,7 @@ async function executeTradingDecision() {
 
       // Agent 执行后重新同步持仓数据（优化：只调用一次API）
       const updatedRawPositions = await exchangeClient.getPositions();
-      await syncPositionsFromGate(updatedRawPositions);
+      await syncPositionsFromExchange(updatedRawPositions);
       const updatedPositions = await getPositions(updatedRawPositions);
 
       // 重新获取更新后的账户信息，包含最新的未实现盈亏
@@ -1866,7 +1778,7 @@ async function executeTradingDecision() {
     } catch (agentError) {
       logger.error("Agent 执行失败:", agentError as any);
       try {
-        await syncPositionsFromGate();
+        await syncPositionsFromExchange();
       } catch (syncError) {
         logger.error("同步失败:", syncError as any);
       }
@@ -1883,7 +1795,7 @@ async function executeTradingDecision() {
   } catch (error) {
     logger.error("交易循环执行失败:", error as any);
     try {
-      await syncPositionsFromGate();
+      await syncPositionsFromExchange();
     } catch (recoveryError) {
       logger.error("恢复失败:", recoveryError as any);
     }
@@ -1927,15 +1839,34 @@ export function startTradingLoop() {
   logger.info(`支持币种: ${SYMBOLS.join(", ")}`);
 
   // 立即执行一次
-  executeTradingDecision();
+  executeTradingDecisionWithTimer(intervalMinutes);
 
-  // 设置定时任务
-  const cronExpression = `*/${intervalMinutes} * * * *`;
-  cron.schedule(cronExpression, () => {
-    executeTradingDecision();
-  });
+  // 启动持仓监控
+  startPositionMonitoring();
+}
 
-  logger.info(`定时任务已设置: ${cronExpression}`);
+/**
+ * 执行交易决策并设置下一次执行的定时器
+ */
+async function executeTradingDecisionWithTimer(intervalMinutes: number) {
+  try {
+    await executeTradingDecision();
+  } catch (error) {
+    logger.error("执行交易决策失败:", error as any);
+  } finally {
+    // 清除旧定时器（如果存在）
+    if (tradingLoopTimer) {
+      clearTimeout(tradingLoopTimer);
+    }
+
+    // 设置下一次执行的定时器，刷新5分钟等待周期
+    const intervalMs = intervalMinutes * 60 * 1000;
+    tradingLoopTimer = setTimeout(() => {
+      executeTradingDecisionWithTimer(intervalMinutes);
+    }, intervalMs);
+
+    logger.info(`下一次交易决策将在 ${intervalMinutes} 分钟后执行`);
+  }
 }
 
 /**
@@ -1957,6 +1888,274 @@ export function setIterationCount(count: number) {
  */
 export function getIterationCount() {
   return iterationCount;
+}
+
+/**
+ * 执行平仓策略
+ * @param position 持仓信息
+ * @param reason 平仓原因
+ */
+async function executeClosingStrategy(
+  position: any,
+  reason: string
+): Promise<void> {
+  const exchangeClient = createExchangeClient();
+  const symbol = position.symbol;
+  const contract = `${symbol}_USDT`;
+  const side = position.side;
+  const currentSize = position.quantity;
+
+  try {
+    logger.info(`执行平仓策略: ${symbol}, 原因: ${reason}`);
+
+    // 获取平仓方式和参数
+    const closingType = position.closing_type || "full"; // full 或 batch
+    const batchParams = position.batch_params || {};
+
+    if (closingType === "batch") {
+      // 执行分批平仓
+      const batchPercentages = batchParams.percentages || [100];
+      const triggerConditions = batchParams.trigger_conditions || [];
+
+      // 找到当前满足的触发条件
+      const currentPrice = position.current_price;
+      const entryPrice = position.entry_price;
+      const profitPercent =
+        ((currentPrice - entryPrice) / entryPrice) * 100 * position.leverage;
+
+      for (let i = 0; i < batchPercentages.length; i++) {
+        const condition = triggerConditions[i];
+        if (!condition) continue;
+
+        // 检查是否满足触发条件
+        let conditionMet = false;
+        if (condition.type === "profit" && profitPercent >= condition.value) {
+          conditionMet = true;
+        } else if (
+          condition.type === "price" &&
+          currentPrice >= condition.value
+        ) {
+          conditionMet = true;
+        }
+
+        if (conditionMet) {
+          const closePercentage = batchPercentages[i];
+          const closeSize = (currentSize * closePercentage) / 100;
+
+          logger.info(
+            `执行分批平仓: ${symbol}, 批次 ${
+              i + 1
+            }, 平仓 ${closePercentage}% (${closeSize}张)`
+          );
+
+          // 执行平仓订单
+          await exchangeClient.placeOrder({
+            contract,
+            size: side === "long" ? -closeSize : closeSize,
+            price: 0, // 市价单
+            reduceOnly: true,
+          });
+
+          // 更新数据库中的持仓信息
+          await dbClient.execute({
+            sql: `UPDATE positions SET partial_close_percentage = partial_close_percentage + ? WHERE symbol = ?`,
+            args: [closePercentage, symbol],
+          });
+
+          break; // 只执行第一个满足条件的批次
+        }
+      }
+    } else {
+      // 执行一次性平仓
+      logger.info(`执行一次性平仓: ${symbol}, 数量: ${currentSize}张`);
+
+      await exchangeClient.placeOrder({
+        contract,
+        size: side === "long" ? -currentSize : currentSize,
+        price: 0, // 市价单
+        reduceOnly: true,
+      });
+    }
+  } catch (error) {
+    logger.error(`执行平仓策略失败: ${symbol}`, error as any);
+  }
+}
+
+/**
+ * 实时监控持仓
+ */
+async function monitorPositions(): Promise<void> {
+  try {
+    // 获取当前持仓
+    const exchangeClient = createExchangeClient();
+    const rawPositions = await exchangeClient.getPositions();
+    const positions = await getPositions(rawPositions);
+
+    if (positions.length === 0) {
+      return;
+    }
+
+    logger.debug(`监控 ${positions.length} 个持仓...`);
+
+    for (const position of positions) {
+      const symbol = position.symbol;
+      const entryPrice = position.entry_price;
+      const currentPrice = position.current_price;
+      const leverage = position.leverage;
+      const side = position.side;
+
+      // 计算盈亏百分比（考虑杠杆）
+      const priceChangePercent =
+        ((currentPrice - entryPrice) / entryPrice) * 100;
+      const pnlPercent = priceChangePercent * (side === "long" ? 1 : -1);
+
+      // 获取当前策略配置
+      const strategy = getTradingStrategy();
+      const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+
+      // 记录策略配置日志，用于调试
+      logger.info(`策略配置: ${JSON.stringify(params.stopLoss)}`);
+
+      // 直接使用策略配置的止损线，忽略position.stop_loss（因为它可能不存在或不正确）
+      let stopLoss;
+
+      // 根据杠杆倍数确定止损阈值
+      const levMin = params.leverageMin;
+      const levMax = params.leverageMax;
+      const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+      const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+
+      if (leverage > midThreshold) {
+        stopLoss = params.stopLoss.high;
+      } else if (leverage > lowThreshold) {
+        stopLoss = params.stopLoss.mid;
+      } else {
+        stopLoss = params.stopLoss.low;
+      }
+
+      // 确保止损线是负数
+      if (stopLoss >= 0) {
+        logger.warn(`止损线配置异常: ${stopLoss}%，使用默认值 -8%`);
+        stopLoss = -8;
+      }
+
+      // 止盈线使用默认值
+      const takeProfit = 15; // 默认止盈15%
+
+      logger.debug(
+        `${symbol} 监控: 盈亏 ${pnlPercent.toFixed(
+          2
+        )}%, 止损 ${stopLoss}%, 止盈 ${takeProfit}%`
+      );
+
+      // 检查止损条件（亏损达到或超过止损线，且亏损幅度大于0.1%以避免微小波动）
+      if (pnlPercent <= stopLoss && pnlPercent < -0.1) {
+        logger.warn(
+          `${symbol} 触发止损条件: 盈亏 ${pnlPercent.toFixed(
+            2
+          )}% <= 止损 ${stopLoss}%`
+        );
+        await wakeupAgent(`止损触发: ${symbol} 盈亏 ${pnlPercent.toFixed(2)}%`);
+        return; // 唤醒Agent后退出监控，等待重新决策
+      }
+
+      // 检查止盈条件
+      if (pnlPercent >= takeProfit) {
+        logger.info(
+          `${symbol} 触发止盈条件: 盈亏 ${pnlPercent.toFixed(
+            2
+          )}% >= 止盈 ${takeProfit}%`
+        );
+        await executeClosingStrategy(
+          position,
+          `止盈触发: 盈亏 ${pnlPercent.toFixed(2)}%`
+        );
+
+        // 重新获取持仓，检查是否还有持仓
+        const updatedPositions = await getPositions();
+        if (updatedPositions.length === 0) {
+          // 所有持仓已平仓，停止监控
+          stopPositionMonitoring();
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    logger.error("监控持仓失败:", error as any);
+  }
+}
+
+/**
+ * 唤醒Agent进行重新决策
+ * @param reason 唤醒原因
+ */
+async function wakeupAgent(reason: string): Promise<void> {
+  logger.info(`唤醒Agent进行重新决策，原因: ${reason}`);
+
+  // 停止当前监控
+  stopPositionMonitoring();
+
+  // 清除旧的交易循环定时器
+  if (tradingLoopTimer) {
+    clearTimeout(tradingLoopTimer);
+    tradingLoopTimer = null;
+  }
+
+  // 立即执行一次交易决策
+  await executeTradingDecision();
+
+  // 启动新的监控
+  startPositionMonitoring();
+}
+
+/**
+ * 启动持仓监控
+ */
+export function startPositionMonitoring(): void {
+  if (isMonitoringActive) {
+    logger.warn("持仓监控已在运行中");
+    return;
+  }
+
+  logger.info("启动持仓监控，每10秒检查一次");
+
+  // 立即执行一次监控
+  monitorPositions();
+
+  // 设置定时器，每10秒执行一次
+  positionMonitorTimer = setInterval(() => {
+    monitorPositions();
+  }, 10000);
+
+  isMonitoringActive = true;
+}
+
+/**
+ * 停止持仓监控
+ */
+export function stopPositionMonitoring(): void {
+  if (!isMonitoringActive) {
+    return;
+  }
+
+  logger.info("停止持仓监控");
+
+  if (positionMonitorTimer) {
+    clearInterval(positionMonitorTimer);
+    positionMonitorTimer = null;
+  }
+
+  isMonitoringActive = false;
+}
+
+/**
+ * 解析Agent决策，提取止盈止损和平仓策略
+ * @param decisionText Agent决策文本
+ */
+function parseAgentDecision(decisionText: string): any {
+  // 这里需要根据Agent的实际输出格式进行解析
+  // 目前返回空对象，后续需要根据实际情况实现
+  return {};
 }
 
 /**

@@ -1,29 +1,29 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Agent } from "@voltagent/core";
 import { createOpenAI } from "@ai-sdk/openai";
+import { Agent } from "@voltagent/core";
 import * as tradingTools from "../tools/trading";
 import { createLogger } from "../utils/loggerUtils";
 
 const logger = createLogger({
-  name: "aggressive-team-agents",
-  level: "info",
+	name: "aggressive-team-agents",
+	level: "info",
 });
 
 /**
@@ -32,12 +32,12 @@ const logger = createLogger({
  * @param marketDataContext 市场数据上下文（可选）
  */
 export function createAggressiveTeamTrendExpertAgent(marketDataContext?: any) {
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+	const openai = createOpenAI({
+		apiKey: process.env.OPENAI_API_KEY || "",
+		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+	});
 
-  let instructions = `你是激进团的趋势分析专家（团员1）。
+	let instructions = `你是激进团的趋势分析专家（团员1）。
 
 ⚠️ 【重要】你可能会被要求分析不同的币种（如BTC、ETH、SOL等），请仔细查看团长的任务描述，确认要分析哪个币种。
 
@@ -127,26 +127,28 @@ export function createAggressiveTeamTrendExpertAgent(marketDataContext?: any) {
 
 记住：我们是激进团，要敢于给出明确判断！必须画图并详细说明理由！`;
 
-  if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
-  }
+	if (marketDataContext) {
+		instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+	}
 
-  const agent = new Agent({
-    name: "激进团趋势分析专家",
-    instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
-    tools: [
-      tradingTools.getMarketPriceTool,
-      tradingTools.getTechnicalIndicatorsTool,
-      tradingTools.getFundingRateTool,
-      tradingTools.getOrderBookTool,
-      tradingTools.getAccountBalanceTool,
-      tradingTools.getPositionsTool,
-    ],
-    logger: logger.child({ agent: "激进团趋势分析专家" }),
-  });
+	const agent = new Agent({
+		name: "激进团趋势分析专家",
+		instructions,
+		model: openai.chat(
+			process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+		),
+		tools: [
+			tradingTools.getMarketPriceTool,
+			tradingTools.getTechnicalIndicatorsTool,
+			tradingTools.getFundingRateTool,
+			tradingTools.getOrderBookTool,
+			tradingTools.getAccountBalanceTool,
+			tradingTools.getPositionsTool,
+		],
+		logger: logger.child({ agent: "激进团趋势分析专家" }),
+	});
 
-  return agent;
+	return agent;
 }
 
 /**
@@ -154,13 +156,15 @@ export function createAggressiveTeamTrendExpertAgent(marketDataContext?: any) {
  * 通过柱状图等技术指标预测未来走向
  * @param marketDataContext 市场数据上下文（可选）
  */
-export function createAggressiveTeamPredictionExpertAgent(marketDataContext?: any) {
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+export function createAggressiveTeamPredictionExpertAgent(
+	marketDataContext?: any,
+) {
+	const openai = createOpenAI({
+		apiKey: process.env.OPENAI_API_KEY || "",
+		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+	});
 
-  let instructions = `你是激进团的预测分析专家（团员2）。
+	let instructions = `你是激进团的预测分析专家（团员2）。
 
 ⚠️ 【重要】你可能会被要求分析不同的币种（如BTC、ETH、SOL等），请仔细查看团长的任务描述，确认要分析哪个币种。
 
@@ -253,26 +257,28 @@ export function createAggressiveTeamPredictionExpertAgent(marketDataContext?: an
 
 记住：我们是激进团，要积极预测，必须画图并详细说明依据！要猛干！`;
 
-  if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
-  }
+	if (marketDataContext) {
+		instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+	}
 
-  const agent = new Agent({
-    name: "激进团预测分析专家",
-    instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
-    tools: [
-      tradingTools.getMarketPriceTool,
-      tradingTools.getTechnicalIndicatorsTool,
-      tradingTools.getFundingRateTool,
-      tradingTools.getOrderBookTool,
-      tradingTools.getAccountBalanceTool,
-      tradingTools.getPositionsTool,
-    ],
-    logger: logger.child({ agent: "激进团预测分析专家" }),
-  });
+	const agent = new Agent({
+		name: "激进团预测分析专家",
+		instructions,
+		model: openai.chat(
+			process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+		),
+		tools: [
+			tradingTools.getMarketPriceTool,
+			tradingTools.getTechnicalIndicatorsTool,
+			tradingTools.getFundingRateTool,
+			tradingTools.getOrderBookTool,
+			tradingTools.getAccountBalanceTool,
+			tradingTools.getPositionsTool,
+		],
+		logger: logger.child({ agent: "激进团预测分析专家" }),
+	});
 
-  return agent;
+	return agent;
 }
 
 /**
@@ -280,13 +286,15 @@ export function createAggressiveTeamPredictionExpertAgent(marketDataContext?: an
  * 分析成交量、资金费率、订单簿深度，判断多空力量对比
  * @param marketDataContext 市场数据上下文（可选）
  */
-export function createAggressiveTeamMoneyFlowExpertAgent(marketDataContext?: any) {
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+export function createAggressiveTeamMoneyFlowExpertAgent(
+	marketDataContext?: any,
+) {
+	const openai = createOpenAI({
+		apiKey: process.env.OPENAI_API_KEY || "",
+		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+	});
 
-  let instructions = `你是激进团的资金流向分析专家（团员3）。
+	let instructions = `你是激进团的资金流向分析专家（团员3）。
 
 ⚠️ 【重要】你可能会被要求分析不同的币种（如BTC、ETH、SOL等），请仔细查看团长的任务描述，确认要分析哪个币种。
 
@@ -375,26 +383,28 @@ export function createAggressiveTeamMoneyFlowExpertAgent(marketDataContext?: any
 
 记住：我们是激进团，要敢于给出明确判断！资金流向是市场真实意图的体现！`;
 
-  if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
-  }
+	if (marketDataContext) {
+		instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+	}
 
-  const agent = new Agent({
-    name: "激进团资金流向分析专家",
-    instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
-    tools: [
-      tradingTools.getMarketPriceTool,
-      tradingTools.getTechnicalIndicatorsTool,
-      tradingTools.getFundingRateTool,
-      tradingTools.getOrderBookTool,
-      tradingTools.getAccountBalanceTool,
-      tradingTools.getPositionsTool,
-    ],
-    logger: logger.child({ agent: "激进团资金流向分析专家" }),
-  });
+	const agent = new Agent({
+		name: "激进团资金流向分析专家",
+		instructions,
+		model: openai.chat(
+			process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+		),
+		tools: [
+			tradingTools.getMarketPriceTool,
+			tradingTools.getTechnicalIndicatorsTool,
+			tradingTools.getFundingRateTool,
+			tradingTools.getOrderBookTool,
+			tradingTools.getAccountBalanceTool,
+			tradingTools.getPositionsTool,
+		],
+		logger: logger.child({ agent: "激进团资金流向分析专家" }),
+	});
 
-  return agent;
+	return agent;
 }
 
 /**
@@ -402,13 +412,15 @@ export function createAggressiveTeamMoneyFlowExpertAgent(marketDataContext?: any
  * 评估当前持仓风险，提供仓位和杠杆优化建议
  * @param marketDataContext 市场数据上下文（可选）
  */
-export function createAggressiveTeamRiskControlExpertAgent(marketDataContext?: any) {
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+export function createAggressiveTeamRiskControlExpertAgent(
+	marketDataContext?: any,
+) {
+	const openai = createOpenAI({
+		apiKey: process.env.OPENAI_API_KEY || "",
+		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+	});
 
-  let instructions = `你是激进团的风险控制专家（团员4）。
+	let instructions = `你是激进团的风险控制专家（团员4）。
 
 ⚠️ 【重要】你的任务包括评估当前所有持仓，以及根据团长的要求为特定币种提供开仓建议。
 
@@ -523,25 +535,26 @@ export function createAggressiveTeamRiskControlExpertAgent(marketDataContext?: a
 ⚠️ 核心原则：小利润落袋为安 > 大利润变亏损
 ⚠️ 止盈优先级最高：看到盈利先锁定，不要等到变亏损才后悔！`;
 
-  if (marketDataContext) {
-    instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
-  }
+	if (marketDataContext) {
+		instructions += `\n\n当前市场数据上下文：\n${JSON.stringify(marketDataContext, null, 2)}`;
+	}
 
-  const agent = new Agent({
-    name: "激进团风险控制专家",
-    instructions,
-    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
-    tools: [
-      tradingTools.getMarketPriceTool,
-      tradingTools.getTechnicalIndicatorsTool,
-      tradingTools.getFundingRateTool,
-      tradingTools.getOrderBookTool,
-      tradingTools.getAccountBalanceTool,
-      tradingTools.getPositionsTool,
-    ],
-    logger: logger.child({ agent: "激进团风险控制专家" }),
-  });
+	const agent = new Agent({
+		name: "激进团风险控制专家",
+		instructions,
+		model: openai.chat(
+			process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+		),
+		tools: [
+			tradingTools.getMarketPriceTool,
+			tradingTools.getTechnicalIndicatorsTool,
+			tradingTools.getFundingRateTool,
+			tradingTools.getOrderBookTool,
+			tradingTools.getAccountBalanceTool,
+			tradingTools.getPositionsTool,
+		],
+		logger: logger.child({ agent: "激进团风险控制专家" }),
+	});
 
-  return agent;
+	return agent;
 }
-

@@ -21,95 +21,95 @@
  */
 
 export interface Trade {
-  id: number;
-  order_id: string;
-  symbol: string;
-  side: "long" | "short";
-  type: "open" | "close";
-  price: number;
-  quantity: number;
-  leverage: number;
-  pnl?: number;
-  fee?: number;
-  timestamp: string;
-  status: "pending" | "filled" | "cancelled";
+	id: number;
+	order_id: string;
+	symbol: string;
+	side: "long" | "short";
+	type: "open" | "close";
+	price: number;
+	quantity: number;
+	leverage: number;
+	pnl?: number;
+	fee?: number;
+	timestamp: string;
+	status: "pending" | "filled" | "cancelled";
 }
 
 export interface Position {
-  id: number;
-  symbol: string;
-  quantity: number;
-  entry_price: number;
-  current_price: number;
-  liquidation_price: number;
-  unrealized_pnl: number;
-  leverage: number;
-  side: "long" | "short";
-  profit_target?: number;
-  stop_loss?: number;
-  tp_order_id?: string;
-  sl_order_id?: string;
-  entry_order_id: string;
-  opened_at: string;
-  confidence?: number;
-  risk_usd?: number;
-  peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
-  partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
+	id: number;
+	symbol: string;
+	quantity: number;
+	entry_price: number;
+	current_price: number;
+	liquidation_price: number;
+	unrealized_pnl: number;
+	leverage: number;
+	side: "long" | "short";
+	profit_target?: number;
+	stop_loss?: number;
+	tp_order_id?: string;
+	sl_order_id?: string;
+	entry_order_id: string;
+	opened_at: string;
+	confidence?: number;
+	risk_usd?: number;
+	peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
+	partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
 }
 
 export interface AccountHistory {
-  id: number;
-  timestamp: string;
-  total_value: number;
-  available_cash: number;
-  unrealized_pnl: number;
-  realized_pnl: number;
-  return_percent: number;
-  sharpe_ratio?: number;
+	id: number;
+	timestamp: string;
+	total_value: number;
+	available_cash: number;
+	unrealized_pnl: number;
+	realized_pnl: number;
+	return_percent: number;
+	sharpe_ratio?: number;
 }
 
 export interface TradingSignal {
-  id: number;
-  symbol: string;
-  timestamp: string;
-  price: number;
-  ema_20: number;
-  ema_50?: number;
-  macd: number;
-  rsi_7: number;
-  rsi_14: number;
-  volume: number;
-  open_interest?: number;
-  funding_rate?: number;
-  atr_3?: number;
-  atr_14?: number;
+	id: number;
+	symbol: string;
+	timestamp: string;
+	price: number;
+	ema_20: number;
+	ema_50?: number;
+	macd: number;
+	rsi_7: number;
+	rsi_14: number;
+	volume: number;
+	open_interest?: number;
+	funding_rate?: number;
+	atr_3?: number;
+	atr_14?: number;
 }
 
 export interface AgentDecision {
-  id: number;
-  timestamp: string;
-  iteration: number;
-  market_analysis: string;
-  decision: string;
-  actions_taken: string;
-  account_value: number;
-  positions_count: number;
+	id: number;
+	timestamp: string;
+	iteration: number;
+	market_analysis: string;
+	decision: string;
+	actions_taken: string;
+	account_value: number;
+	positions_count: number;
 }
 
 export interface SystemConfig {
-  id: number;
-  key: string;
-  value: string;
-  updated_at: string;
+	id: number;
+	key: string;
+	value: string;
+	updated_at: string;
 }
 
 export interface CaiSenMonitorData {
-  id: number;
-  symbol: string;
-  timestamp: number;
-  data_type: string;
-  data_json: string;
-  created_at: string;
+	id: number;
+	symbol: string;
+	timestamp: number;
+	data_type: string;
+	data_json: string;
+	created_at: string;
 }
 
 /**

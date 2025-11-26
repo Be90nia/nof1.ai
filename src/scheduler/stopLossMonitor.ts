@@ -41,13 +41,15 @@
  * - 不由AI执行止损，完全自动化
  */
 
-import { createLogger } from "../utils/loggerUtils";
 import { createClient } from "@libsql/client";
-import { createExchangeClient } from "../services/exchangeClient";
-import { getChinaTimeISO } from "../utils/timeUtils";
-import { getQuantoMultiplier } from "../utils/contractUtils";
-import { getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
 import { AIStopLossJudger } from "../agents/aiStopLossJudgment";
+import { getTradingStrategy } from "../agents/tradingAgent";
+import { getStrategyParams } from "../strategies";
+import { RISK_PARAMS } from "../config/riskParams";
+import { createExchangeClient } from "../services/exchangeClient";
+import { getQuantoMultiplier } from "../utils/contractUtils";
+import { createLogger } from "../utils/loggerUtils";
+import { getChinaTimeISO } from "../utils/timeUtils";
 import { iterationCount } from "./tradingLoop";
 
 const logger = createLogger({
@@ -69,7 +71,7 @@ function getStopLossThreshold(leverage: number): {
   description: string;
 } {
   const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
+  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
 
   if (!params.stopLoss) {
     throw new Error("止损配置不存在");
@@ -209,8 +211,8 @@ async function fixStopLossTradeRecord(symbol: string): Promise<void> {
     const side = closeTrade.side as string;
     let closePrice = Number.parseFloat(closeTrade.price as string);
     const quantity = Number.parseFloat(closeTrade.quantity as string);
-    let recordedPnl = Number.parseFloat((closeTrade.pnl as string) || "0");
-    let recordedFee = Number.parseFloat((closeTrade.fee as string) || "0");
+    const recordedPnl = Number.parseFloat((closeTrade.pnl as string) || "0");
+    const recordedFee = Number.parseFloat((closeTrade.fee as string) || "0");
     const timestamp = closeTrade.timestamp as string;
 
     // 查找对应的开仓记录
@@ -599,8 +601,19 @@ async function checkStopLoss() {
       // 根据杠杆倍数确定止损阈值
       const thresholdInfo = getStopLossThreshold(leverage);
 
-      // 检查是否触发止损（亏损达到或超过止损线）
-      if (pnlPercent <= thresholdInfo.threshold) {
+      // 检查止损线合理性，防止异常值
+      if (thresholdInfo.threshold >= 0) {
+        logger.warn(
+          `${symbol} 止损线配置异常: ${thresholdInfo.threshold.toFixed(
+            2
+          )}%，使用默认值 -8%`
+        );
+        thresholdInfo.threshold = -8;
+        thresholdInfo.description = `异常修复: 13倍以上杠杆，亏损 -8% 时止损`;
+      }
+
+      // 检查是否触发止损（亏损达到或超过止损线，且亏损幅度大于0.1%以避免微小波动）
+      if (pnlPercent <= thresholdInfo.threshold && pnlPercent < -0.1) {
         logger.error(`${symbol} 触发止损条件:`);
         logger.error(
           `  风险等级: ${thresholdInfo.level} - ${thresholdInfo.description}`

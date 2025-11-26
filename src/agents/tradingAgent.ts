@@ -16,50 +16,50 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createOpenAI } from "@ai-sdk/openai";
 /**
  * 交易 Agent 配置（极简版）
  */
 import { Agent, Memory } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
-import { createLogger } from "../utils/loggerUtils";
-import { createOpenAI } from "@ai-sdk/openai";
-import * as tradingTools from "../tools/trading";
-import { formatChinaTime } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
+import * as tradingTools from "../tools/trading";
+import { createLogger } from "../utils/loggerUtils";
+import { formatChinaTime } from "../utils/timeUtils";
 
 /**
  * 账户风险配置
  */
 export interface AccountRiskConfig {
-  stopLossUsdt: number;
-  takeProfitUsdt: number;
-  syncOnStartup: boolean;
+	stopLossUsdt: number;
+	takeProfitUsdt: number;
+	syncOnStartup: boolean;
 }
 
 /**
  * 从环境变量读取账户风险配置
  */
 export function getAccountRiskConfig(): AccountRiskConfig {
-  return {
-    stopLossUsdt: Number.parseFloat(process.env.ACCOUNT_STOP_LOSS_USDT || "50"),
-    takeProfitUsdt: Number.parseFloat(
-      process.env.ACCOUNT_TAKE_PROFIT_USDT || "10000"
-    ),
-    syncOnStartup: process.env.SYNC_CONFIG_ON_STARTUP === "true",
-  };
+	return {
+		stopLossUsdt: Number.parseFloat(process.env.ACCOUNT_STOP_LOSS_USDT || "50"),
+		takeProfitUsdt: Number.parseFloat(
+			process.env.ACCOUNT_TAKE_PROFIT_USDT || "10000",
+		),
+		syncOnStartup: process.env.SYNC_CONFIG_ON_STARTUP === "true",
+	};
 }
 
 /**
  * 导入策略类型和参数
  */
 import type {
-  TradingStrategy,
-  StrategyParams,
-  StrategyPromptContext,
+	StrategyParams,
+	StrategyPromptContext,
+	TradingStrategy,
 } from "../strategies";
 import {
-  getStrategyParams as getStrategyParamsBase,
-  generateStrategySpecificPrompt,
+	generateStrategySpecificPrompt,
+	getStrategyParams as getStrategyParamsBase,
 } from "../strategies";
 
 // 重新导出类型供外部使用
@@ -69,240 +69,241 @@ export type { TradingStrategy, StrategyParams };
  * 获取策略参数（包装函数，自动传入 MAX_LEVERAGE）
  */
 export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
-  return getStrategyParamsBase(strategy, RISK_PARAMS.MAX_LEVERAGE);
+	return getStrategyParamsBase(strategy, RISK_PARAMS.MAX_LEVERAGE);
 }
 
 const logger = createLogger({
-  name: "trading-agent",
-  level: "debug",
+	name: "trading-agent",
+	level: "debug",
 });
 
 /**
  * 从环境变量读取交易策略
  */
 export function getTradingStrategy(): TradingStrategy {
-  const strategy = process.env.TRADING_STRATEGY || "balanced";
-  if (
-    strategy === "conservative" ||
-    strategy === "balanced" ||
-    strategy === "aggressive" ||
-    strategy === "aggressive-team" ||
-    strategy === "ultra-short" ||
-    strategy === "swing-trend" ||
-    strategy === "medium-long" ||
-    strategy === "rebate-farming" ||
-    strategy === "ai-autonomous" ||
-    strategy === "multi-agent-consensus" ||
-    strategy === "alpha-beta" ||
-    strategy === "cai-sen"
-  ) {
-    return strategy;
-  }
-  logger.warn(`未知的交易策略: ${strategy}，使用默认策略: balanced`);
-  return "balanced";
+	const strategy = process.env.TRADING_STRATEGY || "balanced";
+	if (
+		strategy === "conservative" ||
+		strategy === "balanced" ||
+		strategy === "aggressive" ||
+		strategy === "aggressive-team" ||
+		strategy === "ultra-short" ||
+		strategy === "swing-trend" ||
+		strategy === "medium-long" ||
+		strategy === "rebate-farming" ||
+		strategy === "ai-autonomous" ||
+		strategy === "multi-agent-consensus" ||
+		strategy === "alpha-beta" ||
+		strategy === "cai-sen"
+	) {
+		return strategy;
+	}
+	logger.warn(`未知的交易策略: ${strategy}，使用默认策略: balanced`);
+	return "balanced";
 }
 
 /**
  * 生成AI自主策略的交易提示词（极简版，只提供数据和工具）
  */
 function generateAiAutonomousPromptForCycle(data: {
-  minutesElapsed: number;
-  iteration: number;
-  intervalMinutes: number;
-  marketData: any;
-  accountInfo: any;
-  positions: any[];
-  tradeHistory?: any[];
-  recentDecisions?: any[];
+	minutesElapsed: number;
+	iteration: number;
+	intervalMinutes: number;
+	marketData: any;
+	accountInfo: any;
+	positions: any[];
+	tradeHistory?: any[];
+	recentDecisions?: any[];
 }): string {
-  const {
-    minutesElapsed,
-    iteration,
-    intervalMinutes,
-    marketData,
-    accountInfo,
-    positions,
-    tradeHistory,
-    recentDecisions,
-  } = data;
-  const currentTime = formatChinaTime();
+	const {
+		minutesElapsed,
+		iteration,
+		intervalMinutes,
+		marketData,
+		accountInfo,
+		positions,
+		tradeHistory,
+		recentDecisions,
+	} = data;
+	const currentTime = formatChinaTime();
 
-  let prompt = `【交易周期 #${iteration}】${currentTime} | 运行${minutesElapsed}分钟 | 周期${intervalMinutes}分钟
+	let prompt = `【交易周期 #${iteration}】${currentTime} | 运行${minutesElapsed}分钟 | 周期${intervalMinutes}分钟
 
 【系统风控】单笔亏损≤${RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT}% | 持仓≥${
-    RISK_PARAMS.MAX_HOLDING_HOURS
-  }h | 最大杠杆${RISK_PARAMS.MAX_LEVERAGE}x | 最大持仓${
-    RISK_PARAMS.MAX_POSITIONS
-  }个
+		RISK_PARAMS.MAX_HOLDING_HOURS
+	}h | 最大杠杆${RISK_PARAMS.MAX_LEVERAGE}x | 最大持仓${
+		RISK_PARAMS.MAX_POSITIONS
+	}个
 
 【账户状态】总资产:${(accountInfo?.totalBalance ?? 0).toFixed(2)} | 可用:${(
-    accountInfo?.availableBalance ?? 0
-  ).toFixed(2)} | 盈亏:${(accountInfo?.unrealisedPnl ?? 0) >= 0 ? "+" : ""}${(
-    accountInfo?.unrealisedPnl ?? 0
-  ).toFixed(2)} | 持仓:${positions?.length ?? 0}个`;
+		accountInfo?.availableBalance ?? 0
+	).toFixed(2)} | 盈亏:${(accountInfo?.unrealisedPnl ?? 0) >= 0 ? "+" : ""}${(
+		accountInfo?.unrealisedPnl ?? 0
+	).toFixed(2)} | 持仓:${positions?.length ?? 0}个`;
 
-  // 输出持仓信息（精简版）
-  if (positions && positions.length > 0) {
-    prompt += `\n\n【持仓】`;
-    for (const pos of positions) {
-      const holdingMinutes = Math.floor(
-        (new Date().getTime() - new Date(pos.opened_at).getTime()) / (1000 * 60)
-      );
-      const holdingHours = (holdingMinutes / 60).toFixed(1);
+	// 输出持仓信息（精简版）
+	if (positions && positions.length > 0) {
+		prompt += `\n\n【持仓】`;
+		for (const pos of positions) {
+			const holdingMinutes = Math.floor(
+				(new Date().getTime() - new Date(pos.opened_at).getTime()) /
+					(1000 * 60),
+			);
+			const holdingHours = (holdingMinutes / 60).toFixed(1);
 
-      const entryPrice = pos.entry_price ?? 0;
-      const currentPrice = pos.current_price ?? 0;
-      const unrealizedPnl = pos.unrealized_pnl ?? 0;
-      let pnlPercent = 0;
+			const entryPrice = pos.entry_price ?? 0;
+			const currentPrice = pos.current_price ?? 0;
+			const unrealizedPnl = pos.unrealized_pnl ?? 0;
+			let pnlPercent = 0;
 
-      if (entryPrice > 0 && currentPrice > 0) {
-        if (pos.side === "long") {
-          pnlPercent =
-            ((currentPrice - entryPrice) / entryPrice) *
-            100 *
-            (pos.leverage ?? 1);
-        } else {
-          pnlPercent =
-            ((entryPrice - currentPrice) / entryPrice) *
-            100 *
-            (pos.leverage ?? 1);
-        }
-      }
+			if (entryPrice > 0 && currentPrice > 0) {
+				if (pos.side === "long") {
+					pnlPercent =
+						((currentPrice - entryPrice) / entryPrice) *
+						100 *
+						(pos.leverage ?? 1);
+				} else {
+					pnlPercent =
+						((entryPrice - currentPrice) / entryPrice) *
+						100 *
+						(pos.leverage ?? 1);
+				}
+			}
 
-      prompt += `\n${pos.contract} ${pos.side === "long" ? "多" : "短"}:${
-        pos.quantity ?? 0
-      }张|${pos.leverage ?? 1}x|入:${entryPrice.toFixed(
-        2
-      )}|现:${currentPrice.toFixed(2)}|盈:${
-        pnlPercent >= 0 ? "+" : ""
-      }${pnlPercent.toFixed(2)}%(${
-        unrealizedPnl >= 0 ? "+" : ""
-      }${unrealizedPnl.toFixed(2)})|时:${holdingHours}h`;
-    }
-  }
+			prompt += `\n${pos.contract} ${pos.side === "long" ? "多" : "短"}:${
+				pos.quantity ?? 0
+			}张|${pos.leverage ?? 1}x|入:${entryPrice.toFixed(
+				2,
+			)}|现:${currentPrice.toFixed(2)}|盈:${
+				pnlPercent >= 0 ? "+" : ""
+			}${pnlPercent.toFixed(2)}%(${
+				unrealizedPnl >= 0 ? "+" : ""
+			}${unrealizedPnl.toFixed(2)})|时:${holdingHours}h`;
+		}
+	}
 
-  // 输出市场数据（精简版）
-  prompt += `\n\n【市场数据】`;
-  if (marketData) {
-    for (const [symbol, dataRaw] of Object.entries(marketData)) {
-      const data = dataRaw as any;
+	// 输出市场数据（精简版）
+	prompt += `\n\n【市场数据】`;
+	if (marketData) {
+		for (const [symbol, dataRaw] of Object.entries(marketData)) {
+			const data = dataRaw as any;
 
-      prompt += `\n${symbol}:价${(data?.price ?? 0).toFixed(1)}|EMA${(
-        data?.ema20 ?? 0
-      ).toFixed(1)}|MACD${(data?.macd ?? 0).toFixed(2)}|RSI${(
-        data?.rsi7 ?? 0
-      ).toFixed(0)}`;
+			prompt += `\n${symbol}:价${(data?.price ?? 0).toFixed(1)}|EMA${(
+				data?.ema20 ?? 0
+			).toFixed(1)}|MACD${(data?.macd ?? 0).toFixed(2)}|RSI${(
+				data?.rsi7 ?? 0
+			).toFixed(0)}`;
 
-      if (data?.fundingRate !== undefined) {
-        prompt += `|费${data.fundingRate.toExponential(1)}`;
-      }
+			if (data?.fundingRate !== undefined) {
+				prompt += `|费${data.fundingRate.toExponential(1)}`;
+			}
 
-      // 只提供关键时间框架的简要信息
-      if (data?.timeframes) {
-        const tf1h = data.timeframes["1h"];
-        if (tf1h) {
-          prompt += `|1hEMA${(tf1h.ema20 ?? 0).toFixed(1)}`;
-        }
-      }
-    }
-  }
+			// 只提供关键时间框架的简要信息
+			if (data?.timeframes) {
+				const tf1h = data.timeframes["1h"];
+				if (tf1h) {
+					prompt += `|1hEMA${(tf1h.ema20 ?? 0).toFixed(1)}`;
+				}
+			}
+		}
+	}
 
-  // 输出历史交易统计（精简版）
-  if (tradeHistory && tradeHistory.length > 0) {
-    let profitCount = 0;
-    let lossCount = 0;
-    let totalProfit = 0;
+	// 输出历史交易统计（精简版）
+	if (tradeHistory && tradeHistory.length > 0) {
+		let profitCount = 0;
+		let lossCount = 0;
+		let totalProfit = 0;
 
-    for (const trade of tradeHistory.slice(0, 10)) {
-      const pnl = trade?.pnl ?? 0;
-      if (pnl > 0) {
-        profitCount++;
-      } else if (pnl < 0) {
-        lossCount++;
-      }
-      totalProfit += pnl;
-    }
+		for (const trade of tradeHistory.slice(0, 10)) {
+			const pnl = trade?.pnl ?? 0;
+			if (pnl > 0) {
+				profitCount++;
+			} else if (pnl < 0) {
+				lossCount++;
+			}
+			totalProfit += pnl;
+		}
 
-    if (profitCount > 0 || lossCount > 0) {
-      const winRate = (profitCount / (profitCount + lossCount)) * 100;
-      prompt += `\n\n【交易统计】胜率:${winRate.toFixed(
-        0
-      )}%|盈:${profitCount}笔|亏:${lossCount}笔|净:${
-        totalProfit >= 0 ? "+" : ""
-      }${totalProfit.toFixed(0)}`;
-    }
-  }
+		if (profitCount > 0 || lossCount > 0) {
+			const winRate = (profitCount / (profitCount + lossCount)) * 100;
+			prompt += `\n\n【交易统计】胜率:${winRate.toFixed(
+				0,
+			)}%|盈:${profitCount}笔|亏:${lossCount}笔|净:${
+				totalProfit >= 0 ? "+" : ""
+			}${totalProfit.toFixed(0)}`;
+		}
+	}
 
-  prompt += `\n\n【工具】openPosition(开仓)|closePosition(平仓)
+	prompt += `\n\n【工具】openPosition(开仓)|closePosition(平仓)
 
 【决策】基于以上数据，自主分析并做出交易决策。记住：完全自主决定策略、风险管理和交易时机。`;
 
-  return prompt;
+	return prompt;
 }
 
 /**
  * 生成交易提示词（参照 1.md 格式）
  */
 export function generateTradingPrompt(data: {
-  minutesElapsed: number;
-  iteration: number;
-  intervalMinutes: number;
-  marketData: any;
-  accountInfo: any;
-  positions: any[];
-  tradeHistory?: any[];
-  recentDecisions?: any[];
-  positionCount?: number;
+	minutesElapsed: number;
+	iteration: number;
+	intervalMinutes: number;
+	marketData: any;
+	accountInfo: any;
+	positions: any[];
+	tradeHistory?: any[];
+	recentDecisions?: any[];
+	positionCount?: number;
 }): string {
-  const {
-    minutesElapsed,
-    iteration,
-    intervalMinutes,
-    marketData,
-    accountInfo,
-    positions,
-    tradeHistory,
-    recentDecisions,
-    positionCount,
-  } = data;
-  const currentTime = formatChinaTime();
+	const {
+		minutesElapsed,
+		iteration,
+		intervalMinutes,
+		marketData,
+		accountInfo,
+		positions,
+		tradeHistory,
+		recentDecisions,
+		positionCount,
+	} = data;
+	const currentTime = formatChinaTime();
 
-  // 获取当前策略参数（用于每周期强调风控规则）
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
-  // 判断是否启用自动监控止损和移动止盈（根据策略配置）
-  const isCodeLevelProtectionEnabled = params.enableCodeLevelProtection;
-  // 判断是否允许AI在代码级保护之外继续主动操作（双重防护模式）
-  const allowAiOverride = params.allowAiOverrideProtection === true;
+	// 获取当前策略参数（用于每周期强调风控规则）
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy);
+	// 判断是否启用自动监控止损和移动止盈（根据策略配置）
+	const isCodeLevelProtectionEnabled = params.enableCodeLevelProtection;
+	// 判断是否允许AI在代码级保护之外继续主动操作（双重防护模式）
+	const allowAiOverride = params.allowAiOverrideProtection === true;
 
-  // 如果是AI自主策略或Alpha Beta策略，使用完全不同的提示词格式
-  if (strategy === "ai-autonomous" || strategy === "alpha-beta") {
-    return generateAiAutonomousPromptForCycle(data);
-  }
+	// 如果是AI自主策略或Alpha Beta策略，使用完全不同的提示词格式
+	if (strategy === "ai-autonomous" || strategy === "alpha-beta") {
+		return generateAiAutonomousPromptForCycle(data);
+	}
 
-  // 生成止损规则描述（基于 stopLoss 配置和杠杆范围）
-  const generateStopLossDescriptions = () => {
-    const levMin = params.leverageMin;
-    const levMax = params.leverageMax;
-    const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
-    const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
-    return [
-      `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
-      `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
-        params.stopLoss.mid
-      }% 时止损`,
-      `${midThreshold + 1}倍以上杠杆，亏损 ${params.stopLoss.high}% 时止损`,
-    ];
-  };
-  const stopLossDescriptions = generateStopLossDescriptions();
+	// 生成止损规则描述（基于 stopLoss 配置和杠杆范围）
+	const generateStopLossDescriptions = () => {
+		const levMin = params.leverageMin;
+		const levMax = params.leverageMax;
+		const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+		const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+		return [
+			`${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
+			`${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
+				params.stopLoss.mid
+			}% 时止损`,
+			`${midThreshold + 1}倍以上杠杆，亏损 ${params.stopLoss.high}% 时止损`,
+		];
+	};
+	const stopLossDescriptions = generateStopLossDescriptions();
 
-  // 生成紧急警告（仅激进团策略）
-  let urgentWarnings = "";
-  if (strategy === "aggressive-team") {
-    // 检查持仓数是否不足2个
-    const currentPositionCount = positionCount ?? positions.length;
-    if (currentPositionCount < 2) {
-      urgentWarnings += `
+	// 生成紧急警告（仅激进团策略）
+	let urgentWarnings = "";
+	if (strategy === "aggressive-team") {
+		// 检查持仓数是否不足2个
+		const currentPositionCount = positionCount ?? positions.length;
+		if (currentPositionCount < 2) {
+			urgentWarnings += `
 ⚠️⚠️⚠️ 【紧急警告】当前持仓数不足2个！激进团铁律被违反！
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 当前持仓：${currentPositionCount}个
@@ -314,27 +315,27 @@ export function generateTradingPrompt(data: {
 这是激进团的核心要求，不容违反！
 
 `;
-    }
-  }
+		}
+	}
 
-  let prompt =
-    urgentWarnings +
-    `【交易周期 #${iteration}】${currentTime}
+	let prompt =
+		urgentWarnings +
+		`【交易周期 #${iteration}】${currentTime}
 已运行 ${minutesElapsed} 分钟，执行周期 ${intervalMinutes} 分钟
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 当前策略：${params.name}（${params.description}）
 目标月回报：${
-      params.name === "稳健"
-        ? "10-20%"
-        : params.name === "平衡"
-        ? "20-40%"
-        : params.name === "激进"
-        ? "30-50%（频繁小盈利累积）"
-        : params.name === "激进团"
-        ? "50-80%"
-        : "20-30%"
-    }
+			params.name === "稳健"
+				? "10-20%"
+				: params.name === "平衡"
+					? "20-40%"
+					: params.name === "激进"
+						? "30-50%（频繁小盈利累积）"
+						: params.name === "激进团"
+							? "50-80%"
+							: "20-30%"
+		}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【硬性风控底线 - 系统强制执行】
@@ -348,19 +349,19 @@ export function generateTradingPrompt(data: {
 │ 策略止损：${params.stopLoss.low}% ~ ${params.stopLoss.high}%（根据杠杆）│
 │ 分批止盈：                               │
 │   • 盈利≥+${params.partialTakeProfit.stage1.trigger}% → 平仓${
-      params.partialTakeProfit.stage1.closePercent
-    }%  │
+			params.partialTakeProfit.stage1.closePercent
+		}%  │
 │   • 盈利≥+${params.partialTakeProfit.stage2.trigger}% → 平仓${
-      params.partialTakeProfit.stage2.closePercent
-    }%  │
+			params.partialTakeProfit.stage2.closePercent
+		}%  │
 │   • 盈利≥+${params.partialTakeProfit.stage3.trigger}% → 平仓${
-      params.partialTakeProfit.stage3.closePercent
-    }% │
+			params.partialTakeProfit.stage3.closePercent
+		}% │
 │ 峰值回撤：≥${params.peakDrawdownProtection}% → 危险信号，立即平仓 │
 ${
-  isCodeLevelProtectionEnabled
-    ? allowAiOverride
-      ? `│                                         │
+	isCodeLevelProtectionEnabled
+		? allowAiOverride
+			? `│                                         │
 │ 双重防护模式：                          │
 │   • 代码自动监控（每10秒）作为安全网   │
 │   • Level1: 峰值${params.trailingStop.level1.trigger}%→止损线${params.trailingStop.level1.stopAt}% │
@@ -368,13 +369,13 @@ ${
 │   • Level3: 峰值${params.trailingStop.level3.trigger}%→止损线${params.trailingStop.level3.stopAt}% │
 │   • 你可以主动止损止盈，不必等待自动   │
 │   • 主动管理风险是优秀交易员的标志     │`
-      : `│                                         │
+			: `│                                         │
 │ 注意：移动止盈由自动监控执行（每10秒） │
 │   • Level1: 峰值${params.trailingStop.level1.trigger}%→止损线${params.trailingStop.level1.stopAt}% │
 │   • Level2: 峰值${params.trailingStop.level2.trigger}%→止损线${params.trailingStop.level2.stopAt}% │
 │   • Level3: 峰值${params.trailingStop.level3.trigger}%→止损线${params.trailingStop.level3.stopAt}% │
 │   • 无需AI手动执行移动止盈              │`
-    : `│                                         │
+		: `│                                         │
 │ 注意：当前策略未启用自动监控移动止盈      │
 │   • AI需主动监控峰值回撤并执行止盈      │
 │   • 盈利${params.trailingStop.level1.trigger}%→止损线${params.trailingStop.level1.stopAt}%   │
@@ -419,368 +420,368 @@ ${
 所有币种的当前市场状态
 `;
 
-  // 按照 1.md 格式输出每个币种的数据
-  for (const [symbol, dataRaw] of Object.entries(marketData)) {
-    const data = dataRaw as any;
+	// 按照 1.md 格式输出每个币种的数据
+	for (const [symbol, dataRaw] of Object.entries(marketData)) {
+		const data = dataRaw as any;
 
-    prompt += `\n所有 ${symbol} 数据\n`;
-    prompt += `当前价格 = ${data.price.toFixed(
-      1
-    )}, 当前EMA20 = ${data.ema20.toFixed(3)}, 当前MACD = ${data.macd.toFixed(
-      3
-    )}, 当前RSI（7周期） = ${data.rsi7.toFixed(3)}\n\n`;
+		prompt += `\n所有 ${symbol} 数据\n`;
+		prompt += `当前价格 = ${data.price.toFixed(
+			1,
+		)}, 当前EMA20 = ${data.ema20.toFixed(3)}, 当前MACD = ${data.macd.toFixed(
+			3,
+		)}, 当前RSI（7周期） = ${data.rsi7.toFixed(3)}\n\n`;
 
-    // 资金费率
-    if (data.fundingRate !== undefined) {
-      prompt += `此外，这是 ${symbol} 永续合约的最新资金费率（您交易的合约类型）：\n\n`;
-      prompt += `资金费率: ${data.fundingRate.toExponential(2)}\n\n`;
-    }
+		// 资金费率
+		if (data.fundingRate !== undefined) {
+			prompt += `此外，这是 ${symbol} 永续合约的最新资金费率（您交易的合约类型）：\n\n`;
+			prompt += `资金费率: ${data.fundingRate.toExponential(2)}\n\n`;
+		}
 
-    // 日内时序数据（3分钟级别）
-    if (data.intradaySeries && data.intradaySeries.midPrices.length > 0) {
-      const series = data.intradaySeries;
-      prompt += `日内序列（按分钟，最旧 → 最新）：\n\n`;
+		// 日内时序数据（3分钟级别）
+		if (data.intradaySeries && data.intradaySeries.midPrices.length > 0) {
+			const series = data.intradaySeries;
+			prompt += `日内序列（按分钟，最旧 → 最新）：\n\n`;
 
-      // Mid prices
-      prompt += `中间价: [${series.midPrices
-        .map((p: number) => p.toFixed(1))
-        .join(", ")}]\n\n`;
+			// Mid prices
+			prompt += `中间价: [${series.midPrices
+				.map((p: number) => p.toFixed(1))
+				.join(", ")}]\n\n`;
 
-      // EMA indicators (20‑period)
-      prompt += `EMA指标（20周期）: [${series.ema20Series
-        .map((e: number) => e.toFixed(3))
-        .join(", ")}]\n\n`;
+			// EMA indicators (20‑period)
+			prompt += `EMA指标（20周期）: [${series.ema20Series
+				.map((e: number) => e.toFixed(3))
+				.join(", ")}]\n\n`;
 
-      // MACD indicators
-      prompt += `MACD指标: [${series.macdSeries
-        .map((m: number) => m.toFixed(3))
-        .join(", ")}]\n\n`;
+			// MACD indicators
+			prompt += `MACD指标: [${series.macdSeries
+				.map((m: number) => m.toFixed(3))
+				.join(", ")}]\n\n`;
 
-      // RSI indicators (7‑Period)
-      prompt += `RSI指标（7周期）: [${series.rsi7Series
-        .map((r: number) => r.toFixed(3))
-        .join(", ")}]\n\n`;
+			// RSI indicators (7‑Period)
+			prompt += `RSI指标（7周期）: [${series.rsi7Series
+				.map((r: number) => r.toFixed(3))
+				.join(", ")}]\n\n`;
 
-      // RSI indicators (14‑Period)
-      prompt += `RSI指标（14周期）: [${series.rsi14Series
-        .map((r: number) => r.toFixed(3))
-        .join(", ")}]\n\n`;
-    }
+			// RSI indicators (14‑Period)
+			prompt += `RSI指标（14周期）: [${series.rsi14Series
+				.map((r: number) => r.toFixed(3))
+				.join(", ")}]\n\n`;
+		}
 
-    // 更长期的上下文数据（1小时级别 - 用于短线交易）
-    if (data.longerTermContext) {
-      const ltc = data.longerTermContext;
-      prompt += `更长期上下文（1小时时间框架）：\n\n`;
+		// 更长期的上下文数据（1小时级别 - 用于短线交易）
+		if (data.longerTermContext) {
+			const ltc = data.longerTermContext;
+			prompt += `更长期上下文（1小时时间框架）：\n\n`;
 
-      prompt += `20周期EMA: ${ltc.ema20.toFixed(
-        2
-      )} vs. 50周期EMA: ${ltc.ema50.toFixed(2)}\n\n`;
+			prompt += `20周期EMA: ${ltc.ema20.toFixed(
+				2,
+			)} vs. 50周期EMA: ${ltc.ema50.toFixed(2)}\n\n`;
 
-      if (ltc.atr3 && ltc.atr14) {
-        prompt += `3周期ATR: ${ltc.atr3.toFixed(
-          2
-        )} vs. 14周期ATR: ${ltc.atr14.toFixed(3)}\n\n`;
-      }
+			if (ltc.atr3 && ltc.atr14) {
+				prompt += `3周期ATR: ${ltc.atr3.toFixed(
+					2,
+				)} vs. 14周期ATR: ${ltc.atr14.toFixed(3)}\n\n`;
+			}
 
-      prompt += `当前成交量: ${ltc.currentVolume.toFixed(
-        2
-      )} vs. 平均成交量: ${ltc.avgVolume.toFixed(3)}\n\n`;
+			prompt += `当前成交量: ${ltc.currentVolume.toFixed(
+				2,
+			)} vs. 平均成交量: ${ltc.avgVolume.toFixed(3)}\n\n`;
 
-      // MACD 和 RSI 时序（4小时，最近10个数据点）
-      if (ltc.macdSeries && ltc.macdSeries.length > 0) {
-        prompt += `MACD指标: [${ltc.macdSeries
-          .map((m: number) => m.toFixed(3))
-          .join(", ")}]\n\n`;
-      }
+			// MACD 和 RSI 时序（4小时，最近10个数据点）
+			if (ltc.macdSeries && ltc.macdSeries.length > 0) {
+				prompt += `MACD指标: [${ltc.macdSeries
+					.map((m: number) => m.toFixed(3))
+					.join(", ")}]\n\n`;
+			}
 
-      if (ltc.rsi14Series && ltc.rsi14Series.length > 0) {
-        prompt += `RSI指标（14周期）: [${ltc.rsi14Series
-          .map((r: number) => r.toFixed(3))
-          .join(", ")}]\n\n`;
-      }
-    }
+			if (ltc.rsi14Series && ltc.rsi14Series.length > 0) {
+				prompt += `RSI指标（14周期）: [${ltc.rsi14Series
+					.map((r: number) => r.toFixed(3))
+					.join(", ")}]\n\n`;
+			}
+		}
 
-    // 多时间框架指标数据
-    if (data.timeframes) {
-      prompt += `多时间框架指标：\n\n`;
+		// 多时间框架指标数据
+		if (data.timeframes) {
+			prompt += `多时间框架指标：\n\n`;
 
-      const tfList = [
-        { key: "1m", name: "1分钟" },
-        { key: "3m", name: "3分钟" },
-        { key: "5m", name: "5分钟" },
-        { key: "15m", name: "15分钟" },
-        { key: "30m", name: "30分钟" },
-        { key: "1h", name: "1小时" },
-      ];
+			const tfList = [
+				{ key: "1m", name: "1分钟" },
+				{ key: "3m", name: "3分钟" },
+				{ key: "5m", name: "5分钟" },
+				{ key: "15m", name: "15分钟" },
+				{ key: "30m", name: "30分钟" },
+				{ key: "1h", name: "1小时" },
+			];
 
-      for (const tf of tfList) {
-        const tfData = data.timeframes[tf.key];
-        if (tfData) {
-          prompt += `${tf.name}: 价格=${tfData.currentPrice.toFixed(
-            2
-          )}, EMA20=${tfData.ema20.toFixed(3)}, EMA50=${tfData.ema50.toFixed(
-            3
-          )}, MACD=${tfData.macd.toFixed(3)}, RSI7=${tfData.rsi7.toFixed(
-            2
-          )}, RSI14=${tfData.rsi14.toFixed(2)}, 成交量=${tfData.volume.toFixed(
-            2
-          )}\n`;
-        }
-      }
-      prompt += `\n`;
-    }
-  }
+			for (const tf of tfList) {
+				const tfData = data.timeframes[tf.key];
+				if (tfData) {
+					prompt += `${tf.name}: 价格=${tfData.currentPrice.toFixed(
+						2,
+					)}, EMA20=${tfData.ema20.toFixed(3)}, EMA50=${tfData.ema50.toFixed(
+						3,
+					)}, MACD=${tfData.macd.toFixed(3)}, RSI7=${tfData.rsi7.toFixed(
+						2,
+					)}, RSI14=${tfData.rsi14.toFixed(2)}, 成交量=${tfData.volume.toFixed(
+						2,
+					)}\n`;
+				}
+			}
+			prompt += `\n`;
+		}
+	}
 
-  // 账户信息和表现（参照 1.md 格式）
-  prompt += `\n以下是您的账户信息和表现\n`;
+	// 账户信息和表现（参照 1.md 格式）
+	prompt += `\n以下是您的账户信息和表现\n`;
 
-  // 计算账户回撤（如果提供了初始净值和峰值净值）
-  if (
-    accountInfo.initialBalance !== undefined &&
-    accountInfo.peakBalance !== undefined
-  ) {
-    const drawdownFromPeak =
-      ((accountInfo.peakBalance - accountInfo.totalBalance) /
-        accountInfo.peakBalance) *
-      100;
-    const drawdownFromInitial =
-      ((accountInfo.initialBalance - accountInfo.totalBalance) /
-        accountInfo.initialBalance) *
-      100;
+	// 计算账户回撤（如果提供了初始净值和峰值净值）
+	if (
+		accountInfo.initialBalance !== undefined &&
+		accountInfo.peakBalance !== undefined
+	) {
+		const drawdownFromPeak =
+			((accountInfo.peakBalance - accountInfo.totalBalance) /
+				accountInfo.peakBalance) *
+			100;
+		const drawdownFromInitial =
+			((accountInfo.initialBalance - accountInfo.totalBalance) /
+				accountInfo.initialBalance) *
+			100;
 
-    prompt += `初始账户净值: ${accountInfo.initialBalance.toFixed(2)} USDT\n`;
-    prompt += `峰值账户净值: ${accountInfo.peakBalance.toFixed(2)} USDT\n`;
-    prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n`;
-    prompt += `账户回撤 (从峰值): ${
-      drawdownFromPeak >= 0 ? "" : "+"
-    }${(-drawdownFromPeak).toFixed(2)}%\n`;
-    prompt += `账户回撤 (从初始): ${
-      drawdownFromInitial >= 0 ? "" : "+"
-    }${(-drawdownFromInitial).toFixed(2)}%\n\n`;
+		prompt += `初始账户净值: ${accountInfo.initialBalance.toFixed(2)} USDT\n`;
+		prompt += `峰值账户净值: ${accountInfo.peakBalance.toFixed(2)} USDT\n`;
+		prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n`;
+		prompt += `账户回撤 (从峰值): ${
+			drawdownFromPeak >= 0 ? "" : "+"
+		}${(-drawdownFromPeak).toFixed(2)}%\n`;
+		prompt += `账户回撤 (从初始): ${
+			drawdownFromInitial >= 0 ? "" : "+"
+		}${(-drawdownFromInitial).toFixed(2)}%\n\n`;
 
-    // 添加风控警告（使用配置参数）
-    // 注释：已移除强制清仓限制，仅保留警告提醒
-    if (drawdownFromPeak >= RISK_PARAMS.ACCOUNT_DRAWDOWN_WARNING_PERCENT) {
-      prompt += `提醒: 账户回撤已达到 ${drawdownFromPeak.toFixed(
-        2
-      )}%，请谨慎交易\n\n`;
-    }
-  } else {
-    prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n\n`;
-  }
+		// 添加风控警告（使用配置参数）
+		// 注释：已移除强制清仓限制，仅保留警告提醒
+		if (drawdownFromPeak >= RISK_PARAMS.ACCOUNT_DRAWDOWN_WARNING_PERCENT) {
+			prompt += `提醒: 账户回撤已达到 ${drawdownFromPeak.toFixed(
+				2,
+			)}%，请谨慎交易\n\n`;
+		}
+	} else {
+		prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n\n`;
+	}
 
-  prompt += `当前总收益率: ${accountInfo.returnPercent.toFixed(2)}%\n\n`;
+	prompt += `当前总收益率: ${accountInfo.returnPercent.toFixed(2)}%\n\n`;
 
-  // 计算所有持仓的未实现盈亏总和
-  const totalUnrealizedPnL = positions.reduce(
-    (sum, pos) => sum + (pos.unrealized_pnl || 0),
-    0
-  );
+	// 计算所有持仓的未实现盈亏总和
+	const totalUnrealizedPnL = positions.reduce(
+		(sum, pos) => sum + (pos.unrealized_pnl || 0),
+		0,
+	);
 
-  prompt += `可用资金: ${accountInfo.availableBalance.toFixed(1)} USDT\n\n`;
-  prompt += `未实现盈亏: ${totalUnrealizedPnL.toFixed(2)} USDT (${
-    totalUnrealizedPnL >= 0 ? "+" : ""
-  }${((totalUnrealizedPnL / accountInfo.totalBalance) * 100).toFixed(2)}%)\n\n`;
+	prompt += `可用资金: ${accountInfo.availableBalance.toFixed(1)} USDT\n\n`;
+	prompt += `未实现盈亏: ${totalUnrealizedPnL.toFixed(2)} USDT (${
+		totalUnrealizedPnL >= 0 ? "+" : ""
+	}${((totalUnrealizedPnL / accountInfo.totalBalance) * 100).toFixed(2)}%)\n\n`;
 
-  // 当前持仓和表现
-  if (positions.length > 0) {
-    prompt += `以下是您当前的持仓信息。重要说明：\n`;
-    prompt += `- 所有"盈亏百分比"都是考虑杠杆后的值，公式为：盈亏百分比 = (价格变动%) × 杠杆倍数\n`;
-    prompt += `- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n`;
-    prompt += `- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n`;
-    prompt += `- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n`;
-    for (const pos of positions) {
-      // 计算盈亏百分比：考虑杠杆倍数
-      // 对于杠杆交易：盈亏百分比 = (价格变动百分比) × 杠杆倍数
-      const priceChangePercent =
-        pos.entry_price > 0
-          ? ((pos.current_price - pos.entry_price) / pos.entry_price) *
-            100 *
-            (pos.side === "long" ? 1 : -1)
-          : 0;
-      const pnlPercent = priceChangePercent * pos.leverage;
+	// 当前持仓和表现
+	if (positions.length > 0) {
+		prompt += `以下是您当前的持仓信息。重要说明：\n`;
+		prompt += `- 所有"盈亏百分比"都是考虑杠杆后的值，公式为：盈亏百分比 = (价格变动%) × 杠杆倍数\n`;
+		prompt += `- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n`;
+		prompt += `- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n`;
+		prompt += `- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n`;
+		for (const pos of positions) {
+			// 计算盈亏百分比：考虑杠杆倍数
+			// 对于杠杆交易：盈亏百分比 = (价格变动百分比) × 杠杆倍数
+			const priceChangePercent =
+				pos.entry_price > 0
+					? ((pos.current_price - pos.entry_price) / pos.entry_price) *
+						100 *
+						(pos.side === "long" ? 1 : -1)
+					: 0;
+			const pnlPercent = priceChangePercent * pos.leverage;
 
-      // 计算持仓时长
-      const openedTime = new Date(pos.opened_at);
-      const now = new Date();
-      const holdingMinutes = Math.floor(
-        (now.getTime() - openedTime.getTime()) / (1000 * 60)
-      );
-      const holdingHours = (holdingMinutes / 60).toFixed(1);
-      const remainingHours = Math.max(
-        0,
-        RISK_PARAMS.MAX_HOLDING_HOURS - parseFloat(holdingHours)
-      );
-      const holdingCycles = Math.floor(holdingMinutes / intervalMinutes); // 根据实际执行周期计算
-      const maxCycles = Math.floor(
-        (RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes
-      ); // 最大持仓时间的总周期数
-      const remainingCycles = Math.max(0, maxCycles - holdingCycles);
+			// 计算持仓时长
+			const openedTime = new Date(pos.opened_at);
+			const now = new Date();
+			const holdingMinutes = Math.floor(
+				(now.getTime() - openedTime.getTime()) / (1000 * 60),
+			);
+			const holdingHours = (holdingMinutes / 60).toFixed(1);
+			const remainingHours = Math.max(
+				0,
+				RISK_PARAMS.MAX_HOLDING_HOURS - Number.parseFloat(holdingHours),
+			);
+			const holdingCycles = Math.floor(holdingMinutes / intervalMinutes); // 根据实际执行周期计算
+			const maxCycles = Math.floor(
+				(RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes,
+			); // 最大持仓时间的总周期数
+			const remainingCycles = Math.max(0, maxCycles - holdingCycles);
 
-      // 计算峰值回撤（使用绝对回撤，即百分点）
-      const peakPnlPercent = pos.peak_pnl_percent || 0;
-      const drawdownFromPeak =
-        peakPnlPercent > 0 ? peakPnlPercent - pnlPercent : 0;
+			// 计算峰值回撤（使用绝对回撤，即百分点）
+			const peakPnlPercent = pos.peak_pnl_percent || 0;
+			const drawdownFromPeak =
+				peakPnlPercent > 0 ? peakPnlPercent - pnlPercent : 0;
 
-      prompt += `当前活跃持仓: ${pos.symbol} ${
-        pos.side === "long" ? "做多" : "做空"
-      }\n`;
-      prompt += `  杠杆倍数: ${pos.leverage}x\n`;
-      prompt += `  盈亏百分比: ${
-        pnlPercent >= 0 ? "+" : ""
-      }${pnlPercent.toFixed(2)}% (已考虑杠杆倍数)\n`;
-      prompt += `  盈亏金额: ${
-        pos.unrealized_pnl >= 0 ? "+" : ""
-      }${pos.unrealized_pnl.toFixed(2)} USDT\n`;
+			prompt += `当前活跃持仓: ${pos.symbol} ${
+				pos.side === "long" ? "做多" : "做空"
+			}\n`;
+			prompt += `  杠杆倍数: ${pos.leverage}x\n`;
+			prompt += `  盈亏百分比: ${
+				pnlPercent >= 0 ? "+" : ""
+			}${pnlPercent.toFixed(2)}% (已考虑杠杆倍数)\n`;
+			prompt += `  盈亏金额: ${
+				pos.unrealized_pnl >= 0 ? "+" : ""
+			}${pos.unrealized_pnl.toFixed(2)} USDT\n`;
 
-      // 添加峰值盈利和回撤信息
-      if (peakPnlPercent > 0) {
-        prompt += `  峰值盈利: +${peakPnlPercent.toFixed(2)}% (历史最高点)\n`;
-        prompt += `  峰值回撤: ${drawdownFromPeak.toFixed(2)}%\n`;
-        if (drawdownFromPeak >= params.peakDrawdownProtection) {
-          prompt += `  警告: 峰值回撤已达到 ${drawdownFromPeak.toFixed(
-            2
-          )}%，超过保护阈值 ${
-            params.peakDrawdownProtection
-          }%，强烈建议立即平仓！\n`;
-        } else if (drawdownFromPeak >= params.peakDrawdownProtection * 0.7) {
-          prompt += `  提醒: 峰值回撤接近保护阈值 (当前${drawdownFromPeak.toFixed(
-            2
-          )}%，阈值${params.peakDrawdownProtection}%)，需要密切关注！\n`;
-        }
-      }
+			// 添加峰值盈利和回撤信息
+			if (peakPnlPercent > 0) {
+				prompt += `  峰值盈利: +${peakPnlPercent.toFixed(2)}% (历史最高点)\n`;
+				prompt += `  峰值回撤: ${drawdownFromPeak.toFixed(2)}%\n`;
+				if (drawdownFromPeak >= params.peakDrawdownProtection) {
+					prompt += `  警告: 峰值回撤已达到 ${drawdownFromPeak.toFixed(
+						2,
+					)}%，超过保护阈值 ${
+						params.peakDrawdownProtection
+					}%，强烈建议立即平仓！\n`;
+				} else if (drawdownFromPeak >= params.peakDrawdownProtection * 0.7) {
+					prompt += `  提醒: 峰值回撤接近保护阈值 (当前${drawdownFromPeak.toFixed(
+						2,
+					)}%，阈值${params.peakDrawdownProtection}%)，需要密切关注！\n`;
+				}
+			}
 
-      prompt += `  开仓价: ${pos.entry_price.toFixed(2)}\n`;
-      prompt += `  当前价: ${pos.current_price.toFixed(2)}\n`;
-      prompt += `  开仓时间: ${formatChinaTime(pos.opened_at)}\n`;
-      prompt += `  已持仓: ${holdingHours} 小时 (${holdingMinutes} 分钟, ${holdingCycles} 个周期)\n`;
-      prompt += `  距离${
-        RISK_PARAMS.MAX_HOLDING_HOURS
-      }小时限制: ${remainingHours.toFixed(
-        1
-      )} 小时 (${remainingCycles} 个周期)\n`;
+			prompt += `  开仓价: ${pos.entry_price.toFixed(2)}\n`;
+			prompt += `  当前价: ${pos.current_price.toFixed(2)}\n`;
+			prompt += `  开仓时间: ${formatChinaTime(pos.opened_at)}\n`;
+			prompt += `  已持仓: ${holdingHours} 小时 (${holdingMinutes} 分钟, ${holdingCycles} 个周期)\n`;
+			prompt += `  距离${
+				RISK_PARAMS.MAX_HOLDING_HOURS
+			}小时限制: ${remainingHours.toFixed(
+				1,
+			)} 小时 (${remainingCycles} 个周期)\n`;
 
-      // 如果接近最大持仓时间,添加警告
-      if (remainingHours < 2) {
-        prompt += `  警告: 即将达到${RISK_PARAMS.MAX_HOLDING_HOURS}小时持仓限制,必须立即平仓!\n`;
-      } else if (remainingHours < 4) {
-        prompt += `  提醒: 距离${RISK_PARAMS.MAX_HOLDING_HOURS}小时限制不足4小时,请准备平仓\n`;
-      }
+			// 如果接近最大持仓时间,添加警告
+			if (remainingHours < 2) {
+				prompt += `  警告: 即将达到${RISK_PARAMS.MAX_HOLDING_HOURS}小时持仓限制,必须立即平仓!\n`;
+			} else if (remainingHours < 4) {
+				prompt += `  提醒: 距离${RISK_PARAMS.MAX_HOLDING_HOURS}小时限制不足4小时,请准备平仓\n`;
+			}
 
-      prompt += "\n";
-    }
-  }
+			prompt += "\n";
+		}
+	}
 
-  // Sharpe Ratio
-  if (accountInfo.sharpeRatio !== undefined) {
-    prompt += `夏普比率: ${accountInfo.sharpeRatio.toFixed(3)}\n\n`;
-  }
+	// Sharpe Ratio
+	if (accountInfo.sharpeRatio !== undefined) {
+		prompt += `夏普比率: ${accountInfo.sharpeRatio.toFixed(3)}\n\n`;
+	}
 
-  // 历史成交记录（最近10条）
-  if (tradeHistory && tradeHistory.length > 0) {
-    prompt += `\n最近交易历史（最近10笔交易，最旧 → 最新）：\n`;
-    prompt += `重要说明：以下仅为最近10条交易的统计，用于分析近期策略表现，不代表账户总盈亏。\n`;
-    prompt += `使用此信息评估近期交易质量、识别策略问题、优化决策方向。\n\n`;
+	// 历史成交记录（最近10条）
+	if (tradeHistory && tradeHistory.length > 0) {
+		prompt += `\n最近交易历史（最近10笔交易，最旧 → 最新）：\n`;
+		prompt += `重要说明：以下仅为最近10条交易的统计，用于分析近期策略表现，不代表账户总盈亏。\n`;
+		prompt += `使用此信息评估近期交易质量、识别策略问题、优化决策方向。\n\n`;
 
-    let totalProfit = 0;
-    let profitCount = 0;
-    let lossCount = 0;
+		let totalProfit = 0;
+		let profitCount = 0;
+		let lossCount = 0;
 
-    for (const trade of tradeHistory) {
-      const tradeTime = formatChinaTime(trade.timestamp);
+		for (const trade of tradeHistory) {
+			const tradeTime = formatChinaTime(trade.timestamp);
 
-      prompt += `交易: ${trade.symbol} ${
-        trade.type === "open" ? "开仓" : "平仓"
-      } ${trade.side.toUpperCase()}\n`;
-      prompt += `  时间: ${tradeTime}\n`;
-      prompt += `  价格: ${trade.price.toFixed(
-        2
-      )}, 数量: ${trade.quantity.toFixed(4)}, 杠杆: ${trade.leverage}x\n`;
-      prompt += `  手续费: ${trade.fee.toFixed(4)} USDT\n`;
+			prompt += `交易: ${trade.symbol} ${
+				trade.type === "open" ? "开仓" : "平仓"
+			} ${trade.side.toUpperCase()}\n`;
+			prompt += `  时间: ${tradeTime}\n`;
+			prompt += `  价格: ${trade.price.toFixed(
+				2,
+			)}, 数量: ${trade.quantity.toFixed(4)}, 杠杆: ${trade.leverage}x\n`;
+			prompt += `  手续费: ${trade.fee.toFixed(4)} USDT\n`;
 
-      // 对于平仓交易，总是显示盈亏金额
-      if (trade.type === "close") {
-        if (trade.pnl !== undefined && trade.pnl !== null) {
-          prompt += `  盈亏: ${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(
-            2
-          )} USDT\n`;
-          totalProfit += trade.pnl;
-          if (trade.pnl > 0) {
-            profitCount++;
-          } else if (trade.pnl < 0) {
-            lossCount++;
-          }
-        } else {
-          prompt += `  盈亏: 暂无数据\n`;
-        }
-      }
+			// 对于平仓交易，总是显示盈亏金额
+			if (trade.type === "close") {
+				if (trade.pnl !== undefined && trade.pnl !== null) {
+					prompt += `  盈亏: ${trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(
+						2,
+					)} USDT\n`;
+					totalProfit += trade.pnl;
+					if (trade.pnl > 0) {
+						profitCount++;
+					} else if (trade.pnl < 0) {
+						lossCount++;
+					}
+				} else {
+					prompt += `  盈亏: 暂无数据\n`;
+				}
+			}
 
-      prompt += `\n`;
-    }
+			prompt += `\n`;
+		}
 
-    if (profitCount > 0 || lossCount > 0) {
-      const winRate = (profitCount / (profitCount + lossCount)) * 100;
-      prompt += `最近10条交易统计（仅供参考）:\n`;
-      prompt += `  - 胜率: ${winRate.toFixed(1)}%\n`;
-      prompt += `  - 盈利交易: ${profitCount}笔\n`;
-      prompt += `  - 亏损交易: ${lossCount}笔\n`;
-      prompt += `  - 最近10条净盈亏: ${
-        totalProfit >= 0 ? "+" : ""
-      }${totalProfit.toFixed(2)} USDT\n`;
-      prompt += `\n注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n`;
-      prompt += `账户真实盈亏请参考上方"当前账户状态"中的收益率和总资产变化。\n\n`;
-    }
-  }
+		if (profitCount > 0 || lossCount > 0) {
+			const winRate = (profitCount / (profitCount + lossCount)) * 100;
+			prompt += `最近10条交易统计（仅供参考）:\n`;
+			prompt += `  - 胜率: ${winRate.toFixed(1)}%\n`;
+			prompt += `  - 盈利交易: ${profitCount}笔\n`;
+			prompt += `  - 亏损交易: ${lossCount}笔\n`;
+			prompt += `  - 最近10条净盈亏: ${
+				totalProfit >= 0 ? "+" : ""
+			}${totalProfit.toFixed(2)} USDT\n`;
+			prompt += `\n注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n`;
+			prompt += `账户真实盈亏请参考上方"当前账户状态"中的收益率和总资产变化。\n\n`;
+		}
+	}
 
-  // 上一次的AI决策记录（仅供参考，不是当前状态）
-  if (recentDecisions && recentDecisions.length > 0) {
-    prompt += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    prompt += `【历史决策记录 - 仅供参考】\n`;
-    prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    prompt += `重要提醒：以下是历史决策记录，仅作为参考，不代表当前状态！\n`;
-    prompt += `当前市场数据和持仓信息请参考上方实时数据。\n\n`;
+	// 上一次的AI决策记录（仅供参考，不是当前状态）
+	if (recentDecisions && recentDecisions.length > 0) {
+		prompt += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+		prompt += `【历史决策记录 - 仅供参考】\n`;
+		prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+		prompt += `重要提醒：以下是历史决策记录，仅作为参考，不代表当前状态！\n`;
+		prompt += `当前市场数据和持仓信息请参考上方实时数据。\n\n`;
 
-    for (let i = 0; i < recentDecisions.length; i++) {
-      const decision = recentDecisions[i];
-      const decisionTime = formatChinaTime(decision.timestamp);
-      const timeDiff = Math.floor(
-        (new Date().getTime() - new Date(decision.timestamp).getTime()) /
-          (1000 * 60)
-      );
+		for (let i = 0; i < recentDecisions.length; i++) {
+			const decision = recentDecisions[i];
+			const decisionTime = formatChinaTime(decision.timestamp);
+			const timeDiff = Math.floor(
+				(new Date().getTime() - new Date(decision.timestamp).getTime()) /
+					(1000 * 60),
+			);
 
-      prompt += `【历史】决策 #${decision.iteration} (${decisionTime}，${timeDiff}分钟前):\n`;
-      prompt += `  当时账户价值: ${decision.account_value.toFixed(2)} USDT\n`;
-      prompt += `  当时持仓数量: ${decision.positions_count}\n`;
-      prompt += `  当时决策内容: ${decision.decision}\n\n`;
-    }
+			prompt += `【历史】决策 #${decision.iteration} (${decisionTime}，${timeDiff}分钟前):\n`;
+			prompt += `  当时账户价值: ${decision.account_value.toFixed(2)} USDT\n`;
+			prompt += `  当时持仓数量: ${decision.positions_count}\n`;
+			prompt += `  当时决策内容: ${decision.decision}\n\n`;
+		}
 
-    prompt += `\n使用建议：\n`;
-    prompt += `- 仅作为决策连续性参考，不要被历史决策束缚\n`;
-    prompt += `- 市场已经变化，请基于当前最新数据独立判断\n`;
-    prompt += `- 如果市场条件改变，应该果断调整策略\n\n`;
-  }
+		prompt += `\n使用建议：\n`;
+		prompt += `- 仅作为决策连续性参考，不要被历史决策束缚\n`;
+		prompt += `- 市场已经变化，请基于当前最新数据独立判断\n`;
+		prompt += `- 如果市场条件改变，应该果断调整策略\n\n`;
+	}
 
-  return prompt;
+	return prompt;
 }
 
 /**
  * 根据策略生成交易指令
  */
 function generateInstructions(
-  strategy: TradingStrategy,
-  intervalMinutes: number
+	strategy: TradingStrategy,
+	intervalMinutes: number,
 ): string {
-  const params = getStrategyParams(strategy);
+	const params = getStrategyParams(strategy);
 
-  // 如果是AI自主策略或Alpha Beta策略，返回极简的系统提示词
-  if (strategy === "ai-autonomous" || strategy === "alpha-beta") {
-    const strategyName = strategy === "alpha-beta" ? "Alpha Beta" : "AI自主";
-    const strategyDesc =
-      strategy === "alpha-beta"
-        ? "你的所有行为都会被记录和分析，用于持续改进和学习。"
-        : "";
+	// 如果是AI自主策略或Alpha Beta策略，返回极简的系统提示词
+	if (strategy === "ai-autonomous" || strategy === "alpha-beta") {
+		const strategyName = strategy === "alpha-beta" ? "Alpha Beta" : "AI自主";
+		const strategyDesc =
+			strategy === "alpha-beta"
+				? "你的所有行为都会被记录和分析，用于持续改进和学习。"
+				: "";
 
-    return `你是一个完全自主的AI加密货币交易员，具备自我学习和持续改进的能力。
+		return `你是一个完全自主的AI加密货币交易员，具备自我学习和持续改进的能力。
 
 ${strategyDesc}
 
@@ -840,46 +841,46 @@ ${strategyDesc}
 这种持续的自我复盘和改进是你成为优秀交易员的关键。
 
 现在，请基于每个周期提供的市场数据，先进行自我复盘，然后再做出交易决策。`;
-  }
+	}
 
-  // 判断是否启用自动监控止损和移动止盈（根据策略配置）
-  const isCodeLevelProtectionEnabled = params.enableCodeLevelProtection;
+	// 判断是否启用自动监控止损和移动止盈（根据策略配置）
+	const isCodeLevelProtectionEnabled = params.enableCodeLevelProtection;
 
-  // 生成止损规则描述（基于 stopLoss 配置和杠杆范围）
-  const generateStopLossDescriptions = () => {
-    const levMin = params.leverageMin;
-    const levMax = params.leverageMax;
-    const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
-    const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
-    return [
-      `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
-      `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
-        params.stopLoss.mid
-      }% 时止损`,
-      `${midThreshold + 1}倍以上杠杆，亏损 ${params.stopLoss.high}% 时止损`,
-    ];
-  };
-  const stopLossDescriptions = generateStopLossDescriptions();
+	// 生成止损规则描述（基于 stopLoss 配置和杠杆范围）
+	const generateStopLossDescriptions = () => {
+		const levMin = params.leverageMin;
+		const levMax = params.leverageMax;
+		const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+		const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+		return [
+			`${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
+			`${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
+				params.stopLoss.mid
+			}% 时止损`,
+			`${midThreshold + 1}倍以上杠杆，亏损 ${params.stopLoss.high}% 时止损`,
+		];
+	};
+	const stopLossDescriptions = generateStopLossDescriptions();
 
-  // 构建策略提示词上下文
-  const promptContext: StrategyPromptContext = {
-    intervalMinutes,
-    maxPositions: RISK_PARAMS.MAX_POSITIONS,
-    extremeStopLossPercent: RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT,
-    maxHoldingHours: RISK_PARAMS.MAX_HOLDING_HOURS,
-    tradingSymbols: RISK_PARAMS.TRADING_SYMBOLS,
-  };
+	// 构建策略提示词上下文
+	const promptContext: StrategyPromptContext = {
+		intervalMinutes,
+		maxPositions: RISK_PARAMS.MAX_POSITIONS,
+		extremeStopLossPercent: RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT,
+		maxHoldingHours: RISK_PARAMS.MAX_HOLDING_HOURS,
+		tradingSymbols: RISK_PARAMS.TRADING_SYMBOLS,
+	};
 
-  // 生成策略特定提示词（来自各个策略文件）
-  const strategySpecificContent = generateStrategySpecificPrompt(
-    strategy,
-    params,
-    promptContext
-  );
+	// 生成策略特定提示词（来自各个策略文件）
+	const strategySpecificContent = generateStrategySpecificPrompt(
+		strategy,
+		params,
+		promptContext,
+	);
 
-  return `您是世界顶级的专业量化交易员，结合系统化方法与丰富的实战经验。当前执行【${
-    params.name
-  }】策略框架，在严格风控底线内拥有基于市场实际情况灵活调整的自主权。
+	return `您是世界顶级的专业量化交易员，结合系统化方法与丰富的实战经验。当前执行【${
+		params.name
+	}】策略框架，在严格风控底线内拥有基于市场实际情况灵活调整的自主权。
 
 您的身份定位：
 - **世界顶级交易员**：15年量化交易实战经验，精通多时间框架分析和系统化交易方法，拥有卓越的市场洞察力
@@ -921,16 +922,16 @@ ${strategySpecificContent}
    - **市场是双向的**：如果连续多个周期空仓，很可能是忽视了做空机会
    - 永续合约做空没有借币成本，只需关注资金费率即可
 5. **多时间框架分析**：您分析多个时间框架（15分钟、30分钟、1小时、4小时）的模式，以识别高概率入场点。${
-    params.entryCondition
-  }。
+		params.entryCondition
+	}。
 6. **成交量信号**：成交量作为辅助参考，非强制要求
 7. **仓位管理（${params.name}策略）**：${params.riskTolerance}。最多同时持有${
-    RISK_PARAMS.MAX_POSITIONS
-  }个持仓。
+		RISK_PARAMS.MAX_POSITIONS
+	}个持仓。
 8. **交易频率**：${params.tradingStyle}
 9. **杠杆的合理运用（${params.name}策略）**：您必须使用${params.leverageMin}-${
-    params.leverageMax
-  }倍杠杆，根据信号强度灵活选择：
+		params.leverageMax
+	}倍杠杆，根据信号强度灵活选择：
    - 普通信号：${params.leverageRecommend.normal}
    - 良好信号：${params.leverageRecommend.good}
    - 强信号：${params.leverageRecommend.strong}
@@ -938,10 +939,10 @@ ${strategySpecificContent}
 11. **行情识别与应对策略（核心生存法则）**：
    
    【关键认知】${
-     params.name === "激进"
-       ? "激进策略的核心矛盾：在单边行情积极进攻，在震荡行情严格防守"
-       : "正确识别行情类型是盈利的关键"
-   }
+			params.name === "激进"
+				? "激进策略的核心矛盾：在单边行情积极进攻，在震荡行情严格防守"
+				: "正确识别行情类型是盈利的关键"
+		}
    
    【时间框架分层使用原则】：
    - **长周期（1h、30m）= 趋势确认层**：判断是否为单边行情，过滤市场噪音
@@ -967,32 +968,32 @@ ${strategySpecificContent}
             - 多个时间框架（30m、15m、5m）EMA排列清晰（多头/空头排列）
        
        * **交易策略（${
-         params.name === "激进" ? "激进模式必须全力把握" : "积极参与"
-       }）**：
+					params.name === "激进" ? "激进模式必须全力把握" : "积极参与"
+				}）**：
          - 入场条件（严格按分层验证）：
            ${
-             params.name === "激进"
-               ? "* 【必须】至少1个长周期（30m或1h）趋势明确\n           * 【必须】至少1个中周期（5m或15m）与长周期方向一致\n           * 【可选】短周期（3m）与趋势方向一致时作为入场时机\n           * 【禁止】仅凭短周期（1m、3m）就判断为单边行情！"
-               : "* 至少1个长周期（30m或1h）+ 2个中周期（5m、15m）方向一致"
-           }
+							params.name === "激进"
+								? "* 【必须】至少1个长周期（30m或1h）趋势明确\n           * 【必须】至少1个中周期（5m或15m）与长周期方向一致\n           * 【可选】短周期（3m）与趋势方向一致时作为入场时机\n           * 【禁止】仅凭短周期（1m、3m）就判断为单边行情！"
+								: "* 至少1个长周期（30m或1h）+ 2个中周期（5m、15m）方向一致"
+						}
          - 仓位配置：${
-           params.name === "激进"
-             ? "使用较大仓位（28-32%），充分把握趋势"
-             : "标准仓位"
-         }
+						params.name === "激进"
+							? "使用较大仓位（28-32%），充分把握趋势"
+							: "标准仓位"
+					}
          - 杠杆选择：${
-           params.name === "激进"
-             ? "积极使用较高杠杆（22-25倍），抓住机会"
-             : "根据信号强度选择"
-         }
+						params.name === "激进"
+							? "积极使用较高杠杆（22-25倍），抓住机会"
+							: "根据信号强度选择"
+					}
          - 持仓管理：让利润充分奔跑，不要轻易平仓，只在长周期趋势明显减弱时止盈
          - 止损设置：适度放宽止损（给趋势空间），但仍需严格执行
          - 加仓策略：盈利>5%且长周期趋势继续强化时，积极加仓（最多50%原仓位）
          - ${
-           params.name === "激进"
-             ? "关键提醒：单边行情是激进策略的核心盈利来源，但必须由长周期确认！"
-             : ""
-         }
+						params.name === "激进"
+							? "关键提醒：单边行情是激进策略的核心盈利来源，但必须由长周期确认！"
+							: ""
+					}
        
        * **单边行情示例**：
          - 做多：1h和30m价格持续在EMA20上方，15m和5m MACD柱状图连续红色扩大，多个时间框架RSI>70
@@ -1016,44 +1017,44 @@ ${strategySpecificContent}
             - 高低点不断收敛，形成三角形或矩形整理形态
        
        * **交易策略（${
-         params.name === "激进"
-           ? "震荡行情是激进策略的死敌，必须严格防守"
-           : "谨慎观望"
-       }）**：
+					params.name === "激进"
+						? "震荡行情是激进策略的死敌，必须严格防守"
+						: "谨慎观望"
+				}）**：
          - ${
-           params.name === "激进"
-             ? "【强制规则】震荡行情禁止频繁开仓，这是亏损的主要来源！"
-             : ""
-         }
+						params.name === "激进"
+							? "【强制规则】震荡行情禁止频繁开仓，这是亏损的主要来源！"
+							: ""
+					}
          - 入场条件（严格按分层验证）：
            ${
-             params.name === "激进"
-               ? "* 【必须】至少1个长周期（30m或1h）+ 2个中周期（5m、15m）完全一致\n           * 【必须】短周期（3m、1m）也无反向信号\n           * 【建议】最好等待震荡突破后再入场\n           * 【禁止】长周期震荡时，仅凭短周期信号就开仓（这是频繁止损的根源）"
-               : "* 至少3-4个时间框架一致，且长周期无震荡特征"
-           }
+							params.name === "激进"
+								? "* 【必须】至少1个长周期（30m或1h）+ 2个中周期（5m、15m）完全一致\n           * 【必须】短周期（3m、1m）也无反向信号\n           * 【建议】最好等待震荡突破后再入场\n           * 【禁止】长周期震荡时，仅凭短周期信号就开仓（这是频繁止损的根源）"
+								: "* 至少3-4个时间框架一致，且长周期无震荡特征"
+						}
          - 仓位配置：${
-           params.name === "激进"
-             ? "大幅降低仓位（15-20%），避免震荡止损"
-             : "降低仓位至最小"
-         }
+						params.name === "激进"
+							? "大幅降低仓位（15-20%），避免震荡止损"
+							: "降低仓位至最小"
+					}
          - 杠杆选择：${
-           params.name === "激进"
-             ? "降低杠杆（15-18倍），控制风险"
-             : "使用最低杠杆"
-         }
+						params.name === "激进"
+							? "降低杠杆（15-18倍），控制风险"
+							: "使用最低杠杆"
+					}
          - 持仓管理：快速止盈（盈利5-8%立即平仓），不要贪心
          - 止损设置：收紧止损（减少震荡损失），快速止损
          - 交易频率：${
-           params.name === "激进"
-             ? "大幅降低交易频率，宁可错过也不乱做"
-             : "尽量观望"
-         }
+						params.name === "激进"
+							? "大幅降低交易频率，宁可错过也不乱做"
+							: "尽量观望"
+					}
          - 突破交易：可以等待震荡突破（放量突破关键阻力/支撑）时再入场
          - ${
-           params.name === "激进"
-             ? "关键警告：震荡行情频繁交易=频繁止损+手续费亏损，必须克制！"
-             : ""
-         }
+						params.name === "激进"
+							? "关键警告：震荡行情频繁交易=频繁止损+手续费亏损，必须克制！"
+							: ""
+					}
        
        * **震荡行情示例**：
          - BTC在42000-43000之间反复震荡，30m和1h MACD频繁交叉，各时间框架信号混乱
@@ -1073,10 +1074,10 @@ ${strategySpecificContent}
          ③ 【其他确认】：
             - 成交量突然放大（>平均成交量150%）
             - ${
-              params.name === "激进"
-                ? "这是入场的最佳时机，但必须等长周期确认突破！"
-                : "这是重要的入场机会"
-            }
+							params.name === "激进"
+								? "这是入场的最佳时机，但必须等长周期确认突破！"
+								: "这是重要的入场机会"
+						}
        
        * **单边转震荡**（警告信号，优先观察长周期）：
          ① 【长周期减弱】30m或1h时间框架：
@@ -1091,33 +1092,33 @@ ${strategySpecificContent}
          ③ 【其他警告】：
             - 成交量萎缩，缺乏继续推动力
             - ${
-              params.name === "激进"
-                ? "立即降低仓位或平仓，避免被震荡困住！"
-                : "应考虑获利了结"
-            }
+							params.name === "激进"
+								? "立即降低仓位或平仓，避免被震荡困住！"
+								: "应考虑获利了结"
+						}
    
    (4) ${params.name === "激进" ? "激进策略特别提醒" : "策略总结"}：
        ${
-         params.name === "激进"
-           ? `- 【核心原则】长周期确认趋势，中周期验证信号，短周期寻找入场点
+					params.name === "激进"
+						? `- 【核心原则】长周期确认趋势，中周期验证信号，短周期寻找入场点
        - 【单边行情】全力进攻 = 长周期趋势明确 + 大仓位 + 高杠杆 + 积极加仓 = 赚钱的主要来源
        - 【震荡行情】严格防守 = 长周期震荡 + 小仓位 + 低杠杆 + 高标准 = 避免亏损的关键
        - 【成功要诀】在对的行情做对的事（单边进攻、震荡防守），由长周期判断行情类型
        - 【失败根源】仅凭短周期（1m、3m）就开仓 = 把震荡误判为单边 = 频繁止损 = 亏损的根本原因
        - 【铁律】长周期（30m、1h）没有明确趋势时，绝不能因为短周期信号就开仓！`
-           : `- 【核心原则】时间框架分层使用：长周期判断趋势，中周期验证信号，短周期入场
+						: `- 【核心原则】时间框架分层使用：长周期判断趋势，中周期验证信号，短周期入场
        - 在单边行情积极把握，让利润充分奔跑（长周期趋势明确）
        - 在震荡行情谨慎防守，避免频繁交易（长周期震荡混乱）
        - 正确识别行情类型，调整交易策略（优先看长周期）
        - 耐心等待高质量机会，不要强行交易（长周期无趋势时观望）`
-       }
+				}
 
 当前交易规则（${params.name}策略）：
 - 您交易加密货币的永续期货合约（${RISK_PARAMS.TRADING_SYMBOLS.join("、")}）
 - 仅限市价单 - 以当前价格即时执行
 - **杠杆控制（严格限制）**：必须使用${params.leverageMin}-${
-    params.leverageMax
-  }倍杠杆。
+		params.leverageMax
+	}倍杠杆。
   * ${params.leverageRecommend.normal}：用于普通信号
   * ${params.leverageRecommend.good}：用于良好信号
   * ${params.leverageRecommend.strong}：仅用于强信号
@@ -1132,15 +1133,15 @@ ${strategySpecificContent}
 - 交易费用：每笔交易约0.05%（往返总计0.1%）。每笔交易应有至少2-3%的盈利潜力。
 - **执行周期**：系统每${intervalMinutes}分钟执行一次，这意味着：
   * ${RISK_PARAMS.MAX_HOLDING_HOURS}小时 = ${Math.floor(
-    (RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes
-  )}个执行周期
+		(RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes,
+	)}个执行周期
   * 您无法实时监控价格波动，必须设置保守的止损和止盈
   * 在${intervalMinutes}分钟内市场可能剧烈波动，因此杠杆必须保守
 - **最大持仓时间**：不要持有任何持仓超过${
-    RISK_PARAMS.MAX_HOLDING_HOURS
-  }小时（${Math.floor(
-    (RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes
-  )}个周期）。无论盈亏，在${RISK_PARAMS.MAX_HOLDING_HOURS}小时内平仓所有持仓。
+		RISK_PARAMS.MAX_HOLDING_HOURS
+	}小时（${Math.floor(
+		(RISK_PARAMS.MAX_HOLDING_HOURS * 60) / intervalMinutes,
+	)}个周期）。无论盈亏，在${RISK_PARAMS.MAX_HOLDING_HOURS}小时内平仓所有持仓。
 - **开仓前强制检查**：
   1. 使用getAccountBalance检查可用资金和账户净值
   2. 使用getPositions检查现有持仓数量和总敞口
@@ -1157,35 +1158,35 @@ ${strategySpecificContent}
   
   【系统硬性底线 - 强制执行，不可违反】：
   * 单笔亏损 ≤ ${
-    RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT
-  }%：系统强制平仓（防止爆仓）
+		RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT
+	}%：系统强制平仓（防止爆仓）
   * 持仓时间 ≥ ${RISK_PARAMS.MAX_HOLDING_HOURS}小时：系统强制平仓（释放资金）
   
   【AI战术决策 - 专业建议，灵活执行】：
   
   核心原则（必读）：
   ${
-    isCodeLevelProtectionEnabled
-      ? `• 波段策略：AI只负责开仓，平仓完全由自动监控自动执行
+		isCodeLevelProtectionEnabled
+			? `• 波段策略：AI只负责开仓，平仓完全由自动监控自动执行
   • AI职责：专注于市场分析、开仓决策、风险监控和报告
   • 禁止平仓：AI禁止主动调用 closePosition 进行止损或止盈
   • 自动保护：自动监控每10秒检查，触发条件立即自动平仓
   • 报告为主：AI在报告中说明持仓状态、风险等级、趋势健康度即可`
-      : `• 止损 = 严格遵守：止损线是硬性规则，必须严格执行，仅可微调±1%
+			: `• 止损 = 严格遵守：止损线是硬性规则，必须严格执行，仅可微调±1%
   • 止盈 = 灵活判断：止盈要根据市场实际情况决定，2-3%盈利也可止盈，不要死等高目标
   • 小确定性盈利 > 大不确定性盈利：宁可提前止盈，不要贪心回吐
   • 趋势是朋友，反转是敌人：出现反转信号立即止盈，不管盈利多少
   • 实战经验：盈利≥5%且持仓超过3小时，没有强趋势信号时可以主动平仓落袋为安`
-  }
+	}
   
   (1) 止损策略${
-    isCodeLevelProtectionEnabled
-      ? "（双层保护：自动监控强制止损 + AI战术止损）"
-      : "（AI主动止损）"
-  }：
+		isCodeLevelProtectionEnabled
+			? "（双层保护：自动监控强制止损 + AI战术止损）"
+			: "（AI主动止损）"
+	}：
      ${
-       isCodeLevelProtectionEnabled
-         ? `
+				isCodeLevelProtectionEnabled
+					? `
      * 【自动监控强制止损】（每10秒自动检查，无需AI干预）：
        系统已启用自动止损监控（每10秒检查一次），根据杠杆倍数分级保护：
        - ${stopLossDescriptions[0]}
@@ -1206,34 +1207,34 @@ ${strategySpecificContent}
        - AI专注于开仓决策和市场分析
        - AI在报告中说明风险状态即可
        - 让自动监控自动处理所有止损逻辑`
-         : `
+					: `
      * 【AI主动止损】（当前策略未启用自动监控止损，AI全权负责）：
        AI必须严格执行止损规则，这是保护账户的唯一防线：
        - ${params.leverageMin}-${Math.floor(
-             (params.leverageMin + params.leverageMax) / 2
-           )}倍杠杆：严格止损线 ${params.stopLoss.low}%
+					(params.leverageMin + params.leverageMax) / 2,
+				)}倍杠杆：严格止损线 ${params.stopLoss.low}%
        - ${Math.floor(
-         (params.leverageMin + params.leverageMax) / 2
-       )}-${Math.ceil(
-             (params.leverageMin + params.leverageMax) * 0.75
-           )}倍杠杆：严格止损线 ${params.stopLoss.mid}%
+					(params.leverageMin + params.leverageMax) / 2,
+				)}-${Math.ceil(
+					(params.leverageMin + params.leverageMax) * 0.75,
+				)}倍杠杆：严格止损线 ${params.stopLoss.mid}%
        - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${
-             params.leverageMax
-           }倍杠杆：严格止损线 ${params.stopLoss.high}%
+					params.leverageMax
+				}倍杠杆：严格止损线 ${params.stopLoss.high}%
        - 止损必须严格执行，不要犹豫，不要等待
        - 微调空间：可根据关键支撑位/阻力位、趋势强度灵活调整±1-2%
        - 如果看到趋势反转、破位等危险信号，应立即执行止损
        - 没有自动监控保护，AI必须主动监控并及时止损`
-     }
+			}
      
      * 说明：pnl_percent已包含杠杆效应，直接比较即可
   
   (2) 移动止盈策略${
-    isCodeLevelProtectionEnabled ? "（由自动监控自动执行）" : "（AI主动执行）"
-  }：
+		isCodeLevelProtectionEnabled ? "（由自动监控自动执行）" : "（AI主动执行）"
+	}：
      ${
-       isCodeLevelProtectionEnabled
-         ? `* 系统已启用自动监控移动止盈监控（每10秒检查一次，3级规则）：
+				isCodeLevelProtectionEnabled
+					? `* 系统已启用自动监控移动止盈监控（每10秒检查一次，3级规则）：
        - 自动跟踪每个持仓的盈利峰值（单个币种独立跟踪）
        - Level 1: 峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓
        - Level 2: 峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓
@@ -1246,7 +1247,7 @@ ${strategySpecificContent}
        - 分析趋势是否继续强劲
        - 禁止主动调用 closePosition 进行止盈平仓
        - 所有止盈平仓都由自动监控自动执行`
-         : `* 当前策略未启用自动监控移动止盈，AI需要主动监控峰值回撤：
+					: `* 当前策略未启用自动监控移动止盈，AI需要主动监控峰值回撤：
        - 自己跟踪每个持仓的盈利峰值（使用 peak_pnl_percent 字段）
        - 当峰值回撤达到阈值时，AI需要主动执行平仓
        - ${params.name}策略的移动止盈规则（严格执行）：
@@ -1254,7 +1255,7 @@ ${strategySpecificContent}
          * 盈利达到 +${params.trailingStop.level2.trigger}% 时，止损线移至 +${params.trailingStop.level2.stopAt}%
          * 盈利达到 +${params.trailingStop.level3.trigger}% 时，止损线移至 +${params.trailingStop.level3.stopAt}%
        - AI必须在分析持仓时主动计算和判断是否触发移动止盈`
-     }
+			}
   
   (3) 止盈策略（务必落袋为安，不要过度贪婪）：
      * 激进策略核心教训：贪婪是盈利的敌人！
@@ -1265,13 +1266,13 @@ ${strategySpecificContent}
      * 止盈分级执行（强烈建议，不是可选）：
        - 盈利 ≥ +10% → 评估是否平仓30-50%（趋势减弱立即平）
        - 盈利 ≥ +${params.partialTakeProfit.stage1.trigger}% → 强烈建议平仓${
-    params.partialTakeProfit.stage1.closePercent
-  }%（锁定一半利润）
+					params.partialTakeProfit.stage1.closePercent
+				}%（锁定一半利润）
        - 盈利 ≥ +${
-         params.partialTakeProfit.stage2.trigger
-       }% → 强烈建议平仓剩余${
-    params.partialTakeProfit.stage2.closePercent
-  }%（全部落袋为安）
+					params.partialTakeProfit.stage2.trigger
+				}% → 强烈建议平仓剩余${
+					params.partialTakeProfit.stage2.closePercent
+				}%（全部落袋为安）
        - **关键时机判断**：
          * 趋势减弱/出现反转信号 → 立即全部止盈，不要犹豫
          * 阻力位/压力位附近 → 先平50%，观察突破情况
@@ -1289,17 +1290,17 @@ ${strategySpecificContent}
   
   (4) 峰值回撤保护（危险信号）：
      * ${params.name}策略的峰值回撤阈值：${
-    params.peakDrawdownProtection
-  }%（已根据风险偏好优化）
+				params.peakDrawdownProtection
+			}%（已根据风险偏好优化）
      * 如果持仓曾达到峰值盈利，当前盈利从峰值回撤 ≥ ${
-       params.peakDrawdownProtection
-     }%
+				params.peakDrawdownProtection
+			}%
      * 计算方式：回撤% = 峰值盈利 - 当前盈利（绝对回撤，百分点）
      * 示例：峰值+${Math.round(
-       params.peakDrawdownProtection * 1.2
-     )}% → 当前+${Math.round(params.peakDrawdownProtection * 0.2)}%，回撤${
-    params.peakDrawdownProtection
-  }%（危险！）
+				params.peakDrawdownProtection * 1.2,
+			)}% → 当前+${Math.round(params.peakDrawdownProtection * 0.2)}%，回撤${
+				params.peakDrawdownProtection
+			}%（危险！）
      * 强烈建议：立即平仓或至少减仓50%
      * 例外情况：有明确证据表明只是正常回调（如测试均线支撑）
   
@@ -1307,8 +1308,8 @@ ${strategySpecificContent}
      * 盈利 > 25% 且持仓 ≥ 4小时 → 可考虑主动获利了结
      * 持仓 > 24小时且未盈利 → 考虑平仓释放资金
      * 系统会在${RISK_PARAMS.MAX_HOLDING_HOURS}小时强制平仓，您无需在${
-    RISK_PARAMS.MAX_HOLDING_HOURS - 1
-  }小时主动平仓
+				RISK_PARAMS.MAX_HOLDING_HOURS - 1
+			}小时主动平仓
 - 账户级风控保护：
   * 注意账户回撤情况，谨慎交易
 
@@ -1326,13 +1327,13 @@ ${strategySpecificContent}
    - 对每个持仓进行专业分析和决策（每个决策都要实际执行工具）：
    
    a) 止损监控${
-     isCodeLevelProtectionEnabled
-       ? "（完全由自动监控自动执行，AI不需要主动平仓）"
-       : "（AI主动止损）"
-   }：
+			isCodeLevelProtectionEnabled
+				? "（完全由自动监控自动执行，AI不需要主动平仓）"
+				: "（AI主动止损）"
+		}：
       ${
-        isCodeLevelProtectionEnabled
-          ? `- 重要：策略的止损完全由自动监控自动执行，AI不需要主动平仓！
+				isCodeLevelProtectionEnabled
+					? `- 重要：策略的止损完全由自动监控自动执行，AI不需要主动平仓！
         * 【自动监控强制止损】：系统每10秒自动检查，触发即自动平仓
           - ${stopLossDescriptions[0]}
           - ${stopLossDescriptions[1]}
@@ -1345,31 +1346,31 @@ ${strategySpecificContent}
         * 在报告中说明持仓风险和市场情况
         * 禁止主动调用 closePosition 进行止损平仓
         * 止损平仓完全由自动监控自动执行`
-          : `- AI全权负责止损（当前策略未启用自动监控止损）：
+					: `- AI全权负责止损（当前策略未启用自动监控止损）：
         * AI必须严格执行止损规则，这是保护账户的唯一防线
         * 根据杠杆倍数分级保护（严格执行）：
           - ${params.leverageMin}-${Math.floor(
-              (params.leverageMin + params.leverageMax) / 2
-            )}倍杠杆：止损线 ${params.stopLoss.low}%
+						(params.leverageMin + params.leverageMax) / 2,
+					)}倍杠杆：止损线 ${params.stopLoss.low}%
           - ${Math.floor(
-            (params.leverageMin + params.leverageMax) / 2
-          )}-${Math.ceil(
-              (params.leverageMin + params.leverageMax) * 0.75
-            )}倍杠杆：止损线 ${params.stopLoss.mid}%
+						(params.leverageMin + params.leverageMax) / 2,
+					)}-${Math.ceil(
+						(params.leverageMin + params.leverageMax) * 0.75,
+					)}倍杠杆：止损线 ${params.stopLoss.mid}%
           - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${
-              params.leverageMax
-            }倍杠杆：止损线 ${params.stopLoss.high}%
+						params.leverageMax
+					}倍杠杆：止损线 ${params.stopLoss.high}%
         * 如果看到趋势反转、破位等危险信号，应立即执行止损`
-      }
+			}
    
    b) 止盈监控${
-     isCodeLevelProtectionEnabled
-       ? "（完全由自动监控自动执行，AI不需要主动平仓）"
-       : "（AI主动止盈 - 务必积极执行）"
-   }：
+			isCodeLevelProtectionEnabled
+				? "（完全由自动监控自动执行，AI不需要主动平仓）"
+				: "（AI主动止盈 - 务必积极执行）"
+		}：
       ${
-        isCodeLevelProtectionEnabled
-          ? `- 重要：策略的止盈完全由自动监控自动执行，AI不需要主动平仓！
+				isCodeLevelProtectionEnabled
+					? `- 重要：策略的止盈完全由自动监控自动执行，AI不需要主动平仓！
         * 【自动监控移动止盈】：系统每10秒自动检查，3级规则自动保护利润
           - Level 1: 峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓
           - Level 2: 峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓
@@ -1382,7 +1383,7 @@ ${strategySpecificContent}
         * 在报告中说明盈利状态和趋势健康度
         * 禁止主动调用 closePosition 进行止盈平仓
         * 止盈平仓完全由自动监控自动执行`
-          : `- ${params.name}策略止盈核心原则：落袋为安！不要贪心！
+					: `- ${params.name}策略止盈核心原则：落袋为安！不要贪心！
         * **盈利 ≥ 10%** → 评估趋势，考虑平仓30-50%
         * **盈利 ≥ 15%** → 如果趋势减弱，立即平仓50%或更多
         * **盈利 ≥ 20%** → 强烈建议至少平仓50%，锁定利润
@@ -1393,7 +1394,7 @@ ${strategySpecificContent}
         * **震荡行情** → 有盈利就及时平仓，不要等
         * 执行方式：closePosition({ symbol, percentage })
         * 记住：小的确定性盈利 > 大的不确定性盈利`
-      }
+			}
    
    c) 市场分析和报告：
       - 调用 getTechnicalIndicators 分析技术指标
@@ -1404,24 +1405,24 @@ ${strategySpecificContent}
         * 技术指标的健康度
         * 趋势是否依然强劲
         * ${
-          isCodeLevelProtectionEnabled
-            ? "自动监控会自动处理止损和止盈"
-            : "是否需要主动平仓"
-        }
+					isCodeLevelProtectionEnabled
+						? "自动监控会自动处理止损和止盈"
+						: "是否需要主动平仓"
+				}
    
    d) ${isCodeLevelProtectionEnabled ? "理解自动化保护机制" : "趋势反转判断"}：
       ${
-        isCodeLevelProtectionEnabled
-          ? `- 波段策略已启用完整的自动监控保护：
+				isCodeLevelProtectionEnabled
+					? `- 波段策略已启用完整的自动监控保护：
         * 止损保护：触及止损线自动平仓
         * 止盈保护：峰值回撤自动平仓
         * AI职责：专注于开仓决策和市场分析
         * AI不需要也不应该主动执行平仓操作
         * 让自动监控自动处理所有平仓逻辑`
-          : `- 如果至少3个时间框架显示趋势反转
+					: `- 如果至少3个时间框架显示趋势反转
         * 立即调用 closePosition 平仓
         * 反转后想开反向仓位，必须先平掉原持仓`
-      }
+			}
 
 3. 分析市场数据（必须实际调用工具）：
    - 调用 getTechnicalIndicators 获取技术指标数据
@@ -1430,8 +1431,8 @@ ${strategySpecificContent}
    - 必须满足：${params.entryCondition}
 
 3.5. 【关键步骤】判断当前行情类型（${
-    params.name === "激进" ? "激进策略生存关键" : "非常重要"
-  }）：
+		params.name === "激进" ? "激进策略生存关键" : "非常重要"
+	}）：
    
    步骤1：识别是否为单边行情（满足至少3项）
      - 价格持续远离EMA20/50，距离持续拉大
@@ -1449,14 +1450,14 @@ ${strategySpecificContent}
    
    步骤3：根据行情类型调整策略
      ${
-       params.name === "激进"
-         ? `- 单边行情：全力进攻（2个时间框架一致即可入场，大仓位28-32%，高杠杆22-25倍）
+				params.name === "激进"
+					? `- 单边行情：全力进攻（2个时间框架一致即可入场，大仓位28-32%，高杠杆22-25倍）
      - 震荡行情：严格防守（必须4个时间框架一致，小仓位15-20%，低杠杆15-18倍）
      - 如果判断为震荡行情，宁可不开仓也不要频繁试错！
      - 记住：震荡频繁交易是最近亏损的根本原因！`
-         : `- 单边行情：积极参与，标准策略
+					: `- 单边行情：积极参与，标准策略
      - 震荡行情：谨慎防守，提高入场标准`
-     }
+			}
 
 4. 评估新交易机会（如果决定开仓，必须立即执行）：
    
@@ -1475,28 +1476,28 @@ ${strategySpecificContent}
       - ${params.entryCondition}
       - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
       - ${
-        params.name === "激进"
-          ? "【关键】必须先判断行情类型，根据行情调整入场标准！"
-          : ""
-      }
+				params.name === "激进"
+					? "【关键】必须先判断行情类型，根据行情调整入场标准！"
+					: ""
+			}
       - 做多和做空机会的识别：
         * 做多信号：价格突破EMA20/50上方，MACD转正，RSI7 > 50且上升，多个时间框架共振向上
         * 做空信号：价格跌破EMA20/50下方，MACD转负，RSI7 < 50且下降，多个时间框架共振向下
         * 关键：做空信号和做多信号同样重要！不要只寻找做多机会而忽视做空机会
       - ${params.name === "激进" ? "根据行情类型调整开仓策略：" : ""}
         ${
-          params.name === "激进"
-            ? `* 单边行情：2个时间框架一致即可开仓，使用大仓位（28-32%）和高杠杆（22-25倍）
+					params.name === "激进"
+						? `* 单边行情：2个时间框架一致即可开仓，使用大仓位（28-32%）和高杠杆（22-25倍）
         * 震荡行情：必须4个时间框架完全一致才能开仓，使用小仓位（15-20%）和低杠杆（15-18倍）
         * 如果是震荡行情且信号不够强，宁可不开仓！避免频繁止损！`
-            : ""
-        }
+						: ""
+				}
       - 如果满足所有条件：立即调用 openPosition 开仓（不要只说"我会开仓"）
    
 5. 仓位大小和杠杆计算（${params.name}策略）：
    - 单笔交易仓位 = 账户净值 × ${params.positionSizeMin}-${
-    params.positionSizeMax
-  }%（根据信号强度）
+			params.positionSizeMax
+		}%（根据信号强度）
      * 普通信号：${params.positionSizeRecommend.normal}
      * 良好信号：${params.positionSizeRecommend.good}
      * 强信号：${params.positionSizeRecommend.strong}
@@ -1529,22 +1530,22 @@ ${strategySpecificContent}
   * 单笔亏损 ≤ ${RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT}%：强制平仓
   * 持仓时间 ≥ ${RISK_PARAMS.MAX_HOLDING_HOURS}小时：强制平仓
   ${
-    isCodeLevelProtectionEnabled && params.trailingStop
-      ? `* 移动止盈（3级规则，自动监控每10秒）：
+		isCodeLevelProtectionEnabled && params.trailingStop
+			? `* 移动止盈（3级规则，自动监控每10秒）：
     - Level 1: 峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓
     - Level 2: 峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓
     - Level 3: 峰值达到 ${params.trailingStop.level3.trigger}% 时，回落至 ${params.trailingStop.level3.stopAt}% 平仓`
-      : `* 当前策略未启用自动监控移动止盈，AI需主动监控峰值回撤`
-  }
+			: `* 当前策略未启用自动监控移动止盈，AI需主动监控峰值回撤`
+	}
 - AI战术决策（专业建议，灵活执行）：
   * 策略止损线：${params.stopLoss.low}% 到 ${
-    params.stopLoss.high
-  }%（强烈建议遵守）
+		params.stopLoss.high
+	}%（强烈建议遵守）
   * 分批止盈（${params.name}策略）：+${
-    params.partialTakeProfit.stage1.trigger
-  }%/+${params.partialTakeProfit.stage2.trigger}%/+${
-    params.partialTakeProfit.stage3.trigger
-  }%（使用 percentage 参数）
+		params.partialTakeProfit.stage1.trigger
+	}%/+${params.partialTakeProfit.stage2.trigger}%/+${
+		params.partialTakeProfit.stage3.trigger
+	}%（使用 percentage 参数）
   * 峰值回撤 ≥ ${params.peakDrawdownProtection}%：危险信号，强烈建议平仓
 
 仓位管理：
@@ -1557,11 +1558,11 @@ ${strategySpecificContent}
 执行参数：
 - 执行周期：每${intervalMinutes}分钟
 - 杠杆范围：${params.leverageMin}-${params.leverageMax}倍（${
-    params.leverageRecommend.normal
-  }/${params.leverageRecommend.good}/${params.leverageRecommend.strong}）
+		params.leverageRecommend.normal
+	}/${params.leverageRecommend.good}/${params.leverageRecommend.strong}）
 - 仓位大小：${params.positionSizeRecommend.normal}（普通）/${
-    params.positionSizeRecommend.good
-  }（良好）/${params.positionSizeRecommend.strong}（强）
+		params.positionSizeRecommend.good
+	}（良好）/${params.positionSizeRecommend.strong}（强）
 - 交易费用：0.1%往返，潜在利润≥2-3%才交易
 
 决策优先级：
@@ -1579,14 +1580,14 @@ ${strategySpecificContent}
 - **快速止损**：亏损交易要果断止损，不要让小亏变大亏，保护本金永远是第一位
 - **概率思维**：您的专业能力让胜率更高，但市场永远有不确定性，用概率和期望值思考
 - **风控红线**：在系统硬性底线（${
-    RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT
-  }%强制平仓、${RISK_PARAMS.MAX_HOLDING_HOURS}小时强制平仓）内您有完全自主权
+		RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT
+	}%强制平仓、${RISK_PARAMS.MAX_HOLDING_HOURS}小时强制平仓）内您有完全自主权
 - **技术说明**：pnl_percent已包含杠杆效应，直接比较即可
 - ${
-    params.name === "激进"
-      ? "**激进策略核心**：单边行情积极（大仓位+高杠杆），震荡行情谨慎（小仓位+低杠杆+高标准），在对的行情做对的事"
-      : "**策略核心**：在单边行情积极把握，在震荡行情谨慎防守"
-  }
+		params.name === "激进"
+			? "**激进策略核心**：单边行情积极（大仓位+高杠杆），震荡行情谨慎（小仓位+低杠杆+高标准），在对的行情做对的事"
+			: "**策略核心**：在单边行情积极把握，在震荡行情谨慎防守"
+	}
 
 市场数据按时间顺序排列（最旧 → 最新），跨多个时间框架。使用此数据识别多时间框架趋势和关键水平。`;
 }
@@ -1598,31 +1599,31 @@ ${strategySpecificContent}
  * @param marketDataContext 市场数据上下文（可选，用于子Agent） Market data context (optional, for sub-agents)
  */
 export async function createTradingAgent(
-  intervalMinutes: number = 5,
-  marketDataContext?: any
+	intervalMinutes = 5,
+	marketDataContext?: any,
 ) {
-  // 获取当前策略
-  const strategy = getTradingStrategy();
-  logger.info(`使用交易策略: ${strategy}`);
+	// 获取当前策略
+	const strategy = getTradingStrategy();
+	logger.info(`使用交易策略: ${strategy}`);
 
-  // 创建通用依赖项
-  const commonDependencies = await createCommonDependencies();
+	// 创建通用依赖项
+	const commonDependencies = await createCommonDependencies();
 
-  // 根据策略类型创建对应的Agent
-  if (strategy === "cai-sen") {
-    return await createCaiSenStrategyAgent(
-      intervalMinutes,
-      marketDataContext,
-      commonDependencies
-    );
-  }
+	// 根据策略类型创建对应的Agent
+	if (strategy === "cai-sen") {
+		return await createCaiSenStrategyAgent(
+			intervalMinutes,
+			marketDataContext,
+			commonDependencies,
+		);
+	}
 
-  return await createStandardStrategyAgent(
-    strategy,
-    intervalMinutes,
-    marketDataContext,
-    commonDependencies
-  );
+	return await createStandardStrategyAgent(
+		strategy,
+		intervalMinutes,
+		marketDataContext,
+		commonDependencies,
+	);
 }
 
 /**
@@ -1630,37 +1631,37 @@ export async function createTradingAgent(
  * Create common dependencies shared by all agents
  */
 async function createCommonDependencies() {
-  // 使用 OpenAI SDK，通过配置 baseURL 兼容 OpenRouter 或其他供应商
-  const openai = createOpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "",
-    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  });
+	// 使用 OpenAI SDK，通过配置 baseURL 兼容 OpenRouter 或其他供应商
+	const openai = createOpenAI({
+		apiKey: process.env.OPENAI_API_KEY || "",
+		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+	});
 
-  const memory = new Memory({
-    storage: new LibSQLMemoryAdapter({
-      url: "file:./.voltagent/trading-memory.db",
-      logger: logger.child({ component: "libsql" }),
-    }),
-  });
+	const memory = new Memory({
+		storage: new LibSQLMemoryAdapter({
+			url: "file:./.voltagent/trading-memory.db",
+			logger: logger.child({ component: "libsql" }),
+		}),
+	});
 
-  // 定义标准交易工具集
-  const tradingToolsSet = [
-    tradingTools.getMarketPriceTool,
-    tradingTools.getTechnicalIndicatorsTool,
-    tradingTools.getFundingRateTool,
-    tradingTools.getOrderBookTool,
-    tradingTools.openPositionTool,
-    tradingTools.closePositionTool,
-    tradingTools.cancelOrderTool,
-    tradingTools.getAccountBalanceTool,
-    tradingTools.getPositionsTool,
-    tradingTools.getOpenOrdersTool,
-    tradingTools.checkOrderStatusTool,
-    tradingTools.calculateRiskTool,
-    tradingTools.syncPositionsTool,
-  ];
+	// 定义标准交易工具集
+	const tradingToolsSet = [
+		tradingTools.getMarketPriceTool,
+		tradingTools.getTechnicalIndicatorsTool,
+		tradingTools.getFundingRateTool,
+		tradingTools.getOrderBookTool,
+		tradingTools.openPositionTool,
+		tradingTools.closePositionTool,
+		tradingTools.cancelOrderTool,
+		tradingTools.getAccountBalanceTool,
+		tradingTools.getPositionsTool,
+		tradingTools.getOpenOrdersTool,
+		tradingTools.checkOrderStatusTool,
+		tradingTools.calculateRiskTool,
+		tradingTools.syncPositionsTool,
+	];
 
-  return { openai, memory, tradingToolsSet };
+	return { openai, memory, tradingToolsSet };
 }
 
 /**
@@ -1668,190 +1669,184 @@ async function createCommonDependencies() {
  * Create Cai Sen strategy agent
  */
 async function createCaiSenStrategyAgent(
-  intervalMinutes: number,
-  marketDataContext: any,
-  dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] }
+	intervalMinutes: number,
+	marketDataContext: any,
+	dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] },
 ) {
-  logger.info("创建蔡森策略独立Agent...");
-  const { createCaiSenAgent } = await import("./caisenAgent");
+	logger.info("创建蔡森策略独立Agent...");
+	const { createCaiSenAgent } = await import("./caisenAgent");
 
-  // 导入蔡森策略相关组件
-  const { CaiSenStandardizedInterface } = await import(
-    "../scheduler/caiSenStandardizedInterface"
-  );
-  const { CaiSenBatchClosingSystem } = await import(
-    "../scheduler/caiSenBatchClosingSystem"
-  );
-  const { CaiSenDynamicThresholdSetting } = await import(
-    "../scheduler/caiSenDynamicThresholdSetting"
-  );
-  const { createCaiSenTradingTools } = await import("./caisenTradingTools");
+	// 导入蔡森策略相关组件
+	const {
+		CaiSenStandardizedInterface,
+		CaiSenBatchClosingSystem,
+		createCaiSenTradingTools,
+		CaiSenDynamicThresholdSetting,
+	} = await import("../caisen");
 
-  // 创建蔡森策略系统组件
-  const mockExchangeClient = {
-    getPosition: () => Promise.resolve({}),
-    closePosition: () => Promise.resolve({}),
-    getMarketData: () => Promise.resolve({}),
-    getKlines: () => Promise.resolve({}),
-  };
+	// 创建蔡森策略系统组件
+	const mockExchangeClient = {
+		getPosition: () => Promise.resolve({}),
+		closePosition: () => Promise.resolve({}),
+		getMarketData: () => Promise.resolve({}),
+		getKlines: () => Promise.resolve({}),
+	};
 
-  const mockStrategyConfig = {
-    name: "蔡森策略",
-    description: "多时间框架分析+七分位策略引擎+动态点位交易系统",
-    leverageMin: 15,
-    leverageMax: 22,
-    leverageRecommend: {
-      normal: "15倍",
-      good: "19倍",
-      strong: "22倍",
-    },
-    positionSizeMin: 20,
-    positionSizeMax: 27,
-    positionSizeRecommend: {
-      normal: "20-23%",
-      good: "23-25%",
-      strong: "25-27%",
-    },
-    stopLoss: {
-      low: -15,
-      mid: -10,
-      high: -8,
-    },
-    trailingStop: {
-      level1: { trigger: 20, stopAt: 12 },
-      level2: { trigger: 40, stopAt: 25 },
-      level3: { trigger: 60, stopAt: 40 },
-    },
-    partialTakeProfit: {
-      stage1: { trigger: 15, closePercent: 30 },
-      stage2: { trigger: 30, closePercent: 50 },
-      stage3: { trigger: 50, closePercent: 100 },
-    },
-    peakDrawdownProtection: 30,
-    volatilityAdjustment: {
-      highVolatility: { leverageFactor: 0.7, positionFactor: 0.8 },
-      normalVolatility: { leverageFactor: 1.0, positionFactor: 1.0 },
-      lowVolatility: { leverageFactor: 1.2, positionFactor: 1.1 },
-    },
-    entryCondition: "Default entry condition",
-    riskTolerance: "Medium",
-    tradingStyle: "Swing",
-    enableCodeLevelProtection: true,
-    allowAiOverrideProtection: false,
-    caiSen: {
-      timeframeAnalysis: {
-        dailyWeight: 0.4,
-        hourlyWeight: 0.35,
-        fiveMinWeight: 0.25,
-        trendConfirmationThreshold: 0.7,
-      },
-      sevenSegmentStrategy: {
-        crashDetectionThreshold: 0.15,
-        calculationPeriod: 24,
-        recoveryConfidence: {
-          zone1_7: 0.8,
-          zone1_2: 0.85,
-          zone6_7: 0.9,
-        },
-      },
-      dynamicPointTrading: {
-        fibonacciLevels: [0.236, 0.382, 0.5, 0.618, 0.786],
-        volatilityAdjustment: 0.2,
-        volumeProfileWeight: 0.3,
-      },
-      aiOrderExecution: {
-        signalWeights: {
-          trend: 0.4,
-          breakout: 0.3,
-          rsi: 0.3,
-        },
-        confidenceThresholds: {
-          high: 0.8,
-          medium: 0.5,
-        },
-        slippageAdjustment: 0.001,
-      },
-      riskManagement: {
-        atrPeriod: 14,
-        stopLossCoefficient: 2.0,
-        volatilityFactor: 1.5,
-        batchTakeProfitRatios: [1.0, 2.0, 3.0],
-      },
-    },
-  };
+	const mockStrategyConfig = {
+		name: "蔡森策略",
+		description: "多时间框架分析+七分位策略引擎+动态点位交易系统",
+		leverageMin: 15,
+		leverageMax: 22,
+		leverageRecommend: {
+			normal: "15倍",
+			good: "19倍",
+			strong: "22倍",
+		},
+		positionSizeMin: 20,
+		positionSizeMax: 27,
+		positionSizeRecommend: {
+			normal: "20-23%",
+			good: "23-25%",
+			strong: "25-27%",
+		},
+		stopLoss: {
+			low: -15,
+			mid: -10,
+			high: -8,
+		},
+		trailingStop: {
+			level1: { trigger: 20, stopAt: 12 },
+			level2: { trigger: 40, stopAt: 25 },
+			level3: { trigger: 60, stopAt: 40 },
+		},
+		partialTakeProfit: {
+			stage1: { trigger: 15, closePercent: 30 },
+			stage2: { trigger: 30, closePercent: 50 },
+			stage3: { trigger: 50, closePercent: 100 },
+		},
+		peakDrawdownProtection: 30,
+		volatilityAdjustment: {
+			highVolatility: { leverageFactor: 0.7, positionFactor: 0.8 },
+			normalVolatility: { leverageFactor: 1.0, positionFactor: 1.0 },
+			lowVolatility: { leverageFactor: 1.2, positionFactor: 1.1 },
+		},
+		entryCondition: "Default entry condition",
+		riskTolerance: "Medium",
+		tradingStyle: "Swing",
+		enableCodeLevelProtection: true,
+		allowAiOverrideProtection: false,
+		caiSen: {
+			timeframeAnalysis: {
+				dailyWeight: 0.4,
+				hourlyWeight: 0.35,
+				fiveMinWeight: 0.25,
+				trendConfirmationThreshold: 0.7,
+			},
+			sevenSegmentStrategy: {
+				crashDetectionThreshold: 0.15,
+				calculationPeriod: 24,
+				recoveryConfidence: {
+					zone1_7: 0.8,
+					zone1_2: 0.85,
+					zone6_7: 0.9,
+				},
+			},
+			dynamicPointTrading: {
+				fibonacciLevels: [0.236, 0.382, 0.5, 0.618, 0.786],
+				volatilityAdjustment: 0.2,
+				volumeProfileWeight: 0.3,
+			},
+			aiOrderExecution: {
+				signalWeights: {
+					trend: 0.4,
+					breakout: 0.3,
+					rsi: 0.3,
+				},
+				confidenceThresholds: {
+					high: 0.8,
+					medium: 0.5,
+				},
+				slippageAdjustment: 0.001,
+			},
+			riskManagement: {
+				atrPeriod: 14,
+				stopLossCoefficient: 2.0,
+				volatilityFactor: 1.5,
+				batchTakeProfitRatios: [1.0, 2.0, 3.0],
+			},
+		},
+	};
 
-  // 初始化蔡森策略系统组件
-  const batchClosingSystem = new CaiSenBatchClosingSystem(
-    mockExchangeClient as any,
-    mockStrategyConfig
-  );
+	// 初始化蔡森策略系统组件
+	const batchClosingSystem = new CaiSenBatchClosingSystem(
+		mockExchangeClient as any,
+		mockStrategyConfig,
+	);
 
-  // 创建蔡森AI参数控制机制
-  const { CaiSenAiParameterControl } = await import(
-    "../scheduler/caiSenAiParameterControl"
-  );
-  const aiParameterControl = new CaiSenAiParameterControl(
-    {
-      enableParameterValidation: true,
-      enableVersionControl: true,
-      maxParameterHistory: 100,
-      expirationCheckInterval: 60000,
-      enableAutoCleanup: true,
-      compatibilityCheck: {
-        enabled: true,
-        minCompatibleVersion: 1,
-      },
-    },
-    mockExchangeClient as any,
-    mockStrategyConfig,
-    batchClosingSystem
-  );
+	// 创建蔡森AI参数控制机制
+	const { CaiSenAiParameterControl } = await import("../caisen");
+	const aiParameterControl = new CaiSenAiParameterControl(
+		{
+			enableParameterValidation: true,
+			enableVersionControl: true,
+			maxParameterHistory: 100,
+			expirationCheckInterval: 60000,
+			enableAutoCleanup: true,
+			compatibilityCheck: {
+				enabled: true,
+				minCompatibleVersion: 1,
+			},
+		},
+		mockExchangeClient as any,
+		mockStrategyConfig,
+		batchClosingSystem,
+	);
 
-  const dynamicThresholdSetting = new CaiSenDynamicThresholdSetting(
-    {
-      maxThresholdCount: 100,
-      enableThresholdValidation: true,
-      enableThresholdCaching: true,
-      enableAutoCalculation: true,
-      enableAutoUpdate: true, // 添加缺失的属性
-      enableThresholdExpiration: true,
-      defaultThresholdExpiration: 24 * 60 * 60 * 1000, // 24 hours
-      calculationInterval: 5000,
-      updateInterval: 10000,
-      cacheExpiration: 60000,
-    },
-    batchClosingSystem,
-    aiParameterControl
-  );
+	const dynamicThresholdSetting = new CaiSenDynamicThresholdSetting(
+		{
+			maxThresholdCount: 100,
+			enableThresholdValidation: true,
+			enableThresholdCaching: true,
+			enableAutoCalculation: true,
+			enableAutoUpdate: true, // 添加缺失的属性
+			enableThresholdExpiration: true,
+			defaultThresholdExpiration: 24 * 60 * 60 * 1000, // 24 hours
+			calculationInterval: 5000,
+			updateInterval: 10000,
+			cacheExpiration: 60000,
+		},
+		batchClosingSystem,
+		aiParameterControl,
+	);
 
-  const caiSenInterface = new CaiSenStandardizedInterface(
-    {} as any, // gapPeriodTakeover
-    batchClosingSystem,
-    aiParameterControl, // aiParameterControl
-    {} as any, // openingMonitoringAssociation
-    {} as any, // batchClosingInstructionRecognizer
-    dynamicThresholdSetting
-  );
+	const caiSenInterface = new CaiSenStandardizedInterface(
+		{} as any, // gapPeriodTakeover
+		batchClosingSystem,
+		aiParameterControl, // aiParameterControl
+		{} as any, // openingMonitoringAssociation
+		{} as any, // batchClosingInstructionRecognizer
+		dynamicThresholdSetting,
+	);
 
-  // 创建蔡森交易工具集
-  const caiSenTradingTools = createCaiSenTradingTools(caiSenInterface, true);
+	// 创建蔡森交易工具集
+	const caiSenTradingTools = createCaiSenTradingTools(caiSenInterface, true);
 
-  // 创建蔡森Agent配置
-  const caiSenConfig = {
-    intervalMinutes,
-    marketDataContext,
-    enableDetailedLogging: true,
-    tools: dependencies.tradingToolsSet, // 复用标准工具集
-    openai: dependencies.openai, // 复用OpenAI客户端
-    memory: dependencies.memory, // 复用内存管理器
-    caiSenTradingTools, // 添加蔡森交易工具集
-  };
+	// 创建蔡森Agent配置
+	const caiSenConfig = {
+		intervalMinutes,
+		marketDataContext,
+		enableDetailedLogging: true,
+		tools: dependencies.tradingToolsSet, // 复用标准工具集
+		openai: dependencies.openai, // 复用OpenAI客户端
+		memory: dependencies.memory, // 复用内存管理器
+		caiSenTradingTools, // 添加蔡森交易工具集
+	};
 
-  // 创建蔡森Agent
-  const caiSenAgent = await createCaiSenAgent(caiSenConfig);
-  logger.info("蔡森策略独立Agent创建完成");
+	// 创建蔡森Agent
+	const caiSenAgent = await createCaiSenAgent(caiSenConfig);
+	logger.info("蔡森策略独立Agent创建完成");
 
-  return caiSenAgent;
+	return caiSenAgent;
 }
 
 /**
@@ -1859,29 +1854,29 @@ async function createCaiSenStrategyAgent(
  * Create standard strategy agent
  */
 async function createStandardStrategyAgent(
-  strategy: string,
-  intervalMinutes: number,
-  marketDataContext: any,
-  dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] }
+	strategy: string,
+	intervalMinutes: number,
+	marketDataContext: any,
+	dependencies: { openai: any; memory: Memory; tradingToolsSet: any[] },
 ) {
-  // 创建子Agent
-  const subAgents = await createSubAgentsForStrategy(
-    strategy,
-    marketDataContext
-  );
+	// 创建子Agent
+	const subAgents = await createSubAgentsForStrategy(
+		strategy,
+		marketDataContext,
+	);
 
-  // 创建标准交易Agent
-  return new Agent({
-    name: "trading-agent",
-    instructions: generateInstructions(strategy as any, intervalMinutes),
-    model: dependencies.openai.chat(
-      process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"
-    ),
-    tools: dependencies.tradingToolsSet, // 使用标准工具集
-    subAgents,
-    memory: dependencies.memory,
-    logger,
-  });
+	// 创建标准交易Agent
+	return new Agent({
+		name: "trading-agent",
+		instructions: generateInstructions(strategy as any, intervalMinutes),
+		model: dependencies.openai.chat(
+			process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+		),
+		tools: dependencies.tradingToolsSet, // 使用标准工具集
+		subAgents,
+		memory: dependencies.memory,
+		logger,
+	});
 }
 
 /**
@@ -1889,51 +1884,51 @@ async function createStandardStrategyAgent(
  * Create sub-agents based on strategy type
  */
 async function createSubAgentsForStrategy(
-  strategy: string,
-  marketDataContext?: any
+	strategy: string,
+	marketDataContext?: any,
 ): Promise<Agent[] | undefined> {
-  // 如果是多Agent共识策略，创建子Agent
-  if (strategy === "multi-agent-consensus") {
-    logger.info("创建陪审团策略的子Agent（陪审团成员）...");
-    const {
-      createTechnicalAnalystAgent,
-      createTrendAnalystAgent,
-      createRiskAssessorAgent,
-    } = await import("./analysisAgents");
+	// 如果是多Agent共识策略，创建子Agent
+	if (strategy === "multi-agent-consensus") {
+		logger.info("创建陪审团策略的子Agent（陪审团成员）...");
+		const {
+			createTechnicalAnalystAgent,
+			createTrendAnalystAgent,
+			createRiskAssessorAgent,
+		} = await import("./analysisAgents");
 
-    const subAgents = [
-      createTechnicalAnalystAgent(marketDataContext),
-      createTrendAnalystAgent(marketDataContext),
-      createRiskAssessorAgent(marketDataContext),
-    ];
-    logger.info(
-      "陪审团成员创建完成：技术分析Agent、趋势分析Agent、风险评估Agent"
-    );
-    return subAgents;
-  }
+		const subAgents = [
+			createTechnicalAnalystAgent(marketDataContext),
+			createTrendAnalystAgent(marketDataContext),
+			createRiskAssessorAgent(marketDataContext),
+		];
+		logger.info(
+			"陪审团成员创建完成：技术分析Agent、趋势分析Agent、风险评估Agent",
+		);
+		return subAgents;
+	}
 
-  // 如果是激进团策略，创建子Agent
-  if (strategy === "aggressive-team") {
-    logger.info("创建激进团策略的子Agent（团员）...");
-    const {
-      createAggressiveTeamTrendExpertAgent,
-      createAggressiveTeamPredictionExpertAgent,
-      createAggressiveTeamMoneyFlowExpertAgent,
-      createAggressiveTeamRiskControlExpertAgent,
-    } = await import("./aggressiveTeamAgents");
+	// 如果是激进团策略，创建子Agent
+	if (strategy === "aggressive-team") {
+		logger.info("创建激进团策略的子Agent（团员）...");
+		const {
+			createAggressiveTeamTrendExpertAgent,
+			createAggressiveTeamPredictionExpertAgent,
+			createAggressiveTeamMoneyFlowExpertAgent,
+			createAggressiveTeamRiskControlExpertAgent,
+		} = await import("./aggressiveTeamAgents");
 
-    const subAgents = [
-      createAggressiveTeamTrendExpertAgent(marketDataContext),
-      createAggressiveTeamPredictionExpertAgent(marketDataContext),
-      createAggressiveTeamMoneyFlowExpertAgent(marketDataContext),
-      createAggressiveTeamRiskControlExpertAgent(marketDataContext),
-    ];
-    logger.info(
-      "激进团团员创建完成：趋势分析专家、预测分析专家、资金流向分析专家、风险控制专家"
-    );
-    return subAgents;
-  }
+		const subAgents = [
+			createAggressiveTeamTrendExpertAgent(marketDataContext),
+			createAggressiveTeamPredictionExpertAgent(marketDataContext),
+			createAggressiveTeamMoneyFlowExpertAgent(marketDataContext),
+			createAggressiveTeamRiskControlExpertAgent(marketDataContext),
+		];
+		logger.info(
+			"激进团团员创建完成：趋势分析专家、预测分析专家、资金流向分析专家、风险控制专家",
+		);
+		return subAgents;
+	}
 
-  // 其他策略不使用子Agent
-  return undefined;
+	// 其他策略不使用子Agent
+	return undefined;
 }

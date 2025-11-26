@@ -39,12 +39,17 @@
  * - 所有监控数据记录到数据库供AI参考
  */
 
-import { createLogger } from "../utils/loggerUtils";
 import { createClient } from "@libsql/client";
+import { getStrategyParams, getTradingStrategy } from "../agents/tradingAgent";
 import { createExchangeClient } from "../services/exchangeClient";
-import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
-import { getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
+import { createLogger } from "../utils/loggerUtils";
+import { getChinaTimeISO } from "../utils/timeUtils";
+import {
+  CaiSenBatchClosingSystem,
+  ClosingType,
+} from "./caiSenBatchClosingSystem";
+import { executeTradingDecision } from "./tradingLoop";
 
 const logger = createLogger({
   name: "caisen-monitor",
@@ -370,7 +375,7 @@ async function recordCaiSenMonitorData(
 export async function getKlineData(
   symbol: string,
   interval: string,
-  limit: number = 100
+  limit = 100
 ): Promise<any[]> {
   const exchangeClient = createExchangeClient();
 
@@ -565,7 +570,7 @@ async function executeCaiSenMonitor(): Promise<void> {
             pyramidAddInfo.description
           );
         } else {
-          logger.info(`代码级保护未启用，仅记录金字塔加仓信号`);
+          logger.info("代码级保护未启用，仅记录金字塔加仓信号");
 
           // 记录到数据库
           await recordCaiSenMonitorData(symbol, {
@@ -647,9 +652,72 @@ async function executeCaiSenMonitor(): Promise<void> {
               `${symbol} 七分位交易信号: ${positionAnalysis.signal}，信心度${positionAnalysis.confidence}`
             );
 
-            // 这里可以添加自动交易逻辑
-            // 但为了安全起见，暂时只记录信号，不自动执行
-            logger.info(`蔡森策略暂不自动执行七分位信号，仅记录供AI参考`);
+            // 立即唤醒Agent进行紧急决策
+            logger.info("检测到异常信号，立即唤醒交易Agent进行紧急决策");
+            await executeTradingDecision();
+          }
+        }
+      }
+
+      // 3. 主动检测止盈条件
+      const strategy = getTradingStrategy();
+      const strategyParams = getStrategyParams(strategy);
+      const takeProfitConfig = strategyParams.partialTakeProfit;
+
+      if (takeProfitConfig) {
+        // 计算当前盈亏百分比
+        const entryPrice = Number.parseFloat(position.entryPrice);
+        const currentPrice = await getCurrentPrice(symbol);
+        const size = Math.abs(Number.parseFloat(position.size));
+        const leverage = Number.parseFloat(position.leverage || "1");
+
+        if (currentPrice > 0 && entryPrice > 0 && size > 0) {
+          // 计算价格变动百分比
+          const priceChangePercent =
+            ((currentPrice - entryPrice) / entryPrice) * 100;
+          // 考虑杠杆后的盈亏百分比
+          const pnlPercent =
+            side === "long"
+              ? priceChangePercent * leverage
+              : -priceChangePercent * leverage;
+
+          logger.debug(`${symbol} 当前盈亏: ${pnlPercent.toFixed(2)}%`);
+
+          // 检查是否达到止盈条件
+          if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+            // 达到第三阶段止盈，全部平仓
+            logger.info(
+              `${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+                takeProfitConfig.stage3.trigger
+              }%`
+            );
+            logger.info("准备执行全部平仓操作");
+            // 立即唤醒Agent进行止盈决策
+            await executeTradingDecision();
+          } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+            // 达到第二阶段止盈，平仓部分仓位
+            logger.info(
+              `${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+                takeProfitConfig.stage2.trigger
+              }%`
+            );
+            logger.info(
+              `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
+            );
+            // 立即唤醒Agent进行止盈决策
+            await executeTradingDecision();
+          } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+            // 达到第一阶段止盈，平仓部分仓位
+            logger.info(
+              `${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+                takeProfitConfig.stage1.trigger
+              }%`
+            );
+            logger.info(
+              `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
+            );
+            // 立即唤醒Agent进行止盈决策
+            await executeTradingDecision();
           }
         }
       }

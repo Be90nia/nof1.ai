@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -32,7 +32,7 @@ export type UnifiedContract = string;
  * BTC_USDT -> BTC_USDT (无需转换)
  */
 export function toGateContract(unifiedContract: UnifiedContract): string {
-  return unifiedContract;
+	return unifiedContract;
 }
 
 /**
@@ -40,8 +40,8 @@ export function toGateContract(unifiedContract: UnifiedContract): string {
  * BTC_USDT -> BTC-USDT-SWAP
  */
 export function toOkxContract(unifiedContract: UnifiedContract): string {
-  const symbol = unifiedContract.replace("_USDT", "");
-  return `${symbol}-USDT-SWAP`;
+	const symbol = unifiedContract.replace("_USDT", "");
+	return `${symbol}-USDT-SWAP`;
 }
 
 /**
@@ -49,7 +49,7 @@ export function toOkxContract(unifiedContract: UnifiedContract): string {
  * BTC_USDT -> BTC_USDT (无需转换)
  */
 export function fromGateContract(gateContract: string): UnifiedContract {
-  return gateContract;
+	return gateContract;
 }
 
 /**
@@ -57,28 +57,34 @@ export function fromGateContract(gateContract: string): UnifiedContract {
  * BTC-USDT-SWAP -> BTC_USDT
  */
 export function fromOkxContract(okxContract: string): UnifiedContract {
-  const symbol = okxContract.replace("-USDT-SWAP", "");
-  return `${symbol}_USDT`;
+	const symbol = okxContract.replace("-USDT-SWAP", "");
+	return `${symbol}_USDT`;
 }
 
 /**
  * 根据当前交易所将统一格式转换为对应格式
  */
-export function toExchangeContract(unifiedContract: UnifiedContract, exchange: "gate" | "okx"): string {
-  if (exchange === "okx") {
-    return toOkxContract(unifiedContract);
-  }
-  return toGateContract(unifiedContract);
+export function toExchangeContract(
+	unifiedContract: UnifiedContract,
+	exchange: "gate" | "okx",
+): string {
+	if (exchange === "okx") {
+		return toOkxContract(unifiedContract);
+	}
+	return toGateContract(unifiedContract);
 }
 
 /**
  * 根据当前交易所将交易所格式转换为统一格式
  */
-export function fromExchangeContract(exchangeContract: string, exchange: "gate" | "okx"): UnifiedContract {
-  if (exchange === "okx") {
-    return fromOkxContract(exchangeContract);
-  }
-  return fromGateContract(exchangeContract);
+export function fromExchangeContract(
+	exchangeContract: string,
+	exchange: "gate" | "okx",
+): UnifiedContract {
+	if (exchange === "okx") {
+		return fromOkxContract(exchangeContract);
+	}
+	return fromGateContract(exchangeContract);
 }
 
 /**
@@ -86,7 +92,7 @@ export function fromExchangeContract(exchangeContract: string, exchange: "gate" 
  * BTC_USDT -> BTC
  */
 export function extractSymbol(unifiedContract: UnifiedContract): string {
-  return unifiedContract.split("_")[0];
+	return unifiedContract.split("_")[0];
 }
 
 /**
@@ -94,6 +100,5 @@ export function extractSymbol(unifiedContract: UnifiedContract): string {
  * BTC -> BTC_USDT
  */
 export function buildContract(symbol: string): UnifiedContract {
-  return `${symbol}_USDT`;
+	return `${symbol}_USDT`;
 }
-

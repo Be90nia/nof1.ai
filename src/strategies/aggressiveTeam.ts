@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,7 +20,7 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
 
 /**
  * 激进团策略配置（团长+4团员专业分析决策模式）
- * 
+ *
  * 策略特点：
  * - 风险等级：高风险
  * - 杠杆范围：85%-100% 最大杠杆（如最大25倍，则使用21-25倍）
@@ -28,7 +28,7 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
  * - 适用人群：激进投资者，追求高收益，能承受高风险
  * - 目标月回报：50-80%（通过积极开仓+及时止盈实现）
  * - 交易频率：激进出击，快速捕捉市场机会，低中震荡也积极开仓
- * 
+ *
  * 核心策略：
  * - 团长（主Agent）：有独立分析和最终决策权，统筹全局，敢于拍板
  * - 团员1（趋势分析专家）：通过K线图深度分析市场走势，确定趋势方向
@@ -38,127 +38,136 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
  * - 决策模式：4个团员提供专业分析报告，团长综合判断后果断执行
  * - 激进风格：就是干！看准机会立即出击，不犹豫不畏缩
  * - 风控方式：代码自动执行（enableCodeLevelProtection = true，监控器自动管理）
- * 
+ *
  * @param maxLeverage - 系统允许的最大杠杆倍数（从配置文件读取）
  * @returns 激进团策略的完整参数配置
  */
 export function getAggressiveTeamStrategy(maxLeverage: number): StrategyParams {
-  // 激进团策略：使用 85%-100% 的最大杠杆（与激进策略一致）
-  const aggressiveLevMin = Math.max(3, Math.ceil(maxLeverage * 0.85));  // 最小杠杆：85%最大杠杆，至少3倍
-  const aggressiveLevMax = maxLeverage;  // 最大杠杆：100%系统最大杠杆
-  
-  // 计算不同信号强度下推荐的杠杆倍数
-  const aggressiveLevNormal = aggressiveLevMin;  // 普通信号：使用最小杠杆
-  const aggressiveLevGood = Math.ceil((aggressiveLevMin + aggressiveLevMax) / 2);  // 良好信号：使用中间值
-  const aggressiveLevStrong = aggressiveLevMax;  // 强信号：使用最大杠杆（全力进攻）
-  
-  return {
-    // ==================== 策略基本信息 ====================
-    name: "激进团",
-    description: "团长统筹+4团员专业分析，高杠杆高仓位，猛干不畏缩，单边行情至少1个持仓，方向不对立即反手，适合追求极致收益的激进投资者",
-    
-    // ==================== 杠杆配置 ====================
-    // 使用 85%-100% 最大杠杆（激进！）
-    leverageMin: aggressiveLevMin,
-    leverageMax: aggressiveLevMax,
-    leverageRecommend: {
-      normal: `${aggressiveLevNormal}倍`,  // 普通信号：使用最小杠杆
-      good: `${aggressiveLevGood}倍`,      // 良好信号：使用中等杠杆
-      strong: `${aggressiveLevStrong}倍`,  // 强信号：使用最大杠杆
-    },
-    
-    // ==================== 仓位配置 ====================
-    // 25-32%（激进，大仓位）
-    positionSizeMin: 25,
-    positionSizeMax: 32,
-    positionSizeRecommend: {
-      normal: "25-28%",   // 普通信号：较小仓位
-      good: "28-30%",     // 良好信号：中等仓位
-      strong: "30-32%",   // 强信号：最大仓位
-    },
-    
-    // ==================== 止损配置（针对20倍杠杆优化）====================
-    // 执行方式：enableCodeLevelProtection = true，代码自动执行
-    // 20倍杠杆风险：5%价格波动 = 100%本金波动
-    // 优化原则：严格止损，保护本金，避免大额亏损
-    stopLoss: {
-      low: -12,    // 低杠杆（如3-12倍）：亏损12%止损
-      mid: -8,     // 中杠杆（如13-21倍，含20倍）：亏损8%止损 ⚠️ 20倍适用此档
-      high: -6,    // 高杠杆（如22-30倍）：亏损6%止损（极严格）
-    },
-    // 说明：20倍杠杆使用-8%止损线，相当于最多损失本金的1.6倍（8% * 20 = 160%实际亏损）
-    
-    // ==================== 移动止盈配置（针对20倍杠杆优化）====================
-    // 盈利后移动止损线保护利润
-    // 优化策略：20倍杠杆下更积极保护利润，防止大幅回撤
-    trailingStop: {
-      level1: { trigger: 15, stopAt: 8 },   // 盈利达到15%时，止损线移至8%（更早保护）
-      level2: { trigger: 30, stopAt: 20 },  // 盈利达到30%时，止损线移至20%
-      level3: { trigger: 50, stopAt: 35 },  // 盈利达到50%时，止损线移至35%
-    },
-    // 说明：20倍杠杆下，15%盈利 = 本金的3倍收益，及时保护避免回吐
-    
-    // ==================== 分批止盈配置（针对20倍杠杆优化）====================
-    // 逐步锁定利润，20倍杠杆下更早止盈
-    // ⚠️ 优化原则：大幅降低触发点，避免盈利变亏损！
-    partialTakeProfit: {
-      stage1: { trigger: 10, closePercent: 30 },  // +10%时平仓30%（快速锁定利润）
-      stage2: { trigger: 20, closePercent: 50 },  // +20%时平仓50%（累计80%）
-      stage3: { trigger: 30, closePercent: 100 }, // +30%时全部清仓
-    },
-    // 说明：20倍杠杆下，10%盈利 = 本金的2倍收益，必须立即锁定！
-    // ⚠️ 新增：+5%时AI应主动评估止盈，趋势减弱立即平仓
-    
-    // ==================== 峰值回撤保护（针对20倍杠杆优化）====================
-    // 盈利从峰值回撤时触发保护
-    // 优化：20倍杠杆下需要更严格的回撤保护
-    peakDrawdownProtection: 25,  // 从峰值回撤25%时触发保护（更严格）
-    // 说明：如果从峰值回撤超过25%，触发保护机制平仓止盈
-    
-    // ==================== 波动率调整 ====================
-    // 根据市场波动自动调整杠杆和仓位
-    volatilityAdjustment: {
-      highVolatility: { 
-        leverageFactor: 0.8,   // 高波动时，杠杆降低20%
-        positionFactor: 0.85   // 高波动时，仓位降低15%
-      },
-      normalVolatility: { 
-        leverageFactor: 1.0,   // 正常波动时，不调整
-        positionFactor: 1.0
-      },
-      lowVolatility: { 
-        leverageFactor: 1.2,   // 低波动时，杠杆提高20%
-        positionFactor: 1.1    // 低波动时，仓位提高10%
-      },
-    },
-    
-    // ==================== 策略规则描述 ====================
-    entryCondition: "长周期1项强信号+中周期验证，团员2个以上一致即可开仓，降低门槛提高交易频率，至少保持1个持仓",
-    riskTolerance: "单笔交易仓位25-32%，杠杆高但止损严格，快速止损+及时止盈避免回撤",
-    tradingStyle: "专业分析+积极开仓+及时止盈，低中震荡可开仓（控制仓位），趋势反转快速止损反手！",
-    
-    // ==================== 代码级保护开关 ====================
-    enableCodeLevelProtection: true,
-    allowAiOverrideProtection: true
-  };
+	// 激进团策略：使用 85%-100% 的最大杠杆（与激进策略一致）
+	const aggressiveLevMin = Math.max(3, Math.ceil(maxLeverage * 0.85)); // 最小杠杆：85%最大杠杆，至少3倍
+	const aggressiveLevMax = maxLeverage; // 最大杠杆：100%系统最大杠杆
+
+	// 计算不同信号强度下推荐的杠杆倍数
+	const aggressiveLevNormal = aggressiveLevMin; // 普通信号：使用最小杠杆
+	const aggressiveLevGood = Math.ceil(
+		(aggressiveLevMin + aggressiveLevMax) / 2,
+	); // 良好信号：使用中间值
+	const aggressiveLevStrong = aggressiveLevMax; // 强信号：使用最大杠杆（全力进攻）
+
+	return {
+		// ==================== 策略基本信息 ====================
+		name: "激进团",
+		description:
+			"团长统筹+4团员专业分析，高杠杆高仓位，猛干不畏缩，单边行情至少1个持仓，方向不对立即反手，适合追求极致收益的激进投资者",
+
+		// ==================== 杠杆配置 ====================
+		// 使用 85%-100% 最大杠杆（激进！）
+		leverageMin: aggressiveLevMin,
+		leverageMax: aggressiveLevMax,
+		leverageRecommend: {
+			normal: `${aggressiveLevNormal}倍`, // 普通信号：使用最小杠杆
+			good: `${aggressiveLevGood}倍`, // 良好信号：使用中等杠杆
+			strong: `${aggressiveLevStrong}倍`, // 强信号：使用最大杠杆
+		},
+
+		// ==================== 仓位配置 ====================
+		// 25-32%（激进，大仓位）
+		positionSizeMin: 25,
+		positionSizeMax: 32,
+		positionSizeRecommend: {
+			normal: "25-28%", // 普通信号：较小仓位
+			good: "28-30%", // 良好信号：中等仓位
+			strong: "30-32%", // 强信号：最大仓位
+		},
+
+		// ==================== 止损配置（针对20倍杠杆优化）====================
+		// 执行方式：enableCodeLevelProtection = true，代码自动执行
+		// 20倍杠杆风险：5%价格波动 = 100%本金波动
+		// 优化原则：严格止损，保护本金，避免大额亏损
+		stopLoss: {
+			low: -12, // 低杠杆（如3-12倍）：亏损12%止损
+			mid: -8, // 中杠杆（如13-21倍，含20倍）：亏损8%止损 ⚠️ 20倍适用此档
+			high: -6, // 高杠杆（如22-30倍）：亏损6%止损（极严格）
+		},
+		// 说明：20倍杠杆使用-8%止损线，相当于最多损失本金的1.6倍（8% * 20 = 160%实际亏损）
+
+		// ==================== 移动止盈配置（针对20倍杠杆优化）====================
+		// 盈利后移动止损线保护利润
+		// 优化策略：20倍杠杆下更积极保护利润，防止大幅回撤
+		trailingStop: {
+			level1: { trigger: 15, stopAt: 8 }, // 盈利达到15%时，止损线移至8%（更早保护）
+			level2: { trigger: 30, stopAt: 20 }, // 盈利达到30%时，止损线移至20%
+			level3: { trigger: 50, stopAt: 35 }, // 盈利达到50%时，止损线移至35%
+		},
+		// 说明：20倍杠杆下，15%盈利 = 本金的3倍收益，及时保护避免回吐
+
+		// ==================== 分批止盈配置（针对20倍杠杆优化）====================
+		// 逐步锁定利润，20倍杠杆下更早止盈
+		// ⚠️ 优化原则：大幅降低触发点，避免盈利变亏损！
+		partialTakeProfit: {
+			stage1: { trigger: 10, closePercent: 30 }, // +10%时平仓30%（快速锁定利润）
+			stage2: { trigger: 20, closePercent: 50 }, // +20%时平仓50%（累计80%）
+			stage3: { trigger: 30, closePercent: 100 }, // +30%时全部清仓
+		},
+		// 说明：20倍杠杆下，10%盈利 = 本金的2倍收益，必须立即锁定！
+		// ⚠️ 新增：+5%时AI应主动评估止盈，趋势减弱立即平仓
+
+		// ==================== 峰值回撤保护（针对20倍杠杆优化）====================
+		// 盈利从峰值回撤时触发保护
+		// 优化：20倍杠杆下需要更严格的回撤保护
+		peakDrawdownProtection: 25, // 从峰值回撤25%时触发保护（更严格）
+		// 说明：如果从峰值回撤超过25%，触发保护机制平仓止盈
+
+		// ==================== 波动率调整 ====================
+		// 根据市场波动自动调整杠杆和仓位
+		volatilityAdjustment: {
+			highVolatility: {
+				leverageFactor: 0.8, // 高波动时，杠杆降低20%
+				positionFactor: 0.85, // 高波动时，仓位降低15%
+			},
+			normalVolatility: {
+				leverageFactor: 1.0, // 正常波动时，不调整
+				positionFactor: 1.0,
+			},
+			lowVolatility: {
+				leverageFactor: 1.2, // 低波动时，杠杆提高20%
+				positionFactor: 1.1, // 低波动时，仓位提高10%
+			},
+		},
+
+		// ==================== 策略规则描述 ====================
+		entryCondition:
+			"长周期1项强信号+中周期验证，团员2个以上一致即可开仓，降低门槛提高交易频率，至少保持1个持仓",
+		riskTolerance:
+			"单笔交易仓位25-32%，杠杆高但止损严格，快速止损+及时止盈避免回撤",
+		tradingStyle:
+			"专业分析+积极开仓+及时止盈，低中震荡可开仓（控制仓位），趋势反转快速止损反手！",
+
+		// ==================== 代码级保护开关 ====================
+		enableCodeLevelProtection: true,
+		allowAiOverrideProtection: true,
+	};
 }
 
 /**
  * 生成激进团策略特有的提示词
- * 
+ *
  * @param params - 策略参数配置
  * @param context - 运行时上下文
  * @returns 激进团策略专属的AI提示词
  */
-export function generateAggressiveTeamPrompt(params: StrategyParams, context: StrategyPromptContext): string {
-  // 计算杠杆推荐值（用于提示词）
-  const levMin = params.leverageMin;
-  const levMax = params.leverageMax;
-  const levNormal = levMin;
-  const levGood = Math.ceil((levMin + levMax) / 2);
-  const levStrong = levMax;
-  
-  return `
+export function generateAggressiveTeamPrompt(
+	params: StrategyParams,
+	context: StrategyPromptContext,
+): string {
+	// 计算杠杆推荐值（用于提示词）
+	const levMin = params.leverageMin;
+	const levMax = params.leverageMax;
+	const levNormal = levMin;
+	const levGood = Math.ceil((levMin + levMax) / 2);
+	const levStrong = levMax;
+
+	return `
 【激进团策略 - 团长统筹，4团员专业分析】
 
 你的角色：团长（主Agent）
@@ -618,4 +627,3 @@ export function generateAggressiveTeamPrompt(params: StrategyParams, context: St
 记住：激进团的核心是【及时止盈】+【积极开仓】+【控制风险】+【快速反手】！
 `;
 }
-

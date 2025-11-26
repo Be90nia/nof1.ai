@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,7 +20,7 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
 
 /**
  * 中长线策略配置
- * 
+ *
  * 策略特点：
  * - 风险等级：中等风险
  * - 杠杆范围：3-10倍（固定范围，给AI充分自主权）
@@ -30,141 +30,147 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
  * - 交易频率：30分钟执行周期，注重质量而非频率
  * - 最长持仓：24小时
  * - 最大持仓数：5个
- * 
+ *
  * 核心策略：
  * - AI主导决策：最小限制，充分发挥AI分析能力
  * - 多时间框架验证：建议使用5m/15m/30m/1h四个时间框架
  * - 灵活止盈止损：根据市场情况动态调整
  * - 自主风控：AI根据市场状态自主判断风险
  * - 风控方式：AI 主动止损止盈（enableCodeLevelProtection = false）
- * 
+ *
  * @param maxLeverage - 系统允许的最大杠杆倍数（本策略固定使用10倍）
  * @returns 中长线策略的完整参数配置
  */
 export function getMediumLongStrategy(maxLeverage: number): StrategyParams {
-  // 中长线策略：固定使用 3-10倍杠杆，不受 maxLeverage 限制
-  // 这是用户指定的杠杆范围
-  const strategyLevMin = 3;   // 最小杠杆：3倍（保守入场）
-  const strategyLevMax = 10;  // 最大杠杆：10倍（用户指定的最大值）
-  
-  // 计算不同信号强度下推荐的杠杆倍数
-  const strategyLevNormal = 4;   // 普通信号：4倍杠杆
-  const strategyLevGood = 6;     // 良好信号：6倍杠杆
-  const strategyLevStrong = 8;   // 强信号：8倍杠杆（保留10倍给极强信号）
-  
-  return {
-    // ==================== 策略基本信息 ====================
-    name: "中长线",  // 策略名称（中文）
-    description: "30分钟周期，3-10倍杠杆，最长持仓24小时，AI主导决策，最小限制最大自由度",  // 策略描述
-    
-    // ==================== 杠杆配置 ====================
-    // 杠杆范围：固定3-10倍（用户指定）
-    // 给AI充分的杠杆选择空间，根据市场情况灵活运用
-    leverageMin: strategyLevMin,  // 最小杠杆倍数
-    leverageMax: strategyLevMax,  // 最大杠杆倍数
-    leverageRecommend: {
-      normal: `${strategyLevNormal}倍`,   // 普通信号：4倍杠杆（稳健参与）
-      good: `${strategyLevGood}倍`,       // 良好信号：6倍杠杆（平衡收益风险）
-      strong: `${strategyLevStrong}倍`,   // 强信号：8倍杠杆（积极把握机会）
-    },
-    
-    // ==================== 仓位配置 ====================
-    // 仓位范围：15-35%（灵活配置）
-    // 给AI充分的仓位选择权，可以根据市场情况和信号强度灵活调整
-    positionSizeMin: 15,  // 最小仓位：15%（试探性入场）
-    positionSizeMax: 35,  // 最大仓位：35%（强信号重仓）
-    positionSizeRecommend: {
-      normal: "15-22%",   // 普通信号：较小仓位，控制风险
-      good: "22-28%",     // 良好信号：标准仓位，平衡收益
-      strong: "28-35%",   // 强信号：较大仓位，把握机会
-    },
-    
-    // ==================== 止损配置 ====================
-    // 根据杠杆倍数分级止损
-    // 给AI充分的判断空间，止损线相对宽松
-    // 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
-    stopLoss: {
-      low: -8,     // 低杠杆(3-5倍)：-8%止损（给趋势足够发展空间）
-      mid: -6,     // 中杠杆(5-7倍)：-6%止损（平衡空间和风险）
-      high: -4.5,  // 高杠杆(7-10倍)：-4.5%止损（严格控制风险）
-    },
-    
-    // ==================== 移动止盈配置 ====================
-    // 盈利后移动止损线保护利润
-    // AI可以根据市场情况灵活调整，这里提供建议值
-    // 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
-    trailingStop: {
-      // 中长线策略：给趋势更多空间，较晚锁定利润
-      level1: { trigger: 12, stopAt: 5 },    // 盈利达到 +12% 时，止损线移至 +5%（保护7%空间）
-      level2: { trigger: 25, stopAt: 15 },   // 盈利达到 +25% 时，止损线移至 +15%（保护10%空间）
-      level3: { trigger: 40, stopAt: 28 },   // 盈利达到 +40% 时，止损线移至 +28%（保护12%空间）
-    },
-    
-    // ==================== 分批止盈配置 ====================
-    // 逐步锁定利润
-    // AI可以根据趋势强度灵活调整，这里提供建议值
-    // 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
-    partialTakeProfit: {
-      // 中长线策略：分批止盈，追求利润最大化
-      stage1: { trigger: 35, closePercent: 30 },   // +35%时平仓30%（保留70%追求更大利润）
-      stage2: { trigger: 60, closePercent: 50 },   // +60%时平仓剩余50%（累计平仓65%）
-      stage3: { trigger: 100, closePercent: 100 }, // +100%时全部清仓（翻倍止盈）
-    },
-    
-    // ==================== 峰值回撤保护 ====================
-    // 盈利从峰值回撤30%时，AI可以考虑平仓（仅作为参考建议）
-    // 例如：峰值+40%，回撤到+10%时（回撤30个百分点），AI可考虑平仓
-    // 注意：这是灵活建议，AI可以根据趋势健康度自主判断
-    peakDrawdownProtection: 30,
-    
-    // ==================== 波动率调整 ====================
-    // 根据市场波动自动调整杠杆和仓位
-    // 给AI充分的调整空间，适应不同市场环境
-    volatilityAdjustment: {
-      highVolatility: { 
-        leverageFactor: 0.6,   // 高波动时，杠杆降低40%（如8倍→4.8倍）
-        positionFactor: 0.7    // 高波动时，仓位降低30%（如30%→21%）
-      },
-      normalVolatility: { 
-        leverageFactor: 1.0,   // 正常波动时，杠杆不调整
-        positionFactor: 1.0    // 正常波动时，仓位不调整
-      },
-      lowVolatility: { 
-        leverageFactor: 1.15,  // 低波动时，杠杆提高15%（如8倍→9.2倍）
-        positionFactor: 1.1    // 低波动时，仓位提高10%（如30%→33%）
-      },
-    },
-    
-    // ==================== 策略规则描述 ====================
-    entryCondition: "建议多时间框架验证（5m/15m/30m/1h），但AI可根据市场情况灵活调整入场标准",  // 入场条件（灵活）
-    riskTolerance: "单笔风险控制在15-35%之间，AI可根据市场状态动态调整",  // 风险容忍度
-    tradingStyle: "30分钟执行周期，中长线持仓（最长24小时），注重质量而非频率，给AI充分自主决策权",  // 交易风格
-    
-    // ==================== 代码级保护开关 ====================
-    // 控制上述 stopLoss、trailingStop、partialTakeProfit 的执行方式
-    // - true：代码自动执行（监控器每10秒检查，AI只需负责开仓）
-    // - false：AI主动执行（AI根据配置在交易周期中判断和执行）
-    // 
-    // 中长线策略：禁用代码级保护，完全由AI主导（enableCodeLevelProtection = false）
-    // 这样AI可以根据市场情况灵活调整止盈止损，不受固定规则限制
-    enableCodeLevelProtection: false,
-  };
+	// 中长线策略：固定使用 3-10倍杠杆，不受 maxLeverage 限制
+	// 这是用户指定的杠杆范围
+	const strategyLevMin = 3; // 最小杠杆：3倍（保守入场）
+	const strategyLevMax = 10; // 最大杠杆：10倍（用户指定的最大值）
+
+	// 计算不同信号强度下推荐的杠杆倍数
+	const strategyLevNormal = 4; // 普通信号：4倍杠杆
+	const strategyLevGood = 6; // 良好信号：6倍杠杆
+	const strategyLevStrong = 8; // 强信号：8倍杠杆（保留10倍给极强信号）
+
+	return {
+		// ==================== 策略基本信息 ====================
+		name: "中长线", // 策略名称（中文）
+		description:
+			"30分钟周期，3-10倍杠杆，最长持仓24小时，AI主导决策，最小限制最大自由度", // 策略描述
+
+		// ==================== 杠杆配置 ====================
+		// 杠杆范围：固定3-10倍（用户指定）
+		// 给AI充分的杠杆选择空间，根据市场情况灵活运用
+		leverageMin: strategyLevMin, // 最小杠杆倍数
+		leverageMax: strategyLevMax, // 最大杠杆倍数
+		leverageRecommend: {
+			normal: `${strategyLevNormal}倍`, // 普通信号：4倍杠杆（稳健参与）
+			good: `${strategyLevGood}倍`, // 良好信号：6倍杠杆（平衡收益风险）
+			strong: `${strategyLevStrong}倍`, // 强信号：8倍杠杆（积极把握机会）
+		},
+
+		// ==================== 仓位配置 ====================
+		// 仓位范围：15-35%（灵活配置）
+		// 给AI充分的仓位选择权，可以根据市场情况和信号强度灵活调整
+		positionSizeMin: 15, // 最小仓位：15%（试探性入场）
+		positionSizeMax: 35, // 最大仓位：35%（强信号重仓）
+		positionSizeRecommend: {
+			normal: "15-22%", // 普通信号：较小仓位，控制风险
+			good: "22-28%", // 良好信号：标准仓位，平衡收益
+			strong: "28-35%", // 强信号：较大仓位，把握机会
+		},
+
+		// ==================== 止损配置 ====================
+		// 根据杠杆倍数分级止损
+		// 给AI充分的判断空间，止损线相对宽松
+		// 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
+		stopLoss: {
+			low: -8, // 低杠杆(3-5倍)：-8%止损（给趋势足够发展空间）
+			mid: -6, // 中杠杆(5-7倍)：-6%止损（平衡空间和风险）
+			high: -4.5, // 高杠杆(7-10倍)：-4.5%止损（严格控制风险）
+		},
+
+		// ==================== 移动止盈配置 ====================
+		// 盈利后移动止损线保护利润
+		// AI可以根据市场情况灵活调整，这里提供建议值
+		// 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
+		trailingStop: {
+			// 中长线策略：给趋势更多空间，较晚锁定利润
+			level1: { trigger: 12, stopAt: 5 }, // 盈利达到 +12% 时，止损线移至 +5%（保护7%空间）
+			level2: { trigger: 25, stopAt: 15 }, // 盈利达到 +25% 时，止损线移至 +15%（保护10%空间）
+			level3: { trigger: 40, stopAt: 28 }, // 盈利达到 +40% 时，止损线移至 +28%（保护12%空间）
+		},
+
+		// ==================== 分批止盈配置 ====================
+		// 逐步锁定利润
+		// AI可以根据趋势强度灵活调整，这里提供建议值
+		// 执行方式：AI根据此配置主动判断和执行（enableCodeLevelProtection = false）
+		partialTakeProfit: {
+			// 中长线策略：分批止盈，追求利润最大化
+			stage1: { trigger: 35, closePercent: 30 }, // +35%时平仓30%（保留70%追求更大利润）
+			stage2: { trigger: 60, closePercent: 50 }, // +60%时平仓剩余50%（累计平仓65%）
+			stage3: { trigger: 100, closePercent: 100 }, // +100%时全部清仓（翻倍止盈）
+		},
+
+		// ==================== 峰值回撤保护 ====================
+		// 盈利从峰值回撤30%时，AI可以考虑平仓（仅作为参考建议）
+		// 例如：峰值+40%，回撤到+10%时（回撤30个百分点），AI可考虑平仓
+		// 注意：这是灵活建议，AI可以根据趋势健康度自主判断
+		peakDrawdownProtection: 30,
+
+		// ==================== 波动率调整 ====================
+		// 根据市场波动自动调整杠杆和仓位
+		// 给AI充分的调整空间，适应不同市场环境
+		volatilityAdjustment: {
+			highVolatility: {
+				leverageFactor: 0.6, // 高波动时，杠杆降低40%（如8倍→4.8倍）
+				positionFactor: 0.7, // 高波动时，仓位降低30%（如30%→21%）
+			},
+			normalVolatility: {
+				leverageFactor: 1.0, // 正常波动时，杠杆不调整
+				positionFactor: 1.0, // 正常波动时，仓位不调整
+			},
+			lowVolatility: {
+				leverageFactor: 1.15, // 低波动时，杠杆提高15%（如8倍→9.2倍）
+				positionFactor: 1.1, // 低波动时，仓位提高10%（如30%→33%）
+			},
+		},
+
+		// ==================== 策略规则描述 ====================
+		entryCondition:
+			"建议多时间框架验证（5m/15m/30m/1h），但AI可根据市场情况灵活调整入场标准", // 入场条件（灵活）
+		riskTolerance: "单笔风险控制在15-35%之间，AI可根据市场状态动态调整", // 风险容忍度
+		tradingStyle:
+			"30分钟执行周期，中长线持仓（最长24小时），注重质量而非频率，给AI充分自主决策权", // 交易风格
+
+		// ==================== 代码级保护开关 ====================
+		// 控制上述 stopLoss、trailingStop、partialTakeProfit 的执行方式
+		// - true：代码自动执行（监控器每10秒检查，AI只需负责开仓）
+		// - false：AI主动执行（AI根据配置在交易周期中判断和执行）
+		//
+		// 中长线策略：禁用代码级保护，完全由AI主导（enableCodeLevelProtection = false）
+		// 这样AI可以根据市场情况灵活调整止盈止损，不受固定规则限制
+		enableCodeLevelProtection: false,
+	};
 }
 
 /**
  * 生成中长线策略特有的提示词
- * 
+ *
  * 根据策略参数和运行上下文，生成传递给AI的策略提示词。
  * AI会根据这些提示词来指导交易决策。
- * 
+ *
  * 核心理念：最小限制，最大自由度，充分发挥AI的分析和决策能力
- * 
+ *
  * @param params - 策略参数配置（从 getMediumLongStrategy 获得）
  * @param context - 运行时上下文（包含执行周期、持仓数量等）
  * @returns 中长线策略专属的AI提示词
  */
-export function generateMediumLongPrompt(params: StrategyParams, context: StrategyPromptContext): string {
-  return `
+export function generateMediumLongPrompt(
+	params: StrategyParams,
+	context: StrategyPromptContext,
+): string {
+	return `
 **策略类型**：中长线策略 - AI主导决策
 **执行周期**：${context.intervalMinutes}分钟（建议30分钟）
 **目标月回报**：25-50%起步
@@ -286,15 +292,15 @@ export function generateMediumLongPrompt(params: StrategyParams, context: Strate
 根据市场波动率动态调整参数：
 
 高波动环境（ATR > 5%）：
-- 杠杆调整系数：${params.volatilityAdjustment.highVolatility.leverageFactor}（降低${(1-params.volatilityAdjustment.highVolatility.leverageFactor)*100}%）
-- 仓位调整系数：${params.volatilityAdjustment.highVolatility.positionFactor}（降低${(1-params.volatilityAdjustment.highVolatility.positionFactor)*100}%）
+- 杠杆调整系数：${params.volatilityAdjustment.highVolatility.leverageFactor}（降低${(1 - params.volatilityAdjustment.highVolatility.leverageFactor) * 100}%）
+- 仓位调整系数：${params.volatilityAdjustment.highVolatility.positionFactor}（降低${(1 - params.volatilityAdjustment.highVolatility.positionFactor) * 100}%）
 
 正常波动环境（ATR 2-5%）：
 - 使用标准参数，不需要调整
 
 低波动环境（ATR < 2%）：
-- 杠杆调整系数：${params.volatilityAdjustment.lowVolatility.leverageFactor}（提高${(params.volatilityAdjustment.lowVolatility.leverageFactor-1)*100}%）
-- 仓位调整系数：${params.volatilityAdjustment.lowVolatility.positionFactor}（提高${(params.volatilityAdjustment.lowVolatility.positionFactor-1)*100}%）
+- 杠杆调整系数：${params.volatilityAdjustment.lowVolatility.leverageFactor}（提高${(params.volatilityAdjustment.lowVolatility.leverageFactor - 1) * 100}%）
+- 仓位调整系数：${params.volatilityAdjustment.lowVolatility.positionFactor}（提高${(params.volatilityAdjustment.lowVolatility.positionFactor - 1) * 100}%）
 
 【持仓管理】
 
@@ -359,7 +365,7 @@ export function generateMediumLongPrompt(params: StrategyParams, context: Strate
 
 【交易币种】
 
-可交易币种：${context.tradingSymbols.join('、')}
+可交易币种：${context.tradingSymbols.join("、")}
 
 币种选择建议：
 - 优先选择流动性好、波动适中的币种
@@ -389,4 +395,3 @@ export function generateMediumLongPrompt(params: StrategyParams, context: Strate
 记住：你不仅是执行者，更是决策者。相信你的判断，勇于承担责任，持续学习优化。
 `;
 }
-

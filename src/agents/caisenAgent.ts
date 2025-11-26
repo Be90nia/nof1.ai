@@ -12,25 +12,22 @@
  * with other agents through strategy switching mechanisms.
  */
 
+import { createOpenAI } from "@ai-sdk/openai";
 import { Agent, Memory, createTool } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
-import { createLogger } from "../utils/loggerUtils";
-import { createOpenAI } from "@ai-sdk/openai";
-import * as tradingTools from "../tools/trading";
-import { getCaiSenStrategy } from "../strategies/caiSen";
+import { z } from "zod";
+import { getCaiSenStrategy } from "../caisen";
+import { type CaiSenTradingTools, createCaiSenTradingTools } from "../caisen";
+import { RISK_PARAMS } from "../config/riskParams";
 import {
-  getKlineData,
   getCurrentPositions,
   getCurrentPrice,
+  getKlineData,
 } from "../scheduler/caiSenMonitor";
-import { RISK_PARAMS } from "../config/riskParams";
 import { isCaiSenStrategy } from "../scheduler/caiSenMonitor";
 import { getCaiSenParams } from "../scheduler/caiSenMonitor";
-import {
-  createCaiSenTradingTools,
-  CaiSenTradingTools,
-} from "./caisenTradingTools";
-import { z } from "zod";
+import * as tradingTools from "../tools/trading";
+import { createLogger } from "../utils/loggerUtils";
 
 // 创建日志记录器
 const logger = createLogger({ name: "caisen-agent", level: "info" });
@@ -333,6 +330,21 @@ function generateCaiSenPrompt(config: CaiSenAgentConfig): string {
 - **技术说明**：pnl_percent已包含杠杆效应，直接比较即可
 - **蔡森策略核心**：多时间框架分析+七分位策略引擎，在暴跌后的1/7区域是黄金做多机会
 
+【决策输出要求】
+每一次决策必须明确包含以下信息：
+1. 对于新开仓的货币：
+   - 止盈阈值（百分比）
+   - 止损阈值（百分比）
+   - 平仓方式（"full"表示一次性平仓，"batch"表示分批平仓）
+   - 如果是分批平仓，需明确批次数量、每批百分比和触发条件
+
+2. 对于已有持仓的货币：
+   - 是否调整止盈止损阈值
+   - 是否调整平仓方式
+   - 如果调整，需明确新的参数
+
+3. 决策必须清晰明确，便于系统解析和执行
+
 市场数据按时间顺序排列（最旧 → 最新），跨多个时间框架。使用此数据识别多时间框架趋势和关键水平。`;
 }
 
@@ -376,7 +388,7 @@ export async function createCaiSenAgent(
     });
 
   // 创建或使用传入的蔡森交易工具集
-  let caiSenTradingTools = config.caiSenTradingTools;
+  const caiSenTradingTools = config.caiSenTradingTools;
   if (!caiSenTradingTools) {
     // 如果没有提供交易工具集，需要创建一个默认的
     // 这里需要导入 CaiSenStandardizedInterface，但由于循环依赖问题，我们使用空对象

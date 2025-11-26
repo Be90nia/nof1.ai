@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,7 +20,7 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
 
 /**
  * AI自主策略配置
- * 
+ *
  * 策略特点：
  * - 风险等级：完全由AI自主决定
  * - 杠杆范围：1-最大杠杆（AI完全自主选择）
@@ -28,7 +28,7 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
  * - 适用人群：信任AI能力的交易者
  * - 目标回报：由AI根据市场情况自主决定
  * - 交易频率：由AI根据市场机会自主决定
- * 
+ *
  * 核心理念：
  * - 不提供任何策略建议或限制
  * - 只提供市场数据和交易工具
@@ -37,111 +37,114 @@ import type { StrategyParams, StrategyPromptContext } from "./types";
  * - 风控方式：双重防护（enableCodeLevelProtection = true + allowAiOverrideProtection = true）
  *   - 代码级自动止损：每10秒监控，触发阈值自动平仓（安全网）
  *   - AI主动决策：AI可以在代码级保护之前主动止盈止损（灵活性）
- * 
+ *
  * @param maxLeverage - 系统允许的最大杠杆倍数（从配置文件读取）
  * @returns AI自主策略的完整参数配置
  */
 export function getAiAutonomousStrategy(maxLeverage: number): StrategyParams {
-  return {
-    // ==================== 策略基本信息 ====================
-    name: "AI自主",  // 策略名称（中文）
-    description: "完全由AI主导，不提供任何策略建议，AI自主分析市场并做出决策",  // 策略描述
-    
-    // ==================== 杠杆配置 ====================
-    // 杠杆范围：1倍到最大杠杆，由AI完全自主选择
-    leverageMin: 1,  // 最小杠杆倍数
-    leverageMax: maxLeverage,  // 最大杠杆倍数
-    leverageRecommend: {
-      normal: "由AI自主决定",   // 不提供建议
-      good: "由AI自主决定",     // 不提供建议
-      strong: "由AI自主决定",   // 不提供建议
-    },
-    
-    // ==================== 仓位配置 ====================
-    // 仓位范围：1-100%，由AI完全自主选择
-    positionSizeMin: 1,   // 最小仓位：1%
-    positionSizeMax: 100, // 最大仓位：100%
-    positionSizeRecommend: {
-      normal: "由AI自主决定",   // 不提供建议
-      good: "由AI自主决定",     // 不提供建议
-      strong: "由AI自主决定",   // 不提供建议
-    },
-    
-    // ==================== 止损配置 ====================
-    // 代码级自动止损配置（作为安全网）
-    // AI可以在此之前主动止损，这些是最后的防线
-    stopLoss: {
-      low: -20,    // 低杠杆（1-5倍）：亏损8%时代码自动止损
-      mid: -20,    // 中杠杆（6-10倍）：亏损6%时代码自动止损
-      high: -20,   // 高杠杆（11倍以上）：亏损5%时代码自动止损
-    },
-    
-    // ==================== 移动止盈配置 ====================
-    // 代码级自动移动止盈配置（作为利润保护网）
-    // AI可以在此之前主动止盈，这些是自动保护机制
-    trailingStop: {
-      level1: { trigger: 5, stopAt: 3 },    // 盈利5%时，止损线移至+2%
-      level2: { trigger: 10, stopAt: 5 },   // 盈利10%时，止损线移至+5%
-      level3: { trigger: 15, stopAt: 10 },   // 盈利15%时，止损线移至+8%
-    },
-    
-    // ==================== 分批止盈配置 ====================
-    // 代码级自动分批止盈配置（作为利润锁定机制）
-    // AI可以在此之前主动止盈，这些是自动锁利机制
-    partialTakeProfit: {
-      stage1: { trigger: 20, closePercent: 30 },   // 盈利8%时，自动平仓30%
-      stage2: { trigger: 30, closePercent: 30 },  // 盈利12%时，自动平仓30%
-      stage3: { trigger: 40, closePercent: 100 },  // 盈利18%时，自动平仓40%
-    },
-    
-    // ==================== 峰值回撤保护 ====================
-    // 代码级峰值回撤保护（防止利润大幅回吐）
-    peakDrawdownProtection: 50,  // 从峰值回撤50%时提醒AI注意
-    
-    // ==================== 波动率调整 ====================
-    // 不进行波动率调整，由AI自主判断
-    volatilityAdjustment: {
-      highVolatility: { 
-        leverageFactor: 1.0,  // 不调整
-        positionFactor: 1.0   // 不调整
-      },
-      normalVolatility: { 
-        leverageFactor: 1.0,  // 不调整
-        positionFactor: 1.0   // 不调整
-      },
-      lowVolatility: { 
-        leverageFactor: 1.0,  // 不调整
-        positionFactor: 1.0   // 不调整
-      },
-    },
-    
-    // ==================== 策略规则描述 ====================
-    entryCondition: "由AI根据市场数据自主判断",  // 入场条件
-    riskTolerance: "由AI根据市场情况自主决定风险承受度",  // 风险容忍度
-    tradingStyle: "由AI根据市场机会自主决定交易风格和频率",  // 交易风格
-    
-    // ==================== 代码级保护开关 ====================
-    // 启用代码级保护（每10秒自动监控止损止盈）
-    enableCodeLevelProtection: true,
-    
-    // ==================== 双重防护模式 ====================
-    // 允许AI在代码级保护之外继续主动操作止盈止损
-    allowAiOverrideProtection: true,
-  };
+	return {
+		// ==================== 策略基本信息 ====================
+		name: "AI自主", // 策略名称（中文）
+		description: "完全由AI主导，不提供任何策略建议，AI自主分析市场并做出决策", // 策略描述
+
+		// ==================== 杠杆配置 ====================
+		// 杠杆范围：1倍到最大杠杆，由AI完全自主选择
+		leverageMin: 1, // 最小杠杆倍数
+		leverageMax: maxLeverage, // 最大杠杆倍数
+		leverageRecommend: {
+			normal: "由AI自主决定", // 不提供建议
+			good: "由AI自主决定", // 不提供建议
+			strong: "由AI自主决定", // 不提供建议
+		},
+
+		// ==================== 仓位配置 ====================
+		// 仓位范围：1-100%，由AI完全自主选择
+		positionSizeMin: 1, // 最小仓位：1%
+		positionSizeMax: 100, // 最大仓位：100%
+		positionSizeRecommend: {
+			normal: "由AI自主决定", // 不提供建议
+			good: "由AI自主决定", // 不提供建议
+			strong: "由AI自主决定", // 不提供建议
+		},
+
+		// ==================== 止损配置 ====================
+		// 代码级自动止损配置（作为安全网）
+		// AI可以在此之前主动止损，这些是最后的防线
+		stopLoss: {
+			low: -20, // 低杠杆（1-5倍）：亏损8%时代码自动止损
+			mid: -20, // 中杠杆（6-10倍）：亏损6%时代码自动止损
+			high: -20, // 高杠杆（11倍以上）：亏损5%时代码自动止损
+		},
+
+		// ==================== 移动止盈配置 ====================
+		// 代码级自动移动止盈配置（作为利润保护网）
+		// AI可以在此之前主动止盈，这些是自动保护机制
+		trailingStop: {
+			level1: { trigger: 5, stopAt: 3 }, // 盈利5%时，止损线移至+2%
+			level2: { trigger: 10, stopAt: 5 }, // 盈利10%时，止损线移至+5%
+			level3: { trigger: 15, stopAt: 10 }, // 盈利15%时，止损线移至+8%
+		},
+
+		// ==================== 分批止盈配置 ====================
+		// 代码级自动分批止盈配置（作为利润锁定机制）
+		// AI可以在此之前主动止盈，这些是自动锁利机制
+		partialTakeProfit: {
+			stage1: { trigger: 20, closePercent: 30 }, // 盈利8%时，自动平仓30%
+			stage2: { trigger: 30, closePercent: 30 }, // 盈利12%时，自动平仓30%
+			stage3: { trigger: 40, closePercent: 100 }, // 盈利18%时，自动平仓40%
+		},
+
+		// ==================== 峰值回撤保护 ====================
+		// 代码级峰值回撤保护（防止利润大幅回吐）
+		peakDrawdownProtection: 50, // 从峰值回撤50%时提醒AI注意
+
+		// ==================== 波动率调整 ====================
+		// 不进行波动率调整，由AI自主判断
+		volatilityAdjustment: {
+			highVolatility: {
+				leverageFactor: 1.0, // 不调整
+				positionFactor: 1.0, // 不调整
+			},
+			normalVolatility: {
+				leverageFactor: 1.0, // 不调整
+				positionFactor: 1.0, // 不调整
+			},
+			lowVolatility: {
+				leverageFactor: 1.0, // 不调整
+				positionFactor: 1.0, // 不调整
+			},
+		},
+
+		// ==================== 策略规则描述 ====================
+		entryCondition: "由AI根据市场数据自主判断", // 入场条件
+		riskTolerance: "由AI根据市场情况自主决定风险承受度", // 风险容忍度
+		tradingStyle: "由AI根据市场机会自主决定交易风格和频率", // 交易风格
+
+		// ==================== 代码级保护开关 ====================
+		// 启用代码级保护（每10秒自动监控止损止盈）
+		enableCodeLevelProtection: true,
+
+		// ==================== 双重防护模式 ====================
+		// 允许AI在代码级保护之外继续主动操作止盈止损
+		allowAiOverrideProtection: true,
+	};
 }
 
 /**
  * 生成AI自主策略特有的提示词
- * 
+ *
  * 这个策略不提供任何策略建议，只提供市场数据和工具说明。
  * AI需要完全自主分析市场并做出决策。
- * 
+ *
  * @param params - 策略参数配置（从 getAiAutonomousStrategy 获得）
  * @param context - 运行时上下文（包含执行周期、持仓数量等）
  * @returns AI自主策略专属的AI提示词
  */
-export function generateAiAutonomousPrompt(params: StrategyParams, context: StrategyPromptContext): string {
-  return `
+export function generateAiAutonomousPrompt(
+	params: StrategyParams,
+	context: StrategyPromptContext,
+): string {
+	return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【AI自主策略 - 完全自主决策模式】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,4 +266,3 @@ export function generateAiAutonomousPrompt(params: StrategyParams, context: Stra
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;
 }
-
