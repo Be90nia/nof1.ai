@@ -2011,7 +2011,7 @@ async function monitorPositions(): Promise<void> {
 
       // 获取当前策略配置
       const strategy = getTradingStrategy();
-      const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+      const params = getStrategyParams(strategy);
 
       // 记录策略配置日志，用于调试
       logger.info(`策略配置: ${JSON.stringify(params.stopLoss)}`);

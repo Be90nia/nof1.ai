@@ -129,7 +129,7 @@ let aiStopLossJudger: AIStopLossJudger | null = null;
  */
 function isStopLossEnabled(): boolean {
   const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
+  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
   return params.enableCodeLevelProtection === true;
 }
 
@@ -138,7 +138,7 @@ function isStopLossEnabled(): boolean {
  */
 function getStopLossConfig() {
   const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
+  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
 
   if (!params.stopLoss) {
     return null;
@@ -721,7 +721,7 @@ async function checkStopLoss() {
 export function startStopLossMonitor() {
   // 检查当前策略是否启用代码级止损
   const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
+  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
 
   if (!isStopLossEnabled()) {
     logger.info(

@@ -3,8 +3,8 @@
  * 负责管理策略的运行状态、异常事件和等待时间阈值
  */
 
-import { createLogger } from "../utils/loggerUtils";
-import { getChinaTimeISO } from "../utils/timeUtils";
+import { createLogger } from "../../utils/loggerUtils";
+import { getChinaTimeISO } from "../../utils/timeUtils";
 import { createClient } from "@libsql/client";
 
 const logger = createLogger({ name: "caisen-state-manager", level: "info" });
