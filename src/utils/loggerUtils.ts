@@ -53,7 +53,7 @@ const DEFAULT_CONFIG: LoggerConfig = {
 	level: "info",
 	colorize: true,
 	timeFormat: "SYS:yyyy-mm-dd HH:MM:ss",
-	singleLine: true,
+	singleLine: false,
 };
 
 /**
