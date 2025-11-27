@@ -34,7 +34,7 @@ export {
 	openPositionTool,
 	closePositionTool,
 	cancelOrderTool,
-	setStopProfitLossTool,
+	setSimpleStopProfitLossTool,
 	setBatchClosingTool,
 } from "./tradeExecution";
 

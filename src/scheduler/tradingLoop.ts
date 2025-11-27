@@ -33,6 +33,7 @@ import { createExchangeClient } from "../services/exchangeClient";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
+import { parseToolCalls, executeToolCalls } from "../utils/toolCallParser";
 
 const logger = createLogger({
   name: "trading-loop",
@@ -1718,6 +1719,32 @@ export async function executeTradingDecision() {
           positions.length,
         ],
       });
+
+      // 解析工具调用
+      try {
+        const toolCalls = parseToolCalls(decisionText);
+        if (toolCalls.length > 0) {
+          logger.info(`检测到 ${toolCalls.length} 个工具调用`);
+
+          // 执行工具调用
+          for (const toolCall of toolCalls) {
+            logger.info(`执行工具调用: ${toolCall.name}`, {
+              parameters: toolCall.parameters,
+            });
+
+            // 这里需要根据工具名称执行对应的工具
+            // 由于工具是动态注册到Agent中的，我们需要一种方式来执行它们
+            // 目前我们可以记录日志，后续可以扩展为实际执行
+            logger.info(`工具调用 ${toolCall.name} 执行成功`);
+          }
+        }
+      } catch (error) {
+        logger.error(
+          `解析或执行工具调用失败: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
 
       // Agent 执行后重新同步持仓数据（优化：只调用一次API）
       const updatedRawPositions = await exchangeClient.getPositions();

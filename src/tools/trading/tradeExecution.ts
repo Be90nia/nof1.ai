@@ -1188,9 +1188,9 @@ export const closePositionTool = createTool({
 /**
  * 设置止盈止损工具
  */
-export const setStopProfitLossTool = createTool({
-	name: "setStopProfitLoss",
-	description: "为指定持仓设置或更新止盈止损策略",
+export const setSimpleStopProfitLossTool = createTool({
+	name: "setSimpleStopProfitLoss",
+	description: "为指定持仓设置简单止盈止损策略（使用数值百分比）",
 	parameters: z.object({
 		symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
 		stopLoss: z.number().describe("止损阈值（百分比）"),
@@ -1208,7 +1208,7 @@ export const setStopProfitLossTool = createTool({
 	}),
 	execute: async ({ symbol, stopLoss, takeProfit, closingType, batchParams }) => {
 		try {
-			logger.info(`设置止盈止损: ${symbol}, 止损: ${stopLoss}%, 止盈: ${takeProfit}%, 平仓方式: ${closingType}`);
+			logger.info(`设置简单止盈止损: ${symbol}, 止损: ${stopLoss}%, 止盈: ${takeProfit}%, 平仓方式: ${closingType}`);
 			
 			// 更新数据库中的持仓信息
 			await dbClient.execute({
@@ -1234,13 +1234,13 @@ export const setStopProfitLossTool = createTool({
 				takeProfit,
 				closingType,
 				batchParams,
-				message: `成功为 ${symbol} 设置止盈止损策略`,
+				message: `成功为 ${symbol} 设置简单止盈止损策略`,
 			};
 		} catch (error: any) {
 			return {
 				success: false,
 				error: error.message,
-				message: `设置止盈止损失败: ${error.message}`,
+				message: `设置简单止盈止损失败: ${error.message}`,
 			};
 		}
 	},
