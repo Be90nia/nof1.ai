@@ -179,7 +179,7 @@ function calculateIndicators(candles: any[]) {
 			}
 			// 如果是数组格式（兼容旧代码）
 			if (Array.isArray(c)) {
-				return Number.parseFloat(c[2]);
+				return Number.parseFloat(c[4]);
 			}
 			return Number.NaN;
 		})
