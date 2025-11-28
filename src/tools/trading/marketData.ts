@@ -140,6 +140,374 @@ function calculateATR(candles: any[], period: number) {
   );
 }
 
+// 计算 Bollinger Bands
+function calculateBollingerBands(
+  candles: any[],
+  period: number,
+  stdDev: number
+) {
+  if (!candles || candles.length < period)
+    return { upper: 0, middle: 0, lower: 0 };
+
+  const closes = candles
+    .map((c) => {
+      if (c && typeof c === "object" && "c" in c) {
+        return Number.parseFloat(c.c);
+      }
+      if (Array.isArray(c)) {
+        return Number.parseFloat(c[4]);
+      }
+      return Number.NaN;
+    })
+    .filter((n) => Number.isFinite(n));
+
+  if (closes.length < period) return { upper: 0, middle: 0, lower: 0 };
+
+  const recentCloses = closes.slice(-period);
+  const middle = recentCloses.reduce((a, b) => a + b, 0) / period;
+
+  const variance =
+    recentCloses.reduce((sum, price) => sum + Math.pow(price - middle, 2), 0) /
+    period;
+  const std = Math.sqrt(variance);
+
+  return {
+    upper: middle + stdDev * std,
+    middle,
+    lower: middle - stdDev * std,
+  };
+}
+
+// 计算 MFI（资金流量指标）
+function calculateMFI(candles: any[], period: number) {
+  if (!candles || candles.length < period) return 50;
+
+  const typicalPrices = [];
+  const moneyFlows = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    let high: number, low: number, close: number, volume: number;
+
+    if (candles[i] && typeof candles[i] === "object") {
+      high = Number.parseFloat(candles[i].h);
+      low = Number.parseFloat(candles[i].l);
+      close = Number.parseFloat(candles[i].c);
+      volume = Number.parseFloat(candles[i].v);
+    } else if (Array.isArray(candles[i])) {
+      high = Number.parseFloat(candles[i][2]);
+      low = Number.parseFloat(candles[i][3]);
+      close = Number.parseFloat(candles[i][4]);
+      volume = Number.parseFloat(candles[i][5]);
+    } else {
+      continue;
+    }
+
+    if (
+      Number.isFinite(high) &&
+      Number.isFinite(low) &&
+      Number.isFinite(close) &&
+      Number.isFinite(volume)
+    ) {
+      const typicalPrice = (high + low + close) / 3;
+      const moneyFlow = typicalPrice * volume;
+      typicalPrices.push(typicalPrice);
+      moneyFlows.push(moneyFlow);
+    }
+  }
+
+  if (typicalPrices.length < period) return 50;
+
+  let positiveMoneyFlow = 0;
+  let negativeMoneyFlow = 0;
+
+  for (
+    let i = typicalPrices.length - period + 1;
+    i < typicalPrices.length;
+    i++
+  ) {
+    if (typicalPrices[i] > typicalPrices[i - 1]) {
+      positiveMoneyFlow += moneyFlows[i];
+    } else if (typicalPrices[i] < typicalPrices[i - 1]) {
+      negativeMoneyFlow += moneyFlows[i];
+    }
+  }
+
+  if (negativeMoneyFlow === 0) return 100;
+  if (positiveMoneyFlow === 0) return 0;
+
+  const moneyRatio = positiveMoneyFlow / negativeMoneyFlow;
+  const mfi = 100 - 100 / (1 + moneyRatio);
+
+  return ensureRange(mfi, 0, 100, 50);
+}
+
+// 计算 Stochastic Oscillator
+function calculateStochastic(candles: any[], kPeriod: number, dPeriod: number) {
+  if (!candles || candles.length < kPeriod + dPeriod - 1)
+    return { k: 50, d: 50 };
+
+  const stochasticValues = [];
+
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    const periodCandles = candles.slice(i - kPeriod + 1, i + 1);
+    let highestHigh = -Infinity;
+    let lowestLow = Infinity;
+
+    for (const candle of periodCandles) {
+      let high: number, low: number, close: number;
+
+      if (candle && typeof candle === "object") {
+        high = Number.parseFloat(candle.h);
+        low = Number.parseFloat(candle.l);
+        close = Number.parseFloat(candle.c);
+      } else if (Array.isArray(candle)) {
+        high = Number.parseFloat(candle[2]);
+        low = Number.parseFloat(candle[3]);
+        close = Number.parseFloat(candle[4]);
+      } else {
+        continue;
+      }
+
+      if (Number.isFinite(high) && high > highestHigh) highestHigh = high;
+      if (Number.isFinite(low) && low < lowestLow) lowestLow = low;
+    }
+
+    if (highestHigh === -Infinity || lowestLow === Infinity) {
+      stochasticValues.push(50);
+      continue;
+    }
+
+    let closePrice: number;
+    const currentCandle = candles[i];
+    if (
+      currentCandle &&
+      typeof currentCandle === "object" &&
+      "c" in currentCandle
+    ) {
+      closePrice = Number.parseFloat(currentCandle.c);
+    } else if (Array.isArray(currentCandle)) {
+      closePrice = Number.parseFloat(currentCandle[4]);
+    } else {
+      stochasticValues.push(50);
+      continue;
+    }
+
+    if (!Number.isFinite(closePrice)) {
+      stochasticValues.push(50);
+      continue;
+    }
+
+    if (highestHigh === lowestLow) {
+      stochasticValues.push(50);
+      continue;
+    }
+
+    const kValue = ((closePrice - lowestLow) / (highestHigh - lowestLow)) * 100;
+    stochasticValues.push(kValue);
+  }
+
+  if (stochasticValues.length < dPeriod) return { k: 50, d: 50 };
+
+  const k = ensureRange(stochasticValues.at(-1) || 50, 0, 100, 50);
+  const d = ensureRange(
+    stochasticValues.slice(-dPeriod).reduce((a, b) => a + b, 0) / dPeriod,
+    0,
+    100,
+    50
+  );
+
+  return { k, d };
+}
+
+// 计算 ADX（平均趋向指数）
+function calculateADX(candles: any[], period: number) {
+  if (!candles || candles.length < period + 2) return 0;
+
+  let plusDM = [];
+  let minusDM = [];
+  let trs = [];
+
+  for (let i = 1; i < candles.length; i++) {
+    let high: number,
+      low: number,
+      prevHigh: number,
+      prevLow: number,
+      prevClose: number;
+
+    if (
+      candles[i] &&
+      typeof candles[i] === "object" &&
+      candles[i - 1] &&
+      typeof candles[i - 1] === "object"
+    ) {
+      high = Number.parseFloat(candles[i].h);
+      low = Number.parseFloat(candles[i].l);
+      prevHigh = Number.parseFloat(candles[i - 1].h);
+      prevLow = Number.parseFloat(candles[i - 1].l);
+      prevClose = Number.parseFloat(candles[i - 1].c);
+    } else if (Array.isArray(candles[i]) && Array.isArray(candles[i - 1])) {
+      high = Number.parseFloat(candles[i][2]);
+      low = Number.parseFloat(candles[i][3]);
+      prevHigh = Number.parseFloat(candles[i - 1][2]);
+      prevLow = Number.parseFloat(candles[i - 1][3]);
+      prevClose = Number.parseFloat(candles[i - 1][4]);
+    } else {
+      continue;
+    }
+
+    if (
+      Number.isFinite(high) &&
+      Number.isFinite(low) &&
+      Number.isFinite(prevHigh) &&
+      Number.isFinite(prevLow) &&
+      Number.isFinite(prevClose)
+    ) {
+      // 计算 TR
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose)
+      );
+      trs.push(tr);
+
+      // 计算 +DM 和 -DM
+      const upMove = high - prevHigh;
+      const downMove = prevLow - low;
+
+      if (upMove > downMove && upMove > 0) {
+        plusDM.push(upMove);
+        minusDM.push(0);
+      } else if (downMove > upMove && downMove > 0) {
+        minusDM.push(downMove);
+        plusDM.push(0);
+      } else {
+        plusDM.push(0);
+        minusDM.push(0);
+      }
+    }
+  }
+
+  if (trs.length < period || plusDM.length < period || minusDM.length < period)
+    return 0;
+
+  // 计算 SMA
+  function calculateSMA(data: number[], period: number) {
+    if (data.length < period) return 0;
+    return data.slice(-period).reduce((a, b) => a + b, 0) / period;
+  }
+
+  // 计算第一个 SMA
+  const firstSMA_TR = calculateSMA(trs, period);
+  const firstSMA_plusDM = calculateSMA(plusDM, period);
+  const firstSMA_minusDM = calculateSMA(minusDM, period);
+
+  // 计算后续的 EMA
+  let ema_TR = firstSMA_TR;
+  let ema_plusDM = firstSMA_plusDM;
+  let ema_minusDM = firstSMA_minusDM;
+
+  const multiplier = 2 / (period + 1);
+
+  for (let i = period; i < trs.length; i++) {
+    ema_TR = (trs[i] - ema_TR) * multiplier + ema_TR;
+    ema_plusDM = (plusDM[i] - ema_plusDM) * multiplier + ema_plusDM;
+    ema_minusDM = (minusDM[i] - ema_minusDM) * multiplier + ema_minusDM;
+  }
+
+  // 计算 +DI 和 -DI
+  const plusDI = (ema_plusDM / ema_TR) * 100;
+  const minusDI = (ema_minusDM / ema_TR) * 100;
+
+  // 计算 DX
+  const dx = (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
+
+  // 计算 ADX
+  const adx = Number.isFinite(dx) ? dx : 0;
+  return ensureRange(adx, 0, 100, 0);
+}
+
+// 计算 OBV（能量潮）
+function calculateOBV(candles: any[]) {
+  if (!candles || candles.length === 0) return 0;
+
+  let obv = 0;
+
+  for (let i = 1; i < candles.length; i++) {
+    let currentClose: number, prevClose: number, volume: number;
+
+    if (
+      candles[i] &&
+      typeof candles[i] === "object" &&
+      candles[i - 1] &&
+      typeof candles[i - 1] === "object"
+    ) {
+      currentClose = Number.parseFloat(candles[i].c);
+      prevClose = Number.parseFloat(candles[i - 1].c);
+      volume = Number.parseFloat(candles[i].v);
+    } else if (Array.isArray(candles[i]) && Array.isArray(candles[i - 1])) {
+      currentClose = Number.parseFloat(candles[i][4]);
+      prevClose = Number.parseFloat(candles[i - 1][4]);
+      volume = Number.parseFloat(candles[i][5]);
+    } else {
+      continue;
+    }
+
+    if (
+      Number.isFinite(currentClose) &&
+      Number.isFinite(prevClose) &&
+      Number.isFinite(volume)
+    ) {
+      if (currentClose > prevClose) {
+        obv += volume;
+      } else if (currentClose < prevClose) {
+        obv -= volume;
+      }
+    }
+  }
+
+  return ensureFinite(obv);
+}
+
+// 计算 VWAP（成交量加权平均价格）
+function calculateVWAP(candles: any[]) {
+  if (!candles || candles.length === 0) return 0;
+
+  let cumulativeTPV = 0;
+  let cumulativeVolume = 0;
+
+  for (const candle of candles) {
+    let high: number, low: number, close: number, volume: number;
+
+    if (candle && typeof candle === "object") {
+      high = Number.parseFloat(candle.h);
+      low = Number.parseFloat(candle.l);
+      close = Number.parseFloat(candle.c);
+      volume = Number.parseFloat(candle.v);
+    } else if (Array.isArray(candle)) {
+      high = Number.parseFloat(candle[2]);
+      low = Number.parseFloat(candle[3]);
+      close = Number.parseFloat(candle[4]);
+      volume = Number.parseFloat(candle[5]);
+    } else {
+      continue;
+    }
+
+    if (
+      Number.isFinite(high) &&
+      Number.isFinite(low) &&
+      Number.isFinite(close) &&
+      Number.isFinite(volume)
+    ) {
+      const typicalPrice = (high + low + close) / 3;
+      cumulativeTPV += typicalPrice * volume;
+      cumulativeVolume += volume;
+    }
+  }
+
+  if (cumulativeVolume === 0) return 0;
+  return cumulativeTPV / cumulativeVolume;
+}
+
 /**
  * 计算技术指标
  *
@@ -154,7 +522,7 @@ function calculateATR(candles: any[], period: number) {
  *   sum: string   // 总成交额
  * }
  */
-function calculateIndicators(candles: any[]) {
+export function calculateIndicators(candles: any[]) {
   if (!candles || candles.length === 0) {
     return {
       currentPrice: 0,
@@ -167,6 +535,16 @@ function calculateIndicators(candles: any[]) {
       avgVolume: 0,
       atr3: 0,
       atr14: 0,
+      bollingerUpper: 0,
+      bollingerMiddle: 0,
+      bollingerLower: 0,
+      mfi: 50,
+      stochasticK: 50,
+      stochasticD: 50,
+      adx: 0,
+      obv: 0,
+      vwap: 0,
+      volumeRatio: 1,
     };
   }
 
@@ -214,8 +592,26 @@ function calculateIndicators(candles: any[]) {
       avgVolume: 0,
       atr3: 0,
       atr14: 0,
+      bollingerUpper: 0,
+      bollingerMiddle: 0,
+      bollingerLower: 0,
+      mfi: 50,
+      stochasticK: 50,
+      stochasticD: 50,
+      adx: 0,
+      obv: 0,
+      vwap: 0,
+      volumeRatio: 1,
     };
   }
+
+  // 计算新增的技术指标
+  const bollinger = calculateBollingerBands(candles, 20, 2);
+  const mfi = calculateMFI(candles, 14);
+  const stochastic = calculateStochastic(candles, 14, 3);
+  const adx = calculateADX(candles, 14);
+  const obv = calculateOBV(candles);
+  const vwap = calculateVWAP(candles);
 
   return {
     currentPrice: ensureFinite(closes.at(-1) || 0),
@@ -232,6 +628,15 @@ function calculateIndicators(candles: any[]) {
     ),
     atr3: ensureFinite(calculateATR(candles, 3)),
     atr14: ensureFinite(calculateATR(candles, 14)),
+    bollingerUpper: ensureFinite(bollinger.upper),
+    bollingerMiddle: ensureFinite(bollinger.middle),
+    bollingerLower: ensureFinite(bollinger.lower),
+    mfi: ensureRange(mfi, 0, 100, 50),
+    stochasticK: ensureRange(stochastic.k, 0, 100, 50),
+    stochasticD: ensureRange(stochastic.d, 0, 100, 50),
+    adx: ensureRange(adx, 0, 100, 0),
+    obv: ensureFinite(obv),
+    vwap: ensureFinite(vwap),
     volumeRatio: ensureFinite(
       volumes.length > 0 &&
         volumes.reduce((a, b) => a + b, 0) / volumes.length > 0
@@ -378,6 +783,27 @@ export const getOpenInterestTool = createTool({
     return {
       symbol,
       openInterest: 0,
+      timestamp: new Date().toISOString(),
+    };
+  },
+});
+
+/**
+ * 获取市场恐惧贪婪指数工具
+ */
+export const getFearAndGreedIndexTool = createTool({
+  name: "getFearAndGreedIndex",
+  description: "获取指定币种的市场恐惧贪婪指数",
+  parameters: z.object({
+    symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
+  }),
+  execute: async ({ symbol }) => {
+    const client = createExchangeClient();
+    const fearGreedIndex = await client.getFearAndGreedIndex(symbol);
+
+    return {
+      symbol,
+      ...fearGreedIndex,
       timestamp: new Date().toISOString(),
     };
   },

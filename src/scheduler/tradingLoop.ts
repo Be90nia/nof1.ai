@@ -30,6 +30,7 @@ import {
 } from "../agents/tradingAgent";
 import { RISK_PARAMS } from "../config/riskParams";
 import { createExchangeClient } from "../services/exchangeClient";
+import { calculateIndicators } from "../tools/trading/marketData";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
@@ -199,12 +200,25 @@ async function collectMarketData() {
         logger.warn(`获取 ${symbol} 资金费率失败:`, error as any);
       }
 
+      // 获取恐惧贪婪指数
+      let fearAndGreedIndex = 50; // 默认中性值
+      try {
+        const fgIndex = await exchangeClient.getFearAndGreedIndex(symbol);
+        fearAndGreedIndex = Number.parseFloat(fgIndex.value || "50");
+        if (!Number.isFinite(fearAndGreedIndex)) {
+          fearAndGreedIndex = 50;
+        }
+      } catch (error) {
+        logger.warn(`获取 ${symbol} 恐惧贪婪指数失败:`, error as any);
+      }
+
       // 精简市场数据，只保留关键信息
       marketData[symbol] = {
         price: Number.parseFloat(ticker.last || "0"),
         change24h: Number.parseFloat(ticker.change_percentage || "0"),
         volume24h: Number.parseFloat(ticker.volume_24h || "0"),
         fundingRate,
+        fearAndGreedIndex,
         // 只保留关键技术指标
         ema20: indicators.ema20,
         ema50: indicators.ema50,
@@ -212,6 +226,18 @@ async function collectMarketData() {
         rsi7: indicators.rsi7,
         rsi14: indicators.rsi14,
         volume: indicators.volume,
+        // 新增技术指标
+        atr3: indicators.atr3,
+        atr14: indicators.atr14,
+        bollingerUpper: indicators.bollingerUpper,
+        bollingerMiddle: indicators.bollingerMiddle,
+        bollingerLower: indicators.bollingerLower,
+        mfi: indicators.mfi,
+        stochasticK: indicators.stochasticK,
+        stochasticD: indicators.stochasticD,
+        adx: indicators.adx,
+        obv: indicators.obv,
+        vwap: indicators.vwap,
         // 保留1小时时间框架作为长期参考
         timeframes: {
           "1h": indicators1h,
@@ -291,129 +317,6 @@ function calcEMA(prices: number[], period: number) {
     ema = prices[i] * k + ema * (1 - k);
   }
   return Number.isFinite(ema) ? ema : 0;
-}
-
-// 计算 RSI
-function calcRSI(prices: number[], period: number) {
-  if (prices.length < period + 1) return 50; // 数据不足，返回中性值
-
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = prices.length - period; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
-  }
-
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-
-  if (avgLoss === 0) return avgGain > 0 ? 100 : 50;
-
-  const rs = avgGain / avgLoss;
-  const rsi = 100 - 100 / (1 + rs);
-
-  // 确保RSI在0-100范围内
-  return ensureRange(rsi, 0, 100, 50);
-}
-
-// 计算 MACD
-function calcMACD(prices: number[]) {
-  if (prices.length < 26) return 0; // 数据不足
-  const ema12 = calcEMA(prices, 12);
-  const ema26 = calcEMA(prices, 26);
-  const macd = ema12 - ema26;
-  return Number.isFinite(macd) ? macd : 0;
-}
-
-/**
- * 计算技术指标
- *
- * K线数据格式：FuturesCandlestick 对象
- * {
- *   t: number,    // 时间戳
- *   v: number,    // 成交量
- *   c: string,    // 收盘价
- *   h: string,    // 最高价
- *   l: string,    // 最低价
- *   o: string,    // 开盘价
- *   sum: string   // 总成交额
- * }
- */
-function calculateIndicators(candles: any[]) {
-  if (!candles || candles.length === 0) {
-    return {
-      currentPrice: 0,
-      ema20: 0,
-      ema50: 0,
-      macd: 0,
-      rsi7: 50,
-      rsi14: 50,
-      volume: 0,
-      avgVolume: 0,
-    };
-  }
-
-  // 处理对象格式的K线数据（Gate.io API返回的是对象，不是数组）
-  const closes = candles
-    .map((c) => {
-      // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === "object" && "c" in c) {
-        return Number.parseFloat(c.c);
-      }
-      // 如果是数组格式（兼容旧代码）
-      if (Array.isArray(c)) {
-        return Number.parseFloat(c[4]);
-      }
-      return Number.NaN;
-    })
-    .filter((n) => Number.isFinite(n));
-
-  const volumes = candles
-    .map((c) => {
-      // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === "object" && "v" in c) {
-        const vol = Number.parseFloat(c.v);
-        // 验证成交量：必须是有限数字且非负
-        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
-      }
-      // 如果是数组格式（兼容旧代码）
-      if (Array.isArray(c)) {
-        const vol = Number.parseFloat(c[1]);
-        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
-      }
-      return 0;
-    })
-    .filter((n) => n >= 0); // 过滤掉负数成交量
-
-  if (closes.length === 0 || volumes.length === 0) {
-    return {
-      currentPrice: 0,
-      ema20: 0,
-      ema50: 0,
-      macd: 0,
-      rsi7: 50,
-      rsi14: 50,
-      volume: 0,
-      avgVolume: 0,
-    };
-  }
-
-  return {
-    currentPrice: ensureFinite(closes.at(-1) || 0),
-    ema20: ensureFinite(calcEMA(closes, 20)),
-    ema50: ensureFinite(calcEMA(closes, 50)),
-    macd: ensureFinite(calcMACD(closes)),
-    rsi7: ensureRange(calcRSI(closes, 7), 0, 100, 50),
-    rsi14: ensureRange(calcRSI(closes, 14), 0, 100, 50),
-    volume: ensureFinite(volumes.at(-1) || 0),
-    avgVolume: ensureFinite(
-      volumes.length > 0
-        ? volumes.reduce((a, b) => a + b, 0) / volumes.length
-        : 0
-    ),
-  };
 }
 
 /**
@@ -1592,17 +1495,49 @@ export async function executeTradingDecision() {
     }
 
     // 10. 生成提示词并调用 Agent
-    const prompt = generateTradingPrompt({
-      minutesElapsed,
-      iteration: iterationCount,
-      intervalMinutes,
-      marketData,
-      accountInfo,
-      positions,
-      tradeHistory,
-      recentDecisions,
-      positionCount: positions.length,
-    });
+    let prompt: string;
+    if (currentStrategy === "cai-sen") {
+      // 使用蔡森策略专用提示词生成函数
+      const { generateCaiSenPrompt } = await import(
+        "../caisen/strategy/prompt"
+      );
+      const strategy = getTradingStrategy();
+      const params = getStrategyParams(strategy);
+      prompt = generateCaiSenPrompt(
+        params,
+        {
+          intervalMinutes,
+          maxPositions: RISK_PARAMS.MAX_POSITIONS,
+          extremeStopLossPercent: RISK_PARAMS.EXTREME_STOP_LOSS_PERCENT,
+          maxHoldingHours: RISK_PARAMS.MAX_HOLDING_HOURS,
+          tradingSymbols: RISK_PARAMS.TRADING_SYMBOLS,
+        },
+        {
+          minutesElapsed,
+          iteration: iterationCount,
+          intervalMinutes,
+          marketData,
+          accountInfo,
+          positions,
+          tradeHistory,
+          recentDecisions,
+          positionCount: positions.length,
+        }
+      );
+    } else {
+      // 使用标准提示词生成函数
+      prompt = generateTradingPrompt({
+        minutesElapsed,
+        iteration: iterationCount,
+        intervalMinutes,
+        marketData,
+        accountInfo,
+        positions,
+        tradeHistory,
+        recentDecisions,
+        positionCount: positions.length,
+      });
+    }
 
     // 输出完整提示词到日志
     logger.info("【入参 - AI 提示词】");

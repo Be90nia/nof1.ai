@@ -25,8 +25,8 @@ import { type GateClient, createGateClient } from "./gateClient";
 import { type OkxClient, createOkxClient } from "./okxClient";
 
 const logger = createLogger({
-	name: "exchange-client",
-	level: "info",
+  name: "exchange-client",
+  level: "info",
 });
 
 /**
@@ -34,123 +34,128 @@ const logger = createLogger({
  * 定义所有交易所必须实现的方法
  */
 export interface IExchangeClient {
-	/**
-	 * 获取合约ticker价格
-	 */
-	getFuturesTicker(contract: string, retries?: number): Promise<any>;
+  /**
+   * 获取合约ticker价格
+   */
+  getFuturesTicker(contract: string, retries?: number): Promise<any>;
 
-	/**
-	 * 获取合约K线数据
-	 */
-	getFuturesCandles(
-		contract: string,
-		interval?: string,
-		limit?: number,
-		retries?: number,
-	): Promise<any[]>;
+  /**
+   * 获取合约K线数据
+   */
+  getFuturesCandles(
+    contract: string,
+    interval?: string,
+    limit?: number,
+    retries?: number
+  ): Promise<any[]>;
 
-	/**
-	 * 获取账户余额
-	 */
-	getFuturesAccount(retries?: number): Promise<any>;
+  /**
+   * 获取账户余额
+   */
+  getFuturesAccount(retries?: number): Promise<any>;
 
-	/**
-	 * 获取当前持仓
-	 */
-	getPositions(retries?: number): Promise<any[]>;
+  /**
+   * 获取当前持仓
+   */
+  getPositions(retries?: number): Promise<any[]>;
 
-	/**
-	 * 下单 - 开仓或平仓
-	 */
-	placeOrder(params: {
-		contract: string;
-		size: number;
-		price?: number;
-		tif?: string;
-		reduceOnly?: boolean;
-		autoSize?: string;
-		stopLoss?: number;
-		takeProfit?: number;
-	}): Promise<any>;
+  /**
+   * 下单 - 开仓或平仓
+   */
+  placeOrder(params: {
+    contract: string;
+    size: number;
+    price?: number;
+    tif?: string;
+    reduceOnly?: boolean;
+    autoSize?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): Promise<any>;
 
-	/**
-	 * 获取订单详情
-	 * @param orderId 订单ID
-	 * @param contract 合约名称（可选，某些交易所如OKX需要此参数）
-	 */
-	getOrder(orderId: string, contract?: string): Promise<any>;
+  /**
+   * 获取订单详情
+   * @param orderId 订单ID
+   * @param contract 合约名称（可选，某些交易所如OKX需要此参数）
+   */
+  getOrder(orderId: string, contract?: string): Promise<any>;
 
-	/**
-	 * 取消订单
-	 */
-	cancelOrder(orderId: string): Promise<any>;
+  /**
+   * 取消订单
+   */
+  cancelOrder(orderId: string): Promise<any>;
 
-	/**
-	 * 获取未成交订单
-	 */
-	getOpenOrders(contract?: string): Promise<any[]>;
+  /**
+   * 获取未成交订单
+   */
+  getOpenOrders(contract?: string): Promise<any[]>;
 
-	/**
-	 * 设置仓位杠杆
-	 */
-	setLeverage(contract: string, leverage: number): Promise<any>;
+  /**
+   * 设置仓位杠杆
+   */
+  setLeverage(contract: string, leverage: number): Promise<any>;
 
-	/**
-	 * 获取资金费率
-	 */
-	getFundingRate(contract: string): Promise<any>;
+  /**
+   * 获取资金费率
+   */
+  getFundingRate(contract: string): Promise<any>;
 
-	/**
-	 * 获取合约信息
-	 */
-	getContractInfo(contract: string): Promise<any>;
+  /**
+   * 获取合约信息
+   */
+  getContractInfo(contract: string): Promise<any>;
 
-	/**
-	 * 获取所有合约列表
-	 */
-	getAllContracts(): Promise<any[]>;
+  /**
+   * 获取所有合约列表
+   */
+  getAllContracts(): Promise<any[]>;
 
-	/**
-	 * 获取订单簿
-	 */
-	getOrderBook(contract: string, limit?: number): Promise<any>;
+  /**
+   * 获取订单簿
+   */
+  getOrderBook(contract: string, limit?: number): Promise<any>;
 
-	/**
-	 * 获取历史成交记录（我的成交）
-	 */
-	getMyTrades(contract?: string, limit?: number): Promise<any[]>;
+  /**
+   * 获取历史成交记录（我的成交）
+   */
+  getMyTrades(contract?: string, limit?: number): Promise<any[]>;
 
-	/**
-	 * 获取历史仓位记录
-	 */
-	getPositionHistory(
-		contract?: string,
-		limit?: number,
-		offset?: number,
-	): Promise<any[]>;
+  /**
+   * 获取历史仓位记录
+   */
+  getPositionHistory(
+    contract?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<any[]>;
 
-	/**
-	 * 获取历史结算记录
-	 */
-	getSettlementHistory(
-		contract?: string,
-		limit?: number,
-		offset?: number,
-	): Promise<any[]>;
+  /**
+   * 获取历史结算记录
+   */
+  getSettlementHistory(
+    contract?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<any[]>;
 
-	/**
-	 * 获取已完成的订单历史
-	 */
-	getOrderHistory(contract?: string, limit?: number): Promise<any[]>;
+  /**
+   * 获取已完成的订单历史
+   */
+  getOrderHistory(contract?: string, limit?: number): Promise<any[]>;
 
-	/**
-	 * 平仓 - 直接平掉指定合约的持仓
-	 */
-	closePosition(params: {
-		contract: string;
-		size?: number; // 可选，不指定则平掉全部持仓
-		price?: number; // 可选，不指定则使用市价
-	}): Promise<any>;
+  /**
+   * 平仓 - 直接平掉指定合约的持仓
+   */
+  closePosition(params: {
+    contract: string;
+    size?: number; // 可选，不指定则平掉全部持仓
+    price?: number; // 可选，不指定则使用市价
+  }): Promise<any>;
+
+  /**
+   * 获取市场恐惧贪婪指数
+   */
+  getFearAndGreedIndex(baseSymbol: string): Promise<any>;
 }
 
 /**
@@ -162,11 +167,11 @@ let exchangeClientInstance: IExchangeClient | null = null;
  * 获取当前配置的交易所类型
  */
 export function getExchangeType(): "gate" | "okx" {
-	const exchange = (process.env.EXCHANGE || "gate").toLowerCase();
-	if (exchange === "okx") {
-		return "okx";
-	}
-	return "gate";
+  const exchange = (process.env.EXCHANGE || "gate").toLowerCase();
+  if (exchange === "okx") {
+    return "okx";
+  }
+  return "gate";
 }
 
 /**
@@ -176,30 +181,30 @@ export function getExchangeType(): "gate" | "okx" {
  * - EXCHANGE=okx - 使用 OKX
  */
 export function createExchangeClient(): IExchangeClient {
-	// 如果已存在实例，直接返回
-	if (exchangeClientInstance) {
-		return exchangeClientInstance;
-	}
+  // 如果已存在实例，直接返回
+  if (exchangeClientInstance) {
+    return exchangeClientInstance;
+  }
 
-	const exchangeType = getExchangeType();
+  const exchangeType = getExchangeType();
 
-	if (exchangeType === "okx") {
-		logger.info("使用 OKX 交易所");
-		exchangeClientInstance = createOkxClient() as IExchangeClient;
-	} else {
-		logger.info("使用 Gate.io 交易所");
-		exchangeClientInstance = createGateClient() as IExchangeClient;
-	}
+  if (exchangeType === "okx") {
+    logger.info("使用 OKX 交易所");
+    exchangeClientInstance = createOkxClient() as IExchangeClient;
+  } else {
+    logger.info("使用 Gate.io 交易所");
+    exchangeClientInstance = createGateClient() as IExchangeClient;
+  }
 
-	return exchangeClientInstance;
+  return exchangeClientInstance;
 }
 
 /**
  * 重置交易所客户端实例（用于测试或重新配置）
  */
 export function resetExchangeClient(): void {
-	exchangeClientInstance = null;
-	logger.info("交易所客户端实例已重置");
+  exchangeClientInstance = null;
+  logger.info("交易所客户端实例已重置");
 }
 
 /**

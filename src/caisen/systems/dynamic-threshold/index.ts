@@ -204,12 +204,7 @@ export interface UpdateRule {
 	ruleId: string;
 
 	/** 规则类型 - Rule type */
-	type:
-		| "time_based"
-		| "price_based"
-		| "volume_based"
-		| "indicator_based"
-		| "custom";
+	type: "time_based" | "price_based" | "volume_based" | "indicator_based" | "custom";
 
 	/** 规则参数 - Rule parameters */
 	parameters: Record<string, any>;
@@ -278,10 +273,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	private statusToThresholdIds: Map<ThresholdStatus, string[]> = new Map();
 
 	// 缓存 - Cache
-	private thresholdCache: Map<
-		string,
-		{ threshold: DynamicThreshold; timestamp: number }
-	> = new Map();
+	private thresholdCache: Map<string, { threshold: DynamicThreshold; timestamp: number }> = new Map();
 
 	// 定时器 - Timers
 	private calculationTimer: NodeJS.Timeout | null = null;
@@ -349,9 +341,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 生成阈值ID - Generate threshold ID
-			const thresholdId = `thr_${Date.now()}_${Math.random()
-				.toString(36)
-				.substr(2, 9)}`;
+			const thresholdId = `thr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 			// 解析阈值数据 - Parse threshold data
 			const parsedThreshold = this.parseThresholdData(thresholdData);
@@ -385,10 +375,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			};
 
 			// 验证阈值 - Validate threshold
-			if (
-				this.config.enableThresholdValidation &&
-				!this.validateThreshold(threshold)
-			) {
+			if (this.config.enableThresholdValidation && !this.validateThreshold(threshold)) {
 				logger.error("阈值验证失败", { thresholdId, threshold });
 				return null;
 			}
@@ -418,7 +405,6 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			});
 
 			// 如果启用自动计算，开始计算
-			// If auto calculation is enabled, start calculation
 			if (this.config.enableAutoCalculation) {
 				this.calculateThreshold(thresholdId);
 			}
@@ -457,10 +443,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			};
 
 			// 验证更新后的阈值 - Validate updated threshold
-			if (
-				this.config.enableThresholdValidation &&
-				!this.validateThreshold(updatedThreshold)
-			) {
+			if (this.config.enableThresholdValidation && !this.validateThreshold(updatedThreshold)) {
 				logger.error("更新阈值验证失败", { thresholdId, updates });
 				return false;
 			}
@@ -477,18 +460,11 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 发出阈值更新事件 - Emit threshold update event
-			this.emit("thresholdUpdated", {
-				thresholdId,
-				threshold: updatedThreshold,
-			});
+			this.emit("thresholdUpdated", { thresholdId, threshold: updatedThreshold });
 
-			logger.info("动态阈值已更新", {
-				thresholdId,
-				updates,
-			});
+			logger.info("动态阈值已更新", { thresholdId, updates });
 
 			// 如果启用自动计算，重新计算
-			// If auto calculation is enabled, recalculate
 			if (this.config.enableAutoCalculation) {
 				this.calculateThreshold(thresholdId);
 			}
@@ -521,17 +497,12 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			if (threshold.status !== ThresholdStatus.INACTIVE) {
-				logger.error("Cannot activate threshold with status", {
-					thresholdId,
-					status: threshold.status,
-				});
+				logger.error("Cannot activate threshold with status", { thresholdId, status: threshold.status });
 				return false;
 			}
 
 			// 更新状态为已激活 - Update status to active
-			return this.updateDynamicThreshold(thresholdId, {
-				status: ThresholdStatus.ACTIVE,
-			});
+			return this.updateDynamicThreshold(thresholdId, { status: ThresholdStatus.ACTIVE });
 		} catch (error) {
 			logger.error("激活阈值时出错", { error, thresholdId });
 			return false;
@@ -564,9 +535,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 更新状态为已取消 - Update status to cancelled
-			return this.updateDynamicThreshold(thresholdId, {
-				status: ThresholdStatus.CANCELLED,
-			});
+			return this.updateDynamicThreshold(thresholdId, { status: ThresholdStatus.CANCELLED });
 		} catch (error) {
 			logger.error("取消阈值时出错", { error, thresholdId });
 			return false;
@@ -606,60 +575,35 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				case ThresholdCalculationMethod.FIXED:
 					calculatedValue = this.calculateFixedThreshold(threshold);
 					break;
-
 				case ThresholdCalculationMethod.PERCENTAGE:
 					calculatedValue = this.calculatePercentageThreshold(threshold);
 					break;
-
 				case ThresholdCalculationMethod.ATR:
 					calculatedValue = this.calculateAtrThreshold(threshold, marketData);
 					break;
-
 				case ThresholdCalculationMethod.BOLLINGER:
-					calculatedValue = this.calculateBollingerThreshold(
-						threshold,
-						marketData,
-					);
+					calculatedValue = this.calculateBollingerThreshold(threshold, marketData);
 					break;
-
 				case ThresholdCalculationMethod.FIBONACCI:
-					calculatedValue = this.calculateFibonacciThreshold(
-						threshold,
-						marketData,
-					);
+					calculatedValue = this.calculateFibonacciThreshold(threshold, marketData);
 					break;
-
 				case ThresholdCalculationMethod.PIVOT:
 					calculatedValue = this.calculatePivotThreshold(threshold, marketData);
 					break;
-
 				case ThresholdCalculationMethod.CUSTOM:
-					calculatedValue = this.calculateCustomThreshold(
-						threshold,
-						marketData,
-					);
+					calculatedValue = this.calculateCustomThreshold(threshold, marketData);
 					break;
-
 				default:
-					logger.error("Unknown threshold calculation method", {
-						thresholdId,
-						method: threshold.calculationMethod,
-					});
+					logger.error("Unknown threshold calculation method", { thresholdId, method: threshold.calculationMethod });
 					return null;
 			}
 
 			// 应用阈值限制 - Apply threshold limits
-			if (
-				threshold.parameters.minThreshold !== undefined &&
-				calculatedValue < threshold.parameters.minThreshold
-			) {
+			if (threshold.parameters.minThreshold !== undefined && calculatedValue < threshold.parameters.minThreshold) {
 				calculatedValue = threshold.parameters.minThreshold;
 			}
 
-			if (
-				threshold.parameters.maxThreshold !== undefined &&
-				calculatedValue > threshold.parameters.maxThreshold
-			) {
+			if (threshold.parameters.maxThreshold !== undefined && calculatedValue > threshold.parameters.maxThreshold) {
 				calculatedValue = threshold.parameters.maxThreshold;
 			}
 
@@ -670,9 +614,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 更新阈值参数 - Update threshold parameters
-			if (threshold.type === ThresholdType.STOP_LOSS) {
-				threshold.parameters.fixedValue = calculatedValue;
-			} else if (threshold.type === ThresholdType.TAKE_PROFIT) {
+			if (threshold.type === ThresholdType.STOP_LOSS || threshold.type === ThresholdType.TAKE_PROFIT) {
 				threshold.parameters.fixedValue = calculatedValue;
 			}
 
@@ -685,20 +627,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 发出阈值计算事件 - Emit threshold calculation event
-			this.emit("thresholdCalculated", {
-				thresholdId,
-				threshold,
-				calculatedValue,
-				currentPrice,
-				marketData,
-			});
+			this.emit("thresholdCalculated", { thresholdId, threshold, calculatedValue, currentPrice, marketData });
 
-			logger.debug("Threshold calculated", {
-				thresholdId,
-				type: threshold.type,
-				calculationMethod: threshold.calculationMethod,
-				calculatedValue,
-			});
+			logger.debug("Threshold calculated", { thresholdId, type: threshold.type, calculationMethod: threshold.calculationMethod, calculatedValue });
 
 			return calculatedValue;
 		} catch (error) {
@@ -738,11 +669,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 计算阈值 - Calculate threshold
-			const calculatedValue = this.calculateThreshold(
-				thresholdId,
-				currentPrice,
-				marketData,
-			);
+			const calculatedValue = this.calculateThreshold(thresholdId, currentPrice, marketData);
 			if (calculatedValue === null) {
 				return false;
 			}
@@ -752,54 +679,26 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 
 			if (threshold.type === ThresholdType.STOP_LOSS) {
 				// 止损触发条件 - Stop loss trigger condition
-				if (
-					threshold.direction === "long" &&
-					threshold.currentPrice <= calculatedValue
-				) {
-					isTriggered = true;
-				} else if (
-					threshold.direction === "short" &&
-					threshold.currentPrice >= calculatedValue
-				) {
+				if ((threshold.direction === "long" && threshold.currentPrice <= calculatedValue) ||
+					(threshold.direction === "short" && threshold.currentPrice >= calculatedValue)) {
 					isTriggered = true;
 				}
 			} else if (threshold.type === ThresholdType.TAKE_PROFIT) {
 				// 止盈触发条件 - Take profit trigger condition
-				if (
-					threshold.direction === "long" &&
-					threshold.currentPrice >= calculatedValue
-				) {
-					isTriggered = true;
-				} else if (
-					threshold.direction === "short" &&
-					threshold.currentPrice <= calculatedValue
-				) {
+				if ((threshold.direction === "long" && threshold.currentPrice >= calculatedValue) ||
+					(threshold.direction === "short" && threshold.currentPrice <= calculatedValue)) {
 					isTriggered = true;
 				}
 			} else if (threshold.type === ThresholdType.TRAILING_STOP) {
 				// 移动止损触发条件 - Trailing stop trigger condition
-				if (
-					threshold.direction === "long" &&
-					threshold.currentPrice <= calculatedValue
-				) {
-					isTriggered = true;
-				} else if (
-					threshold.direction === "short" &&
-					threshold.currentPrice >= calculatedValue
-				) {
+				if ((threshold.direction === "long" && threshold.currentPrice <= calculatedValue) ||
+					(threshold.direction === "short" && threshold.currentPrice >= calculatedValue)) {
 					isTriggered = true;
 				}
 			} else if (threshold.type === ThresholdType.PARTIAL_PROFIT) {
 				// 分批止盈触发条件 - Partial profit trigger condition
-				if (
-					threshold.direction === "long" &&
-					threshold.currentPrice >= calculatedValue
-				) {
-					isTriggered = true;
-				} else if (
-					threshold.direction === "short" &&
-					threshold.currentPrice <= calculatedValue
-				) {
+				if ((threshold.direction === "long" && threshold.currentPrice >= calculatedValue) ||
+					(threshold.direction === "short" && threshold.currentPrice <= calculatedValue)) {
 					isTriggered = true;
 				}
 			}
@@ -808,11 +707,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			if (isTriggered && threshold.triggerConditions) {
 				for (const condition of threshold.triggerConditions) {
 					if (condition.enabled && !condition.triggered) {
-						const conditionMet = this.checkTriggerCondition(
-							condition,
-							threshold,
-							marketData,
-						);
+						const conditionMet = this.checkTriggerCondition(condition, threshold, marketData);
 						if (!conditionMet) {
 							isTriggered = false;
 							break;
@@ -829,13 +724,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				});
 
 				// 发出阈值触发事件 - Emit threshold trigger event
-				this.emit("thresholdTriggered", {
-					thresholdId,
-					threshold,
-					currentPrice,
-					calculatedValue,
-					marketData,
-				});
+				this.emit("thresholdTriggered", { thresholdId, threshold, currentPrice, calculatedValue, marketData });
 
 				logger.info("Threshold triggered", {
 					thresholdId,
@@ -866,10 +755,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		// 检查缓存 - Check cache
 		if (this.config.enableThresholdCaching) {
 			const cached = this.thresholdCache.get(thresholdId);
-			if (
-				cached &&
-				Date.now() - cached.timestamp < this.config.cacheExpiration
-			) {
+			if (cached && Date.now() - cached.timestamp < this.config.cacheExpiration) {
 				return cached.threshold;
 			}
 		}
@@ -891,9 +777,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	 * @param thresholdId 阈值ID - Threshold ID
 	 * @returns Promise<DynamicThreshold | null> 阈值 - Threshold
 	 */
-	async getThresholdByThresholdId(
-		thresholdId: string,
-	): Promise<DynamicThreshold | null> {
+	async getThresholdByThresholdId(thresholdId: string): Promise<DynamicThreshold | null> {
 		try {
 			return this.getThreshold(thresholdId);
 		} catch (error) {
@@ -909,14 +793,8 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	 * @param thresholdsData 阈值数据数组 - Array of threshold data
 	 * @returns {success: string[], errors: string[]} 设置结果 - Setting result
 	 */
-	setThresholds(thresholdsData: any[]): {
-		success: string[];
-		errors: string[];
-	} {
-		const results = {
-			success: [] as string[],
-			errors: [] as string[],
-		};
+	setThresholds(thresholdsData: any[]): { success: string[]; errors: string[] } {
+		const results = { success: [] as string[], errors: [] as string[] };
 
 		try {
 			if (!Array.isArray(thresholdsData)) {
@@ -930,20 +808,11 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 					if (thresholdId) {
 						results.success.push(thresholdId);
 					} else {
-						results.errors.push(
-							`Failed to set threshold for position: ${
-								thresholdData.positionId || "unknown"
-							}`,
-						);
+						results.errors.push(`Failed to set threshold for position: ${thresholdData.positionId || "unknown"}`);
 					}
 				} catch (error) {
-					const errorMessage =
-						error instanceof Error ? error.message : "Unknown error";
-					results.errors.push(
-						`Error setting threshold for position: ${
-							thresholdData.positionId || "unknown"
-						} - ${errorMessage}`,
-					);
+					const errorMessage = error instanceof Error ? error.message : "Unknown error";
+					results.errors.push(`Error setting threshold for position: ${thresholdData.positionId || "unknown"} - ${errorMessage}`);
 				}
 			}
 
@@ -980,11 +849,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 
 		for (const thresholdId of thresholdIds) {
 			const threshold = this.getThreshold(thresholdId);
-			if (
-				threshold &&
-				(type === undefined || threshold.type === type) &&
-				(status === undefined || threshold.status === status)
-			) {
+			if (threshold && (type === undefined || threshold.type === type) && (status === undefined || threshold.status === status)) {
 				thresholds.push(threshold);
 			}
 		}
@@ -1053,15 +918,11 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		const thresholds = Array.from(this.thresholds.values());
 
 		if (type !== undefined) {
-			return thresholds.filter(
-				(threshold) =>
-					threshold.type === type &&
-					(status === undefined || threshold.status === status),
-			);
+			return thresholds.filter(threshold => threshold.type === type && (status === undefined || threshold.status === status));
 		}
 
 		if (status !== undefined) {
-			return thresholds.filter((threshold) => threshold.status === status);
+			return thresholds.filter(threshold => threshold.status === status);
 		}
 
 		return thresholds;
@@ -1103,16 +964,8 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	private parseThresholdData(thresholdData: any): any | null {
 		try {
 			// 检查必需字段 - Check required fields
-			if (
-				!thresholdData.type ||
-				!thresholdData.positionId ||
-				!thresholdData.symbol ||
-				!thresholdData.direction ||
-				!thresholdData.entryPrice
-			) {
-				logger.error("Missing required fields in threshold data", {
-					thresholdData,
-				});
+			if (!thresholdData.type || !thresholdData.positionId || !thresholdData.symbol || !thresholdData.direction || !thresholdData.entryPrice) {
+				logger.error("Missing required fields in threshold data", { thresholdData });
 				return null;
 			}
 
@@ -1129,36 +982,26 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 
 			// 解析触发条件 - Parse trigger conditions
 			let triggerConditions: TriggerCondition[] | undefined;
-			if (
-				thresholdData.triggerConditions &&
-				Array.isArray(thresholdData.triggerConditions)
-			) {
-				triggerConditions = thresholdData.triggerConditions.map(
-					(condition: any, index: number) => ({
-						conditionId: condition.conditionId || `condition_${index}`,
-						type: condition.type || "price",
-						parameters: condition.parameters || {},
-						enabled: condition.enabled !== false,
-						triggered: false,
-					}),
-				);
+			if (thresholdData.triggerConditions && Array.isArray(thresholdData.triggerConditions)) {
+				triggerConditions = thresholdData.triggerConditions.map((condition: any, index: number) => ({
+					conditionId: condition.conditionId || `condition_${index}`,
+					type: condition.type || "price",
+					parameters: condition.parameters || {},
+					enabled: condition.enabled !== false,
+					triggered: false,
+				}));
 			}
 
 			// 解析更新规则 - Parse update rules
 			let updateRules: UpdateRule[] | undefined;
-			if (
-				thresholdData.updateRules &&
-				Array.isArray(thresholdData.updateRules)
-			) {
-				updateRules = thresholdData.updateRules.map(
-					(rule: any, index: number) => ({
-						ruleId: rule.ruleId || `rule_${index}`,
-						type: rule.type || "time_based",
-						parameters: rule.parameters || {},
-						enabled: rule.enabled !== false,
-						updateInterval: rule.updateInterval || 60000, // 默认1分钟 - Default 1 minute
-					}),
-				);
+			if (thresholdData.updateRules && Array.isArray(thresholdData.updateRules)) {
+				updateRules = thresholdData.updateRules.map((rule: any, index: number) => ({
+					ruleId: rule.ruleId || `rule_${index}`,
+					type: rule.type || "time_based",
+					parameters: rule.parameters || {},
+					enabled: rule.enabled !== false,
+					updateInterval: rule.updateInterval || 60000, // 默认1分钟 - Default 1 minute
+				}));
 			}
 
 			return {
@@ -1168,9 +1011,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				direction: thresholdData.direction,
 				entryPrice: thresholdData.entryPrice,
 				currentPrice: thresholdData.currentPrice || thresholdData.entryPrice,
-				calculationMethod:
-					thresholdData.calculationMethod ||
-					ThresholdCalculationMethod.PERCENTAGE,
+				calculationMethod: thresholdData.calculationMethod || ThresholdCalculationMethod.PERCENTAGE,
 				parameters,
 				triggerConditions,
 				updateRules,
@@ -1190,41 +1031,23 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		try {
 			// 验证基本参数 - Validate basic parameters
 			if (threshold.entryPrice <= 0) {
-				logger.error("Invalid entry price", {
-					thresholdId: threshold.thresholdId,
-					entryPrice: threshold.entryPrice,
-				});
+				logger.error("Invalid entry price", { thresholdId: threshold.thresholdId, entryPrice: threshold.entryPrice });
 				return false;
 			}
 
 			if (threshold.currentPrice <= 0) {
-				logger.error("Invalid current price", {
-					thresholdId: threshold.thresholdId,
-					currentPrice: threshold.currentPrice,
-				});
+				logger.error("Invalid current price", { thresholdId: threshold.thresholdId, currentPrice: threshold.currentPrice });
 				return false;
 			}
 
 			// 验证阈值参数 - Validate threshold parameters
-			if (
-				threshold.parameters.percentage !== undefined &&
-				threshold.parameters.percentage <= 0
-			) {
-				logger.error("Invalid percentage", {
-					thresholdId: threshold.thresholdId,
-					percentage: threshold.parameters.percentage,
-				});
+			if (threshold.parameters.percentage !== undefined && threshold.parameters.percentage <= 0) {
+				logger.error("Invalid percentage", { thresholdId: threshold.thresholdId, percentage: threshold.parameters.percentage });
 				return false;
 			}
 
-			if (
-				threshold.parameters.fixedValue !== undefined &&
-				threshold.parameters.fixedValue <= 0
-			) {
-				logger.error("Invalid fixed value", {
-					thresholdId: threshold.thresholdId,
-					fixedValue: threshold.parameters.fixedValue,
-				});
+			if (threshold.parameters.fixedValue !== undefined && threshold.parameters.fixedValue <= 0) {
+				logger.error("Invalid fixed value", { thresholdId: threshold.thresholdId, fixedValue: threshold.parameters.fixedValue });
 				return false;
 			}
 
@@ -1232,10 +1055,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			if (threshold.triggerConditions) {
 				for (const condition of threshold.triggerConditions) {
 					if (!condition.conditionId || !condition.type) {
-						logger.error("Invalid trigger condition", {
-							thresholdId: threshold.thresholdId,
-							condition,
-						});
+						logger.error("Invalid trigger condition", { thresholdId: threshold.thresholdId, condition });
 						return false;
 					}
 				}
@@ -1245,10 +1065,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			if (threshold.updateRules) {
 				for (const rule of threshold.updateRules) {
 					if (!rule.ruleId || !rule.type || rule.updateInterval <= 0) {
-						logger.error("Invalid update rule", {
-							thresholdId: threshold.thresholdId,
-							rule,
-						});
+						logger.error("Invalid update rule", { thresholdId: threshold.thresholdId, rule });
 						return false;
 					}
 				}
@@ -1256,10 +1073,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 
 			return true;
 		} catch (error) {
-			logger.error("验证阈值时出错", {
-				error,
-				thresholdId: threshold.thresholdId,
-			});
+			logger.error("验证阈值时出错", { error, thresholdId: threshold.thresholdId });
 			return false;
 		}
 	}
@@ -1276,9 +1090,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				this.positionIdToThresholdIds.set(threshold.positionId, []);
 			}
 
-			const positionThresholdIds = this.positionIdToThresholdIds.get(
-				threshold.positionId,
-			)!;
+			const positionThresholdIds = this.positionIdToThresholdIds.get(threshold.positionId)!;
 			if (!positionThresholdIds.includes(threshold.thresholdId)) {
 				positionThresholdIds.push(threshold.thresholdId);
 			}
@@ -1294,10 +1106,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			// 更新状态到阈值ID的索引 - Update status to threshold ID index
-			for (const [
-				status,
-				thresholdIds,
-			] of this.statusToThresholdIds.entries()) {
+			for (const [status, thresholdIds] of this.statusToThresholdIds.entries()) {
 				const index = thresholdIds.indexOf(threshold.thresholdId);
 				if (status === threshold.status) {
 					if (index === -1) {
@@ -1383,12 +1192,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		}
 
 		if (!marketData || !marketData.atr) {
-			logger.warn(
-				"ATR data not available, falling back to percentage calculation",
-				{
-					thresholdId: threshold.thresholdId,
-				},
-			);
+			logger.warn("ATR data not available, falling back to percentage calculation", {
+				thresholdId: threshold.thresholdId,
+			});
 			return this.calculatePercentageThreshold(threshold);
 		}
 
@@ -1421,12 +1227,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		marketData?: any,
 	): number {
 		if (!marketData || !marketData.upperBand || !marketData.lowerBand) {
-			logger.warn(
-				"Bollinger data not available, falling back to percentage calculation",
-				{
-					thresholdId: threshold.thresholdId,
-				},
-			);
+			logger.warn("Bollinger data not available, falling back to percentage calculation", {
+				thresholdId: threshold.thresholdId,
+			});
 			return this.calculatePercentageThreshold(threshold);
 		}
 
@@ -1460,12 +1263,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		}
 
 		if (!marketData || !marketData.highPrice || !marketData.lowPrice) {
-			logger.warn(
-				"Fibonacci data not available, falling back to percentage calculation",
-				{
-					thresholdId: threshold.thresholdId,
-				},
-			);
+			logger.warn("Fibonacci data not available, falling back to percentage calculation", {
+				thresholdId: threshold.thresholdId,
+			});
 			return this.calculatePercentageThreshold(threshold);
 		}
 
@@ -1502,12 +1302,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 		marketData?: any,
 	): number {
 		if (!marketData || !marketData.pivotPoint) {
-			logger.warn(
-				"Pivot data not available, falling back to percentage calculation",
-				{
-					thresholdId: threshold.thresholdId,
-				},
-			);
+			logger.warn("Pivot data not available, falling back to percentage calculation", {
+				thresholdId: threshold.thresholdId,
+			});
 			return this.calculatePercentageThreshold(threshold);
 		}
 
@@ -1548,12 +1345,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			// 这里只是示例，实际实现需要考虑安全性
 			// This is just an example, actual implementation needs to consider security
 
-			logger.warn(
-				"Custom threshold calculation not implemented, falling back to percentage calculation",
-				{
-					thresholdId: threshold.thresholdId,
-				},
-			);
+			logger.warn("Custom threshold calculation not implemented, falling back to percentage calculation", {
+				thresholdId: threshold.thresholdId,
+			});
 
 			return this.calculatePercentageThreshold(threshold);
 		} catch (error) {
@@ -1588,28 +1382,18 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 
 				case "volume":
 					// 成交量条件 - Volume condition
-					if (
-						marketData &&
-						marketData.volume &&
-						condition.parameters.minVolume
-					) {
+					if (marketData && marketData.volume && condition.parameters.minVolume) {
 						return marketData.volume >= condition.parameters.minVolume;
 					}
 					return false;
 
 				case "price":
 					// 价格条件 - Price condition
-					if (
-						condition.parameters.minPrice !== undefined &&
-						threshold.currentPrice < condition.parameters.minPrice
-					) {
+					if (condition.parameters.minPrice !== undefined && threshold.currentPrice < condition.parameters.minPrice) {
 						return false;
 					}
 
-					if (
-						condition.parameters.maxPrice !== undefined &&
-						threshold.currentPrice > condition.parameters.maxPrice
-					) {
+					if (condition.parameters.maxPrice !== undefined && threshold.currentPrice > condition.parameters.maxPrice) {
 						return false;
 					}
 
@@ -1706,12 +1490,9 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			clearInterval(this.expirationTimer);
 		}
 
-		this.expirationTimer = setInterval(
-			async () => {
-				await this.checkThresholdExpiration();
-			},
-			60000, // 每分钟检查一次 - Check every minute
-		);
+		this.expirationTimer = setInterval(async () => {
+			await this.checkThresholdExpiration();
+		}, 60000); // 每分钟检查一次 - Check every minute
 
 		logger.debug("过期计时器已启动");
 	}
@@ -1736,14 +1517,10 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				return;
 			}
 
-			const activeThresholds = this.getThresholdsByStatus(
-				ThresholdStatus.ACTIVE,
-			);
+			const activeThresholds = this.getThresholdsByStatus(ThresholdStatus.ACTIVE);
 
 			for (const threshold of activeThresholds) {
 				// 获取当前价格 - Get current price
-				// 这里应该从市场数据源获取当前价格
-				// Here you should get the current price from the market data source
 				const currentPrice = await this.getCurrentPrice(threshold.symbol);
 				if (currentPrice === null) {
 					continue;
@@ -1753,18 +1530,10 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				const marketData = await this.getMarketData(threshold.symbol);
 
 				// 计算阈值 - Calculate threshold
-				this.calculateThreshold(
-					threshold.thresholdId,
-					currentPrice,
-					marketData,
-				);
+				this.calculateThreshold(threshold.thresholdId, currentPrice, marketData);
 
 				// 检查阈值触发 - Check threshold trigger
-				this.checkThresholdTrigger(
-					threshold.thresholdId,
-					currentPrice,
-					marketData,
-				);
+				this.checkThresholdTrigger(threshold.thresholdId, currentPrice, marketData);
 			}
 		} catch (error) {
 			logger.error("处理阈值计算时出错", { error });
@@ -1782,9 +1551,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 				return;
 			}
 
-			const activeThresholds = this.getThresholdsByStatus(
-				ThresholdStatus.ACTIVE,
-			);
+			const activeThresholds = this.getThresholdsByStatus(ThresholdStatus.ACTIVE);
 
 			for (const threshold of activeThresholds) {
 				if (!threshold.updateRules) {
@@ -1825,9 +1592,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			}
 
 			const now = Date.now();
-			const activeThresholds = this.getThresholdsByStatus(
-				ThresholdStatus.ACTIVE,
-			);
+			const activeThresholds = this.getThresholdsByStatus(ThresholdStatus.ACTIVE);
 
 			for (const threshold of activeThresholds) {
 				if (threshold.expiresAt && threshold.expiresAt < now) {
@@ -1861,13 +1626,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	private async getCurrentPrice(symbol: string): Promise<number | null> {
 		try {
 			// 这里应该从市场数据源获取当前价格
-			// Here you should get the current price from the market data source
-			// 这只是一个示例实现
-			// This is just an example implementation
-
-			// 在实际应用中，这里应该调用交易所API或其他市场数据源
-			// In a real application, this should call the exchange API or other market data sources
-
+			// In a real application, this should get the current price from the market data source
 			return null;
 		} catch (error) {
 			logger.error("获取当前价格时出错", { error, symbol });
@@ -1883,13 +1642,7 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 	private async getMarketData(symbol: string): Promise<any | null> {
 		try {
 			// 这里应该从市场数据源获取市场数据
-			// Here you should get market data from the market data source
-			// 这只是一个示例实现
-			// This is just an example implementation
-
-			// 在实际应用中，这里应该调用交易所API或其他市场数据源
-			// In a real application, this should call the exchange API or other market data sources
-
+			// In a real application, this should get market data from the market data source
 			return null;
 		} catch (error) {
 			logger.error("获取市场数据时出错", { error, symbol });
@@ -1910,32 +1663,22 @@ export class CaiSenDynamicThresholdSetting extends EventEmitter {
 			switch (rule.type) {
 				case "time_based":
 					// 基于时间的更新规则 - Time-based update rule
-					// 这里可以根据时间更新阈值参数
-					// Here you can update threshold parameters based on time
 					break;
 
 				case "price_based":
 					// 基于价格的更新规则 - Price-based update rule
-					// 这里可以根据价格更新阈值参数
-					// Here you can update threshold parameters based on price
 					break;
 
 				case "volume_based":
 					// 基于成交量的更新规则 - Volume-based update rule
-					// 这里可以根据成交量更新阈值参数
-					// Here you can update threshold parameters based on volume
 					break;
 
 				case "indicator_based":
 					// 基于指标的更新规则 - Indicator-based update rule
-					// 这里可以根据指标更新阈值参数
-					// Here you can update threshold parameters based on indicators
 					break;
 
 				case "custom":
 					// 自定义更新规则 - Custom update rule
-					// 这里可以根据自定义规则更新阈值参数
-					// Here you can update threshold parameters based on custom rules
 					break;
 
 				default:

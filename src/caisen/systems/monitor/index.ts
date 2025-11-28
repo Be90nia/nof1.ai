@@ -40,16 +40,16 @@
  */
 
 import { createClient } from "@libsql/client";
-import { getStrategyParams, getTradingStrategy } from "../agents/tradingAgent";
-import { createExchangeClient } from "../services/exchangeClient";
-import { getQuantoMultiplier } from "../utils/contractUtils";
-import { createLogger } from "../utils/loggerUtils";
-import { getChinaTimeISO } from "../utils/timeUtils";
 import {
-  CaiSenBatchClosingSystem,
-  ClosingType,
-} from "./caiSenBatchClosingSystem";
-import { executeTradingDecision } from "./tradingLoop";
+  getStrategyParams,
+  getTradingStrategy,
+} from "../../../agents/tradingAgent";
+import { createExchangeClient } from "../../../services/exchangeClient";
+import { getQuantoMultiplier } from "../../../utils/contractUtils";
+import { createLogger } from "../../../utils/loggerUtils";
+import { getChinaTimeISO } from "../../../utils/timeUtils";
+import { CaiSenBatchClosingSystem, ClosingType } from "../batch-closing";
+import { executeTradingDecision } from "../../../scheduler/tradingLoop";
 
 const logger = createLogger({
   name: "caisen-monitor",
@@ -652,9 +652,9 @@ async function executeCaiSenMonitor(): Promise<void> {
               `${symbol} 七分位交易信号: ${positionAnalysis.signal}，信心度${positionAnalysis.confidence}`
             );
 
-            // 立即唤醒Agent进行紧急决策
-            logger.info("检测到异常信号，立即唤醒交易Agent进行紧急决策");
-            await executeTradingDecision();
+            // 记录信号，但不立即执行交易决策
+            // 交易决策将按照设定的时间间隔执行
+            logger.info("检测到交易信号，将在下次交易周期执行决策");
           }
         }
       }
@@ -692,8 +692,6 @@ async function executeCaiSenMonitor(): Promise<void> {
               }%`
             );
             logger.info("准备执行全部平仓操作");
-            // 立即唤醒Agent进行止盈决策
-            await executeTradingDecision();
           } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
             // 达到第二阶段止盈，平仓部分仓位
             logger.info(
@@ -704,8 +702,6 @@ async function executeCaiSenMonitor(): Promise<void> {
             logger.info(
               `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
             );
-            // 立即唤醒Agent进行止盈决策
-            await executeTradingDecision();
           } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
             // 达到第一阶段止盈，平仓部分仓位
             logger.info(
@@ -716,8 +712,6 @@ async function executeCaiSenMonitor(): Promise<void> {
             logger.info(
               `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
             );
-            // 立即唤醒Agent进行止盈决策
-            await executeTradingDecision();
           }
         }
       }
