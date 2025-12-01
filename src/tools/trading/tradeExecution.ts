@@ -1195,21 +1195,39 @@ export const setSimpleStopProfitLossTool = createTool({
 		symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
 		stopLoss: z.number().describe("止损阈值（百分比）"),
 		takeProfit: z.number().describe("止盈阈值（百分比）"),
-		closingType: z.enum(["full", "batch"]).default("full").describe("平仓方式：full=一次性平仓，batch=分批平仓"),
-		batchParams: z.object({
-			percentages: z.array(z.number()).describe("每批次平仓的百分比"),
-			triggerConditions: z.array(
-				z.object({
-					type: z.enum(["profit", "loss", "time", "price"]).describe("触发条件类型"),
-					value: z.number().describe("触发条件值"),
-				})
-			).describe("每批次的触发条件"),
-		}).optional().describe("分批平仓参数"),
+		closingType: z
+			.enum(["full", "batch"])
+			.default("full")
+			.describe("平仓方式：full=一次性平仓，batch=分批平仓"),
+		batchParams: z
+			.object({
+				percentages: z.array(z.number()).describe("每批次平仓的百分比"),
+				triggerConditions: z
+					.array(
+						z.object({
+							type: z
+								.enum(["profit", "loss", "time", "price"])
+								.describe("触发条件类型"),
+							value: z.number().describe("触发条件值"),
+						}),
+					)
+					.describe("每批次的触发条件"),
+			})
+			.optional()
+			.describe("分批平仓参数"),
 	}),
-	execute: async ({ symbol, stopLoss, takeProfit, closingType, batchParams }) => {
+	execute: async ({
+		symbol,
+		stopLoss,
+		takeProfit,
+		closingType,
+		batchParams,
+	}) => {
 		try {
-			logger.info(`设置简单止盈止损: ${symbol}, 止损: ${stopLoss}%, 止盈: ${takeProfit}%, 平仓方式: ${closingType}`);
-			
+			logger.info(
+				`设置简单止盈止损: ${symbol}, 止损: ${stopLoss}%, 止盈: ${takeProfit}%, 平仓方式: ${closingType}`,
+			);
+
 			// 更新数据库中的持仓信息
 			await dbClient.execute({
 				sql: `UPDATE positions SET 
@@ -1226,7 +1244,7 @@ export const setSimpleStopProfitLossTool = createTool({
 					symbol,
 				],
 			});
-			
+
 			return {
 				success: true,
 				symbol,
@@ -1255,17 +1273,21 @@ export const setBatchClosingTool = createTool({
 	parameters: z.object({
 		symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
 		percentages: z.array(z.number()).describe("每批次平仓的百分比"),
-		triggerConditions: z.array(
-			z.object({
-				type: z.enum(["profit", "loss", "time", "price"]).describe("触发条件类型"),
-				value: z.number().describe("触发条件值"),
-			})
-		).describe("每批次的触发条件"),
+		triggerConditions: z
+			.array(
+				z.object({
+					type: z
+						.enum(["profit", "loss", "time", "price"])
+						.describe("触发条件类型"),
+					value: z.number().describe("触发条件值"),
+				}),
+			)
+			.describe("每批次的触发条件"),
 	}),
 	execute: async ({ symbol, percentages, triggerConditions }) => {
 		try {
 			logger.info(`设置分批平仓策略: ${symbol}, 批次: ${percentages.length}个`);
-			
+
 			// 更新数据库中的持仓信息
 			await dbClient.execute({
 				sql: `UPDATE positions SET 
@@ -1278,7 +1300,7 @@ export const setBatchClosingTool = createTool({
 					symbol,
 				],
 			});
-			
+
 			return {
 				success: true,
 				symbol,

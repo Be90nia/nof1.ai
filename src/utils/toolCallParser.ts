@@ -21,10 +21,10 @@
  * Tool call interface definition
  */
 export interface ToolCall {
-  /** 工具名称 - Tool name */
-  name: string;
-  /** 工具参数 - Tool parameters */
-  parameters: any;
+	/** 工具名称 - Tool name */
+	name: string;
+	/** 工具参数 - Tool parameters */
+	parameters: any;
 }
 
 import { jsonrepair } from "jsonrepair";
@@ -37,23 +37,23 @@ import { jsonrepair } from "jsonrepair";
  * @returns 修复后的JSON字符串 - Fixed JSON string
  */
 export function fixJsonFormat(jsonString: string): string {
-  try {
-    // 使用jsonrepair库修复JSON格式错误
-    // Use jsonrepair library to fix JSON format errors
-    const fixedJson = jsonrepair(jsonString);
-    return fixedJson;
-  } catch (error) {
-    console.error(
-      `使用jsonrepair修复JSON失败: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      {
-        originalJson: jsonString,
-        error,
-      }
-    );
-    throw error;
-  }
+	try {
+		// 使用jsonrepair库修复JSON格式错误
+		// Use jsonrepair library to fix JSON format errors
+		const fixedJson = jsonrepair(jsonString);
+		return fixedJson;
+	} catch (error) {
+		console.error(
+			`使用jsonrepair修复JSON失败: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+			{
+				originalJson: jsonString,
+				error,
+			},
+		);
+		throw error;
+	}
 }
 
 /**
@@ -64,56 +64,56 @@ export function fixJsonFormat(jsonString: string): string {
  * @returns 工具调用数组 - Array of tool calls
  */
 export function parseToolCalls(text: string): ToolCall[] {
-  const toolCalls: ToolCall[] = [];
+	const toolCalls: ToolCall[] = [];
 
-  // 匹配工具调用的正则表达式
-  // Regular expression to match tool calls
-  const toolCallRegex = /<｜tool▁calls▁begin｜>(.*?)<｜tool▁calls▁end｜>/gs;
-  const singleToolRegex =
-    /<｜tool▁call▁begin｜>(.*?)<｜tool▁sep｜>(.*?)<｜tool▁call▁end｜>/gs;
+	// 匹配工具调用的正则表达式
+	// Regular expression to match tool calls
+	const toolCallRegex = /<｜tool▁calls▁begin｜>(.*?)<｜tool▁calls▁end｜>/gs;
+	const singleToolRegex =
+		/<｜tool▁call▁begin｜>(.*?)<｜tool▁sep｜>(.*?)<｜tool▁call▁end｜>/gs;
 
-  // 查找所有工具调用块
-  // Find all tool call blocks
-  let toolCallBlockMatch;
-  while ((toolCallBlockMatch = toolCallRegex.exec(text)) !== null) {
-    const toolCallBlock = toolCallBlockMatch[1];
+	// 查找所有工具调用块
+	// Find all tool call blocks
+	let toolCallBlockMatch;
+	while ((toolCallBlockMatch = toolCallRegex.exec(text)) !== null) {
+		const toolCallBlock = toolCallBlockMatch[1];
 
-    // 查找块内的单个工具调用
-    // Find individual tool calls within the block
-    let singleToolMatch;
-    while ((singleToolMatch = singleToolRegex.exec(toolCallBlock)) !== null) {
-      const toolName = singleToolMatch[1].trim();
-      let paramsJson = singleToolMatch[2].trim();
+		// 查找块内的单个工具调用
+		// Find individual tool calls within the block
+		let singleToolMatch;
+		while ((singleToolMatch = singleToolRegex.exec(toolCallBlock)) !== null) {
+			const toolName = singleToolMatch[1].trim();
+			const paramsJson = singleToolMatch[2].trim();
 
-      try {
-        // 尝试直接解析JSON
-        // Try to parse JSON directly
-        const parameters = JSON.parse(paramsJson);
-        toolCalls.push({ name: toolName, parameters });
-      } catch (error) {
-        try {
-          // 修复JSON格式后再尝试解析
-          // Try parsing after fixing JSON format
-          const fixedJson = fixJsonFormat(paramsJson);
-          const parameters = JSON.parse(fixedJson);
-          toolCalls.push({ name: toolName, parameters });
-        } catch (fixError) {
-          console.error(
-            `解析工具调用参数失败: ${
-              fixError instanceof Error ? fixError.message : String(fixError)
-            }`,
-            {
-              toolName,
-              originalParams: paramsJson,
-              error: fixError,
-            }
-          );
-        }
-      }
-    }
-  }
+			try {
+				// 尝试直接解析JSON
+				// Try to parse JSON directly
+				const parameters = JSON.parse(paramsJson);
+				toolCalls.push({ name: toolName, parameters });
+			} catch (error) {
+				try {
+					// 修复JSON格式后再尝试解析
+					// Try parsing after fixing JSON format
+					const fixedJson = fixJsonFormat(paramsJson);
+					const parameters = JSON.parse(fixedJson);
+					toolCalls.push({ name: toolName, parameters });
+				} catch (fixError) {
+					console.error(
+						`解析工具调用参数失败: ${
+							fixError instanceof Error ? fixError.message : String(fixError)
+						}`,
+						{
+							toolName,
+							originalParams: paramsJson,
+							error: fixError,
+						},
+					);
+				}
+			}
+		}
+	}
 
-  return toolCalls;
+	return toolCalls;
 }
 
 /**
@@ -125,37 +125,37 @@ export function parseToolCalls(text: string): ToolCall[] {
  * @returns 执行结果数组 - Array of execution results
  */
 export async function executeToolCalls(
-  text: string,
-  availableTools: Map<string, any>
+	text: string,
+	availableTools: Map<string, any>,
 ): Promise<any[]> {
-  const toolCalls = parseToolCalls(text);
-  const results: any[] = [];
+	const toolCalls = parseToolCalls(text);
+	const results: any[] = [];
 
-  for (const toolCall of toolCalls) {
-    const tool = availableTools.get(toolCall.name);
-    if (tool) {
-      try {
-        const result = await tool.execute(toolCall.parameters);
-        results.push({
-          toolName: toolCall.name,
-          success: true,
-          result,
-        });
-      } catch (error) {
-        results.push({
-          toolName: toolCall.name,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    } else {
-      results.push({
-        toolName: toolCall.name,
-        success: false,
-        error: `工具 ${toolCall.name} 不存在`,
-      });
-    }
-  }
+	for (const toolCall of toolCalls) {
+		const tool = availableTools.get(toolCall.name);
+		if (tool) {
+			try {
+				const result = await tool.execute(toolCall.parameters);
+				results.push({
+					toolName: toolCall.name,
+					success: true,
+					result,
+				});
+			} catch (error) {
+				results.push({
+					toolName: toolCall.name,
+					success: false,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		} else {
+			results.push({
+				toolName: toolCall.name,
+				success: false,
+				error: `工具 ${toolCall.name} 不存在`,
+			});
+		}
+	}
 
-  return results;
+	return results;
 }

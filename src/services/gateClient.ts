@@ -863,7 +863,10 @@ export class GateClient {
 
       // 5. 计算交易量分布（上涨/下跌时的交易量比例）
       const volumeDistribution = candles24h.reduce(
-        (acc, candle) => {
+        (
+          acc: { upVolume: number; downVolume: number; totalVolume: number },
+          candle: { o: string; c: string; v: string }
+        ) => {
           const open = parseFloat(candle.o);
           const close = parseFloat(candle.c);
           const volume = parseFloat(candle.v);

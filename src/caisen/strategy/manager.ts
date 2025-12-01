@@ -17,20 +17,20 @@
  */
 
 import {
-  getStrategyParams,
-  getTradingStrategy,
+	getStrategyParams,
+	getTradingStrategy,
 } from "../../agents/tradingAgent";
+import { createLogger } from "../../utils/loggerUtils";
 import { generateCaiSenPrompt } from "./prompt";
 import type {
-  CaiSenAnalysisResult,
-  StrategyParams,
-  StrategyPromptContext,
+	CaiSenAnalysisResult,
+	StrategyParams,
+	StrategyPromptContext,
 } from "./types";
-import { createLogger } from "../../utils/loggerUtils";
 
 const logger = createLogger({
-  name: "caisen-strategy-manager",
-  level: "info",
+	name: "caisen-strategy-manager",
+	level: "info",
 });
 
 /**
@@ -38,155 +38,155 @@ const logger = createLogger({
  * 负责整合所有蔡森策略相关逻辑，提供策略查看和管理功能
  */
 export class CaiSenStrategyManager {
-  private static instance: CaiSenStrategyManager;
-  private currentStrategyParams: StrategyParams | null = null;
-  private lastAnalysisResults: Map<string, CaiSenAnalysisResult> = new Map();
-  private strategyExecutionHistory: Array<{
-    timestamp: number;
-    action: string;
-    details: any;
-  }> = [];
+	private static instance: CaiSenStrategyManager;
+	private currentStrategyParams: StrategyParams | null = null;
+	private lastAnalysisResults: Map<string, CaiSenAnalysisResult> = new Map();
+	private strategyExecutionHistory: Array<{
+		timestamp: number;
+		action: string;
+		details: any;
+	}> = [];
 
-  private constructor() {
-    // 私有构造函数，防止直接实例化
-  }
+	private constructor() {
+		// 私有构造函数，防止直接实例化
+	}
 
-  /**
-   * 获取策略管理器单例实例
-   */
-  public static getInstance(): CaiSenStrategyManager {
-    if (!CaiSenStrategyManager.instance) {
-      CaiSenStrategyManager.instance = new CaiSenStrategyManager();
-    }
-    return CaiSenStrategyManager.instance;
-  }
+	/**
+	 * 获取策略管理器单例实例
+	 */
+	public static getInstance(): CaiSenStrategyManager {
+		if (!CaiSenStrategyManager.instance) {
+			CaiSenStrategyManager.instance = new CaiSenStrategyManager();
+		}
+		return CaiSenStrategyManager.instance;
+	}
 
-  /**
-   * 初始化策略管理器
-   */
-  public init(): void {
-    this.loadStrategyParams();
-    logger.info("蔡森策略管理器已初始化");
-  }
+	/**
+	 * 初始化策略管理器
+	 */
+	public init(): void {
+		this.loadStrategyParams();
+		logger.info("蔡森策略管理器已初始化");
+	}
 
-  /**
-   * 加载当前策略参数
-   */
-  private loadStrategyParams(): void {
-    try {
-      const strategy = getTradingStrategy();
-      if (strategy === "cai-sen") {
-        this.currentStrategyParams = getStrategyParams(strategy);
-        logger.info("已加载蔡森策略参数");
-      } else {
-        logger.info(`当前策略不是蔡森策略，而是: ${strategy}`);
-        this.currentStrategyParams = null;
-      }
-    } catch (error) {
-      logger.error("加载策略参数失败:", error as any);
-      this.currentStrategyParams = null;
-    }
-  }
+	/**
+	 * 加载当前策略参数
+	 */
+	private loadStrategyParams(): void {
+		try {
+			const strategy = getTradingStrategy();
+			if (strategy === "cai-sen") {
+				this.currentStrategyParams = getStrategyParams(strategy);
+				logger.info("已加载蔡森策略参数");
+			} else {
+				logger.info(`当前策略不是蔡森策略，而是: ${strategy}`);
+				this.currentStrategyParams = null;
+			}
+		} catch (error) {
+			logger.error("加载策略参数失败:", error as any);
+			this.currentStrategyParams = null;
+		}
+	}
 
-  /**
-   * 获取当前蔡森策略配置
-   */
-  public getCurrentStrategy(): StrategyParams | null {
-    if (!this.currentStrategyParams) {
-      this.loadStrategyParams();
-    }
-    return this.currentStrategyParams;
-  }
+	/**
+	 * 获取当前蔡森策略配置
+	 */
+	public getCurrentStrategy(): StrategyParams | null {
+		if (!this.currentStrategyParams) {
+			this.loadStrategyParams();
+		}
+		return this.currentStrategyParams;
+	}
 
-  /**
-   * 获取当前策略的AI提示词
-   */
-  public getCurrentPrompt(context: StrategyPromptContext): string | null {
-    const params = this.getCurrentStrategy();
-    if (!params) {
-      return null;
-    }
-    return generateCaiSenPrompt(params, context);
-  }
+	/**
+	 * 获取当前策略的AI提示词
+	 */
+	public getCurrentPrompt(context: StrategyPromptContext): string | null {
+		const params = this.getCurrentStrategy();
+		if (!params) {
+			return null;
+		}
+		return generateCaiSenPrompt(params, context);
+	}
 
-  /**
-   * 记录策略执行历史
-   */
-  public recordExecution(action: string, details: any): void {
-    this.strategyExecutionHistory.push({
-      timestamp: Date.now(),
-      action,
-      details,
-    });
+	/**
+	 * 记录策略执行历史
+	 */
+	public recordExecution(action: string, details: any): void {
+		this.strategyExecutionHistory.push({
+			timestamp: Date.now(),
+			action,
+			details,
+		});
 
-    // 限制历史记录数量，最多保存100条
-    if (this.strategyExecutionHistory.length > 100) {
-      this.strategyExecutionHistory.shift();
-    }
-  }
+		// 限制历史记录数量，最多保存100条
+		if (this.strategyExecutionHistory.length > 100) {
+			this.strategyExecutionHistory.shift();
+		}
+	}
 
-  /**
-   * 获取策略执行历史
-   */
-  public getExecutionHistory(): Array<{
-    timestamp: number;
-    action: string;
-    details: any;
-  }> {
-    return [...this.strategyExecutionHistory];
-  }
+	/**
+	 * 获取策略执行历史
+	 */
+	public getExecutionHistory(): Array<{
+		timestamp: number;
+		action: string;
+		details: any;
+	}> {
+		return [...this.strategyExecutionHistory];
+	}
 
-  /**
-   * 保存分析结果
-   */
-  public saveAnalysisResult(
-    symbol: string,
-    result: CaiSenAnalysisResult
-  ): void {
-    this.lastAnalysisResults.set(symbol, result);
-  }
+	/**
+	 * 保存分析结果
+	 */
+	public saveAnalysisResult(
+		symbol: string,
+		result: CaiSenAnalysisResult,
+	): void {
+		this.lastAnalysisResults.set(symbol, result);
+	}
 
-  /**
-   * 获取指定币种的最新分析结果
-   */
-  public getLastAnalysisResult(
-    symbol: string
-  ): CaiSenAnalysisResult | undefined {
-    return this.lastAnalysisResults.get(symbol);
-  }
+	/**
+	 * 获取指定币种的最新分析结果
+	 */
+	public getLastAnalysisResult(
+		symbol: string,
+	): CaiSenAnalysisResult | undefined {
+		return this.lastAnalysisResults.get(symbol);
+	}
 
-  /**
-   * 获取所有币种的最新分析结果
-   */
-  public getAllAnalysisResults(): Map<string, CaiSenAnalysisResult> {
-    return new Map(this.lastAnalysisResults);
-  }
+	/**
+	 * 获取所有币种的最新分析结果
+	 */
+	public getAllAnalysisResults(): Map<string, CaiSenAnalysisResult> {
+		return new Map(this.lastAnalysisResults);
+	}
 
-  /**
-   * 检查当前是否为蔡森策略
-   */
-  public isCaiSenStrategy(): boolean {
-    return getTradingStrategy() === "cai-sen";
-  }
+	/**
+	 * 检查当前是否为蔡森策略
+	 */
+	public isCaiSenStrategy(): boolean {
+		return getTradingStrategy() === "cai-sen";
+	}
 
-  /**
-   * 获取策略状态摘要
-   */
-  public getStrategyStatusSummary(): {
-    isActive: boolean;
-    strategyName: string;
-    params: StrategyParams | null;
-    lastAnalysisCount: number;
-    executionHistoryCount: number;
-  } {
-    return {
-      isActive: this.isCaiSenStrategy(),
-      strategyName: getTradingStrategy(),
-      params: this.getCurrentStrategy(),
-      lastAnalysisCount: this.lastAnalysisResults.size,
-      executionHistoryCount: this.strategyExecutionHistory.length,
-    };
-  }
+	/**
+	 * 获取策略状态摘要
+	 */
+	public getStrategyStatusSummary(): {
+		isActive: boolean;
+		strategyName: string;
+		params: StrategyParams | null;
+		lastAnalysisCount: number;
+		executionHistoryCount: number;
+	} {
+		return {
+			isActive: this.isCaiSenStrategy(),
+			strategyName: getTradingStrategy(),
+			params: this.getCurrentStrategy(),
+			lastAnalysisCount: this.lastAnalysisResults.size,
+			executionHistoryCount: this.strategyExecutionHistory.length,
+		};
+	}
 }
 
 // 导出单例实例

@@ -665,7 +665,10 @@ export function createApiRoutes() {
 									const remainingOrderInfo = await exchangeClient.getOrder(
 										remainingOrder.id,
 									);
-									if (remainingOrderInfo && remainingOrderInfo.status === "finished") {
+									if (
+										remainingOrderInfo &&
+										remainingOrderInfo.status === "finished"
+									) {
 										const remainingFilledSize = Number.parseFloat(
 											remainingOrderInfo.size || "0",
 										);
