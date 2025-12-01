@@ -135,12 +135,17 @@ async function collectMarketData() {
         }
       }
 
-      // 只获取关键时间框架的K线数据（减少数据量）
+      // 获取多个时间框架的K线数据
+      const candles1m = await exchangeClient.getFuturesCandles(
+        contract,
+        "1m",
+        300
+      ); // 5小时，主要交易时间框架，用于实时指标计算
       const candles5m = await exchangeClient.getFuturesCandles(
         contract,
         "5m",
         100
-      ); // 8.3小时，主要交易时间框架
+      ); // 8.3小时，用于5分钟变化率计算
       const candles1h = await exchangeClient.getFuturesCandles(
         contract,
         "1h",
@@ -148,11 +153,31 @@ async function collectMarketData() {
       ); // 2天，用于长期趋势参考
 
       // 计算关键指标
+      const indicators1m = calculateIndicators(candles1m);
       const indicators5m = calculateIndicators(candles5m);
       const indicators1h = calculateIndicators(candles1h);
 
-      // 使用5分钟K线数据作为主要指标
-      const indicators = indicators5m;
+      // 使用1分钟K线数据作为主要指标
+      const indicators = indicators1m;
+
+      // 计算5分钟变化率（滚动计算）
+      const calculateChangeRate = (
+        currentValue: number,
+        previousValue: number
+      ) => {
+        if (previousValue === 0) return 0;
+        return ((currentValue - previousValue) / previousValue) * 100;
+      };
+
+      // 计算各指标的5分钟变化率
+      const changeRates = {
+        ema20: calculateChangeRate(indicators.ema20, indicators5m.ema20),
+        ema50: calculateChangeRate(indicators.ema50, indicators5m.ema50),
+        macd: calculateChangeRate(indicators.macd, indicators5m.macd),
+        rsi14: calculateChangeRate(indicators.rsi14, indicators5m.rsi14),
+        volume: calculateChangeRate(indicators.volume, indicators5m.volume),
+        atr14: calculateChangeRate(indicators.atr14, indicators5m.atr14),
+      };
 
       // 验证技术指标有效性
       const dataTimestamp = getChinaTimeISO();
@@ -212,6 +237,17 @@ async function collectMarketData() {
         logger.warn(`获取 ${symbol} 恐惧贪婪指数失败:`, error as any);
       }
 
+      // 获取微观结构指标
+      let microstructure = null;
+      try {
+        microstructure = await exchangeClient.getMarketMicrostructureMetrics(
+          contract
+        );
+        logger.debug(`${symbol} 微观结构指标获取成功`);
+      } catch (error) {
+        logger.warn(`获取 ${symbol} 微观结构指标失败:`, error as any);
+      }
+
       // 精简市场数据，只保留关键信息
       marketData[symbol] = {
         price: Number.parseFloat(ticker.last || "0"),
@@ -238,8 +274,14 @@ async function collectMarketData() {
         adx: indicators.adx,
         obv: indicators.obv,
         vwap: indicators.vwap,
-        // 保留1小时时间框架作为长期参考
+        // 微观结构指标
+        microstructure,
+        // 5分钟变化率（滚动计算）
+        changeRates,
+        // 保留多个时间框架作为参考
         timeframes: {
+          "1m": indicators,
+          "5m": indicators5m,
           "1h": indicators1h,
         },
       };

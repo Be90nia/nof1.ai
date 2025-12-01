@@ -567,7 +567,7 @@ export function createApiRoutes() {
 			if (order.id) {
 				try {
 					const orderInfo = await exchangeClient.getOrder(order.id);
-					if (orderInfo.status === "finished") {
+					if (orderInfo && orderInfo.status === "finished") {
 						// 确保获取到的价格是有效数字，如果不是则使用当前价格
 						const fillPrice = Number.parseFloat(orderInfo.fillPrice || "0");
 						const orderPrice = Number.parseFloat(orderInfo.price || "0");
@@ -665,7 +665,7 @@ export function createApiRoutes() {
 									const remainingOrderInfo = await exchangeClient.getOrder(
 										remainingOrder.id,
 									);
-									if (remainingOrderInfo.status === "finished") {
+									if (remainingOrderInfo && remainingOrderInfo.status === "finished") {
 										const remainingFilledSize = Number.parseFloat(
 											remainingOrderInfo.size || "0",
 										);

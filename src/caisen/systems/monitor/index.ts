@@ -546,6 +546,9 @@ async function executeCaiSenMonitor(): Promise<void> {
       const side = Number.parseFloat(position.size) > 0 ? "long" : "short";
       const entryPrice = Number.parseFloat(position.entryPrice);
       const currentPrice = await getCurrentPrice(symbol);
+      const size = Math.abs(Number.parseFloat(position.size));
+      const leverage = Number.parseFloat(position.leverage || "1");
+      const marginValue = Number.parseFloat(position.margin);
 
       if (currentPrice <= 0) {
         logger.warn(`获取${symbol}当前价格失败，跳过监控`);
@@ -659,28 +662,22 @@ async function executeCaiSenMonitor(): Promise<void> {
         }
       }
 
-      // 3. 主动检测止盈条件
-      const strategy = getTradingStrategy();
-      const strategyParams = getStrategyParams(strategy);
-      const takeProfitConfig = strategyParams.partialTakeProfit;
+      if (currentPrice > 0 && entryPrice > 0 && size > 0) {
+        // 计算价格变动百分比
+        const priceChangePercent =
+          ((currentPrice - entryPrice) / entryPrice) * 100;
+        // 考虑杠杆后的盈亏百分比
+        const pnlPercent =
+          side === "long"
+            ? priceChangePercent * leverage
+            : -priceChangePercent * leverage;
 
-      if (takeProfitConfig) {
-        // 计算当前盈亏百分比
-        const entryPrice = Number.parseFloat(position.entryPrice);
-        const currentPrice = await getCurrentPrice(symbol);
-        const size = Math.abs(Number.parseFloat(position.size));
-        const leverage = Number.parseFloat(position.leverage || "1");
+        // 3. 主动检测止盈条件
+        const strategy = getTradingStrategy();
+        const strategyParams = getStrategyParams(strategy);
+        const takeProfitConfig = strategyParams.partialTakeProfit;
 
-        if (currentPrice > 0 && entryPrice > 0 && size > 0) {
-          // 计算价格变动百分比
-          const priceChangePercent =
-            ((currentPrice - entryPrice) / entryPrice) * 100;
-          // 考虑杠杆后的盈亏百分比
-          const pnlPercent =
-            side === "long"
-              ? priceChangePercent * leverage
-              : -priceChangePercent * leverage;
-
+        if (takeProfitConfig) {
           logger.debug(`${symbol} 当前盈亏: ${pnlPercent.toFixed(2)}%`);
 
           // 检查是否达到止盈条件
@@ -713,6 +710,45 @@ async function executeCaiSenMonitor(): Promise<void> {
               `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
             );
           }
+        }
+
+        // 4. 收益率监控和快速平仓逻辑
+        // 计算手续费百分比
+        const feePercent = calculateFeePercent(
+          entryPrice,
+          currentPrice,
+          size,
+          marginValue
+        );
+
+        // 计算净收益率
+        const netPnlPercent = pnlPercent - feePercent;
+
+        logger.debug(
+          `${symbol} 当前净收益率: ${netPnlPercent.toFixed(
+            2
+          )}% (扣除手续费: ${feePercent.toFixed(2)}%)`
+        );
+
+        // 检测快速下跌
+        const isFastDrop = await detectFastDrop(contract, currentPrice);
+
+        // 平仓条件：
+        // 1. 净收益率 > 0（扣除手续费后还有盈利）
+        // 2. 检测到快速下跌
+        if (netPnlPercent > 0 && isFastDrop) {
+          logger.warn(
+            `${symbol} 满足快速平仓条件: 净收益率 ${netPnlPercent.toFixed(
+              2
+            )}% > 0，且检测到快速下跌`
+          );
+          await executeFastClose(
+            symbol,
+            contract,
+            position,
+            pnlPercent,
+            feePercent
+          );
         }
       }
     }
@@ -778,6 +814,144 @@ export function getCaiSenMonitorStatus(): {
     ),
     pyramidAddCache: Object.fromEntries(caiSenMonitorState.pyramidAddCache),
   };
+}
+
+/**
+ * 检测快速下跌情况
+ *
+ * @param contract 合约名称
+ * @param currentPrice 当前价格
+ * @param dropThreshold 下跌阈值（百分比）
+ * @param timeWindow 时间窗口（分钟）
+ * @returns 是否检测到快速下跌
+ */
+async function detectFastDrop(
+  contract: string,
+  currentPrice: number,
+  dropThreshold: number = -2,
+  timeWindow: number = 5
+): Promise<boolean> {
+  const exchangeClient = createExchangeClient();
+
+  try {
+    // 获取最近N分钟的价格数据（使用1分钟K线）
+    const candles = await exchangeClient.getFuturesCandles(
+      contract,
+      "1m",
+      timeWindow
+    );
+
+    if (candles.length < timeWindow) {
+      logger.warn(
+        `获取${contract}最近${timeWindow}分钟K线数据失败，跳过快速下跌检测`
+      );
+      return false;
+    }
+
+    // 计算时间窗口内的价格变化幅度
+    const startTimePrice = Number.parseFloat(candles[0].o);
+    const priceChangePercent =
+      ((currentPrice - startTimePrice) / startTimePrice) * 100;
+
+    logger.debug(
+      `${contract} ${timeWindow}分钟价格变化: ${priceChangePercent.toFixed(2)}%`
+    );
+
+    // 检测快速下跌
+    return priceChangePercent <= dropThreshold;
+  } catch (error) {
+    logger.error(`检测${contract}快速下跌失败: ${error}`);
+    return false;
+  }
+}
+
+/**
+ * 计算手续费
+ *
+ * @param entryPrice 入场价格
+ * @param currentPrice 当前价格
+ * @param size 持仓数量
+ * @param marginValue 保证金价值
+ * @returns 手续费占本金的百分比
+ */
+function calculateFeePercent(
+  entryPrice: number,
+  currentPrice: number,
+  size: number,
+  marginValue: number
+): number {
+  // 假设手续费率为0.05%（双向）
+  const feeRate = 0.0005;
+
+  // 计算开仓和平仓的总手续费
+  const openFee = entryPrice * size * feeRate;
+  const closeFee = currentPrice * size * feeRate;
+  const totalFee = openFee + closeFee;
+
+  // 手续费占本金的百分比
+  const feePercent = marginValue > 0 ? (totalFee / marginValue) * 100 : 0;
+
+  return feePercent;
+}
+
+/**
+ * 执行快速平仓操作
+ *
+ * @param symbol 交易对
+ * @param contract 合约名称
+ * @param position 持仓信息
+ * @param pnlPercent 当前盈亏百分比
+ * @param feePercent 手续费百分比
+ * @returns 是否平仓成功
+ */
+async function executeFastClose(
+  symbol: string,
+  contract: string,
+  position: any,
+  pnlPercent: number,
+  feePercent: number
+): Promise<boolean> {
+  if (!isCodeLevelProtectionEnabled()) {
+    logger.info(`代码级保护未启用，跳过快速平仓`);
+    return false;
+  }
+
+  const exchangeClient = createExchangeClient();
+
+  try {
+    logger.warn(`【执行快速平仓】${symbol}`);
+    logger.warn(
+      `  平仓原因: 检测到快速下跌，当前收益率: ${pnlPercent.toFixed(
+        2
+      )}%，扣除手续费: ${feePercent.toFixed(2)}%，净收益率: ${(
+        pnlPercent - feePercent
+      ).toFixed(2)}%`
+    );
+
+    // 执行市价平仓
+    const result = await exchangeClient.closePosition({
+      contract,
+      // 不指定size则平掉全部持仓
+    });
+
+    logger.info(`快速平仓成功: ${symbol}，订单ID: ${result?.id}`);
+
+    // 记录到数据库
+    await recordCaiSenMonitorData(symbol, {
+      type: "fast_close",
+      side: Number.parseFloat(position.size) > 0 ? "long" : "short",
+      pnlPercent,
+      feePercent,
+      netPnlPercent: pnlPercent - feePercent,
+      description: "检测到快速下跌，在保证净收益的情况下快速平仓",
+      timestamp: Date.now(),
+    });
+
+    return true;
+  } catch (error) {
+    logger.error(`执行快速平仓失败: ${error}`);
+    return false;
+  }
 }
 
 /**

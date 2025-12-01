@@ -444,7 +444,15 @@ ${
       2
     )}, OBV = ${data.obv.toFixed(0)}, VWAP = ${data.vwap.toFixed(
       2
-    )}, 恐惧贪婪指数 = ${data.fearAndGreedIndex.toFixed(2)}\n\n`;
+    )}, 恐惧贪婪指数 = ${data.fearAndGreedIndex.toFixed(2)} (${
+      data.fearAndGreedIndex < 30
+        ? "恐惧 - 买入信号"
+        : data.fearAndGreedIndex > 70
+        ? "贪婪 - 卖出信号"
+        : "中性"
+    })
+
+`;
 
     // 资金费率
     if (data.fundingRate !== undefined) {

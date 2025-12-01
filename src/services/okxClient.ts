@@ -643,7 +643,9 @@ export class OkxClient {
         error.message.includes("59120") || // OKX 错误码：持仓模式已存在
         error.message.includes("59121") || // OKX 错误码：有持仓时不能修改
         error.message.includes("59000") || // OKX 错误码：有持仓或挂单时不能修改
-        error.message.includes("Setting failed. Cancel any open orders, close positions, and stop trading bots first.")
+        error.message.includes(
+          "Setting failed. Cancel any open orders, close positions, and stop trading bots first."
+        )
       ) {
         logger.info("持仓模式已经设置或无法修改，跳过");
         this.positionModeSet = true;
@@ -783,7 +785,8 @@ export class OkxClient {
         });
 
         if (!data || data.length === 0) {
-          throw new Error("Order not found");
+          logger.debug(`订单 ${orderId} 在合约 ${contract} 中未找到`);
+          return null;
         }
         order = data[0];
       } else {
@@ -796,12 +799,25 @@ export class OkxClient {
         // 如果未完成订单中找不到，再从历史订单中查找（最近100条）
         if (!order) {
           logger.debug(`未完成订单中未找到，查询历史订单`);
-          const historyOrders = await this.getOrderHistory(undefined, 100);
+          // 先查询已成交订单
+          let historyOrders = await this.getOrderHistory(undefined, 100);
           order = historyOrders.find((o: any) => o.id === orderId);
+
+          // 如果已成交订单中找不到，再查询已取消订单
+          if (!order) {
+            logger.debug(`已成交订单中未找到，查询已取消订单`);
+            historyOrders = await this.getOrderHistory(
+              undefined,
+              100,
+              "canceled"
+            );
+            order = historyOrders.find((o: any) => o.id === orderId);
+          }
         }
 
         if (!order) {
-          throw new Error("Order not found in open orders or recent history");
+          logger.debug(`订单 ${orderId} 未在未完成订单或最近历史订单中找到`);
+          return null;
         }
 
         // 如果从列表中找到，已经是转换后的格式，直接返回
@@ -1067,11 +1083,54 @@ export class OkxClient {
 
   /**
    * 获取订单簿
+   * 优先使用 WebSocket，失败时降级到 REST API
    */
   async getOrderBook(contract: string, limit = 10): Promise<any> {
-    try {
-      const instId = this.toOkxContract(contract);
+    const instId = this.toOkxContract(contract);
 
+    // 尝试使用 WebSocket
+    if (this.useWebSocket) {
+      try {
+        const wsClient = getOkxWebSocketClient();
+
+        // 检查缓存
+        let orderBook = wsClient.getCachedOrderBook(instId);
+
+        if (!orderBook) {
+          // 订阅并等待数据
+          await wsClient.subscribe("books", instId);
+          // 等待一小段时间，确保数据已经到达
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          orderBook = wsClient.getCachedOrderBook(instId);
+        }
+
+        if (orderBook) {
+          // 转换为 Gate 格式的返回值
+          return {
+            bids: (orderBook.bids || [])
+              .slice(0, limit)
+              .map((bid: string[]) => ({
+                p: bid[0],
+                s: bid[1],
+              })),
+            asks: (orderBook.asks || [])
+              .slice(0, limit)
+              .map((ask: string[]) => ({
+                p: ask[0],
+                s: ask[1],
+              })),
+          };
+        }
+      } catch (error) {
+        logger.warn(
+          `WebSocket 获取 ${contract} 订单簿失败，降级到 REST API:`,
+          error
+        );
+      }
+    }
+
+    // 降级到 REST API
+    try {
       const data = await this.request("GET", "/api/v5/market/books", {
         instId,
         sz: Math.min(limit, 400).toString(),
@@ -1097,6 +1156,130 @@ export class OkxClient {
       };
     } catch (error: any) {
       logger.error(`获取 ${contract} 订单簿失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取实时订单簿深度数据
+   */
+  async getRealTimeOrderBookDepth(contract: string, depth = 20): Promise<any> {
+    const instId = this.toOkxContract(contract);
+
+    if (!this.useWebSocket) {
+      throw new Error("WebSocket 未启用，无法获取实时订单簿深度数据");
+    }
+
+    try {
+      const wsClient = getOkxWebSocketClient();
+
+      // 订阅并等待数据
+      await wsClient.subscribe("books", instId);
+
+      // 等待数据到达
+      let orderBook = wsClient.getCachedOrderBook(instId);
+      let attempts = 0;
+      while (!orderBook && attempts < 5) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        orderBook = wsClient.getCachedOrderBook(instId);
+        attempts++;
+      }
+
+      if (!orderBook) {
+        throw new Error("无法获取实时订单簿数据");
+      }
+
+      // 计算深度变化率
+      const calculateDepthChangeRate = (current: any[], previous: any[]) => {
+        if (!previous || previous.length === 0) return 0;
+
+        const currentDepth = current.slice(0, depth).reduce((sum, item) => {
+          return sum + parseFloat(item[1]);
+        }, 0);
+
+        const previousDepth = previous.slice(0, depth).reduce((sum, item) => {
+          return sum + parseFloat(item[1]);
+        }, 0);
+
+        if (previousDepth === 0) return 0;
+
+        return ((currentDepth - previousDepth) / previousDepth) * 100;
+      };
+
+      // 计算大额订单（>10万美元）
+      const currentPrice = parseFloat(orderBook.bids[0][0]);
+      const largeOrderThreshold = 100000; // 10万美元
+
+      const largeBids = orderBook.bids.filter((bid: string[]) => {
+        const price = parseFloat(bid[0]);
+        const size = parseFloat(bid[1]);
+        const value = price * size;
+        return value > largeOrderThreshold;
+      });
+
+      const largeAsks = orderBook.asks.filter((ask: string[]) => {
+        const price = parseFloat(ask[0]);
+        const size = parseFloat(ask[1]);
+        const value = price * size;
+        return value > largeOrderThreshold;
+      });
+
+      // 计算买卖价差
+      const bidPrice = parseFloat(orderBook.bids[0][0]);
+      const askPrice = parseFloat(orderBook.asks[0][0]);
+      const spread = askPrice - bidPrice;
+      const spreadPercentage = (spread / bidPrice) * 100;
+
+      // 计算订单簿不平衡度
+      const bidVolume = orderBook.bids
+        .slice(0, depth)
+        .reduce((sum: number, bid: string[]) => {
+          return sum + parseFloat(bid[1]);
+        }, 0);
+
+      const askVolume = orderBook.asks
+        .slice(0, depth)
+        .reduce((sum: number, ask: string[]) => {
+          return sum + parseFloat(ask[1]);
+        }, 0);
+
+      const imbalance = (bidVolume - askVolume) / (bidVolume + askVolume) || 0;
+
+      return {
+        contract,
+        timestamp: orderBook.lastUpdate,
+        bids: orderBook.bids.slice(0, depth).map((bid: string[]) => ({
+          p: bid[0],
+          s: bid[1],
+        })),
+        asks: orderBook.asks.slice(0, depth).map((ask: string[]) => ({
+          p: ask[0],
+          s: ask[1],
+        })),
+        metrics: {
+          bidDepthChangeRate: calculateDepthChangeRate(
+            orderBook.bids,
+            orderBook.prevBids
+          ),
+          askDepthChangeRate: calculateDepthChangeRate(
+            orderBook.asks,
+            orderBook.prevAsks
+          ),
+          spread: spread.toFixed(4),
+          spreadPercentage: spreadPercentage.toFixed(4),
+          orderBookImbalance: imbalance.toFixed(4),
+          largeBids: largeBids.length,
+          largeAsks: largeAsks.length,
+          largeBidVolume: largeBids.reduce((sum: number, bid: string[]) => {
+            return sum + parseFloat(bid[0]) * parseFloat(bid[1]);
+          }, 0),
+          largeAskVolume: largeAsks.reduce((sum: number, ask: string[]) => {
+            return sum + parseFloat(ask[0]) * parseFloat(ask[1]);
+          }, 0),
+        },
+      };
+    } catch (error: any) {
+      logger.error(`获取 ${contract} 实时订单簿深度数据失败:`, error);
       throw error;
     }
   }
@@ -1131,6 +1314,462 @@ export class OkxClient {
       });
     } catch (error: any) {
       logger.error("获取我的历史成交记录失败:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取tick级交易数据
+   */
+  async getTickTrades(contract: string, limit = 100): Promise<any> {
+    const instId = this.toOkxContract(contract);
+
+    let trades: any[] = [];
+    let isWebSocketUsed = false;
+
+    // 优先使用WebSocket获取数据
+    if (this.useWebSocket) {
+      try {
+        const wsClient = getOkxWebSocketClient();
+
+        // 订阅并等待数据
+        await wsClient.subscribe("trades", instId);
+
+        // 等待数据到达
+        let cachedTrades = wsClient.getCachedTrades(instId);
+        let attempts = 0;
+        while (!cachedTrades && attempts < 10) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          cachedTrades = wsClient.getCachedTrades(instId);
+          attempts++;
+        }
+
+        if (cachedTrades) {
+          trades = cachedTrades;
+          isWebSocketUsed = true;
+        }
+      } catch (error: any) {
+        logger.warn(
+          `WebSocket获取 ${contract} tick级交易数据失败，尝试使用REST API:`,
+          error
+        );
+      }
+    }
+
+    // WebSocket获取失败或未启用，使用REST API获取
+    if (trades.length === 0) {
+      try {
+        logger.info(`使用REST API获取 ${contract} tick级交易数据`);
+        const restTrades = await this.request("GET", "/api/v5/market/trades", {
+          instId: instId,
+          limit: limit.toString(),
+        });
+        trades = restTrades || [];
+      } catch (error: any) {
+        logger.error(`REST API获取 ${contract} tick级交易数据失败:`, error);
+        throw new Error("无法获取tick级交易数据");
+      }
+    }
+
+    // 过滤最近5分钟的交易
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const recentTrades = trades
+      .filter((trade: any) => {
+        const tradeTime = Number.parseInt(trade.ts);
+        return tradeTime >= fiveMinutesAgo;
+      })
+      .slice(0, limit);
+
+    // 计算成交分布特征
+    const calculateTradeDistribution = (trades: any[]) => {
+      if (trades.length === 0) {
+        return {
+          totalTrades: 0,
+          totalVolume: 0,
+          totalValue: 0,
+          avgTradeSize: 0,
+          avgTradeValue: 0,
+          buySellRatio: 0,
+          priceRange: {
+            min: 0,
+            max: 0,
+            avg: 0,
+          },
+          volumeDistribution: {
+            small: 0,
+            medium: 0,
+            large: 0,
+          },
+        };
+      }
+
+      // 计算总成交量和总成交额
+      const totalVolume = trades.reduce((sum, trade) => {
+        return sum + parseFloat(trade.sz);
+      }, 0);
+
+      const totalValue = trades.reduce((sum, trade) => {
+        const price = parseFloat(trade.px);
+        const size = parseFloat(trade.sz);
+        return sum + price * size;
+      }, 0);
+
+      // 计算买卖比例
+      const buyTrades = trades.filter((trade) => trade.side === "buy").length;
+      const sellTrades = trades.filter((trade) => trade.side === "sell").length;
+      const buySellRatio =
+        sellTrades === 0 ? buyTrades : buyTrades / sellTrades;
+
+      // 计算价格范围
+      const prices = trades.map((trade) => parseFloat(trade.px));
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const avgPrice =
+        prices.reduce((sum, price) => sum + price, 0) / prices.length;
+
+      // 计算成交量分布（小、中、大订单）
+      const avgTradeSize = totalVolume / trades.length;
+      const smallTrades = trades.filter(
+        (trade) => parseFloat(trade.sz) < avgTradeSize * 0.5
+      ).length;
+      const mediumTrades = trades.filter((trade) => {
+        const size = parseFloat(trade.sz);
+        return size >= avgTradeSize * 0.5 && size <= avgTradeSize * 2;
+      }).length;
+      const largeTrades = trades.filter(
+        (trade) => parseFloat(trade.sz) > avgTradeSize * 2
+      ).length;
+
+      return {
+        totalTrades: trades.length,
+        totalVolume: totalVolume.toFixed(4),
+        totalValue: totalValue.toFixed(4),
+        avgTradeSize: (totalVolume / trades.length).toFixed(4),
+        avgTradeValue: (totalValue / trades.length).toFixed(4),
+        buySellRatio: buySellRatio.toFixed(4),
+        priceRange: {
+          min: minPrice.toFixed(4),
+          max: maxPrice.toFixed(4),
+          avg: avgPrice.toFixed(4),
+        },
+        volumeDistribution: {
+          small: smallTrades,
+          medium: mediumTrades,
+          large: largeTrades,
+        },
+      };
+    };
+
+    // 计算订单执行速度（基于最近10笔交易）
+    const calculateExecutionSpeed = (trades: any[]) => {
+      if (trades.length < 2) return 0;
+
+      // 按时间排序
+      const sortedTrades = [...trades].sort((a, b) => {
+        return Number.parseInt(a.ts) - Number.parseInt(b.ts);
+      });
+
+      // 计算平均时间间隔
+      let totalInterval = 0;
+      for (let i = 1; i < sortedTrades.length; i++) {
+        const prevTime = Number.parseInt(sortedTrades[i - 1].ts);
+        const currTime = Number.parseInt(sortedTrades[i].ts);
+        totalInterval += currTime - prevTime;
+      }
+
+      const avgInterval = totalInterval / (sortedTrades.length - 1);
+      // 执行速度 = 1 / 平均时间间隔（毫秒）
+      return avgInterval > 0 ? ((1 / avgInterval) * 1000).toFixed(4) : 0;
+    };
+
+    // 计算流动性比率
+    const calculateLiquidityRatio = (trades: any[]) => {
+      if (trades.length === 0) return 0;
+
+      // 计算价格变化
+      let priceChanges = 0;
+      for (let i = 1; i < trades.length; i++) {
+        const prevPrice = parseFloat(trades[i - 1].px);
+        const currPrice = parseFloat(trades[i].px);
+        priceChanges += Math.abs(currPrice - prevPrice);
+      }
+
+      if (priceChanges === 0) return 0;
+
+      // 流动性比率 = 总成交额 / 价格变化
+      const totalValue = trades.reduce((sum, trade) => {
+        const price = parseFloat(trade.px);
+        const size = parseFloat(trade.sz);
+        return sum + price * size;
+      }, 0);
+
+      return (totalValue / priceChanges).toFixed(4);
+    };
+
+    // 转换为统一格式的交易数据
+    const formattedTrades = recentTrades.map((trade: any) => ({
+      id: trade.tradeId,
+      price: trade.px,
+      size: trade.sz,
+      side: trade.side,
+      time: Number.parseInt(trade.ts) / 1000,
+    }));
+
+    return {
+      contract,
+      timestamp: Date.now(),
+      trades: formattedTrades,
+      distribution: calculateTradeDistribution(recentTrades),
+      executionSpeed: calculateExecutionSpeed(recentTrades),
+      liquidityRatio: calculateLiquidityRatio(recentTrades),
+    };
+  }
+
+  /**
+   * 获取市场微观结构指标
+   */
+  async getMarketMicrostructureMetrics(contract: string): Promise<any> {
+    try {
+      logger.info(`开始获取 ${contract} 市场微观结构指标`);
+      // 并行获取订单簿和交易数据
+      const [orderBookData, tradeData] = await Promise.all([
+        this.getRealTimeOrderBookDepth(contract),
+        this.getTickTrades(contract),
+      ]);
+      logger.info(`成功获取 ${contract} 订单簿和交易数据`);
+
+      // 计算额外的市场微观结构指标
+
+      // 计算成交量加权平均价格（VWAP）
+      const calculateVWAP = (trades: any[]) => {
+        if (trades.length === 0) return 0;
+
+        const totalValue = trades.reduce((sum, trade) => {
+          const price = parseFloat(trade.price);
+          const size = parseFloat(trade.size);
+          return sum + price * size;
+        }, 0);
+
+        const totalVolume = trades.reduce((sum, trade) => {
+          return sum + parseFloat(trade.size);
+        }, 0);
+
+        return totalVolume > 0 ? (totalValue / totalVolume).toFixed(4) : 0;
+      };
+
+      // 计算订单簿斜率
+      const calculateOrderBookSlope = (bids: any[], asks: any[]) => {
+        if (bids.length < 2 || asks.length < 2)
+          return { bidSlope: 0, askSlope: 0 };
+
+        // 计算买单斜率
+        const bidPrice1 = parseFloat(bids[0].p);
+        const bidPrice2 = parseFloat(bids[1].p);
+        const bidSize1 = parseFloat(bids[0].s);
+        const bidSize2 = parseFloat(bids[1].s);
+        const bidSlope =
+          bidSize1 > bidSize2
+            ? ((bidSize1 - bidSize2) / (bidPrice1 - bidPrice2)).toFixed(4)
+            : 0;
+
+        // 计算卖单斜率
+        const askPrice1 = parseFloat(asks[0].p);
+        const askPrice2 = parseFloat(asks[1].p);
+        const askSize1 = parseFloat(asks[0].s);
+        const askSize2 = parseFloat(asks[1].s);
+        const askSlope =
+          askSize2 > askSize1
+            ? ((askSize2 - askSize1) / (askPrice2 - askPrice1)).toFixed(4)
+            : 0;
+
+        return { bidSlope, askSlope };
+      };
+
+      // 计算价格冲击成本
+      const calculatePriceImpact = (orderBook: any, tradeValue: number) => {
+        // 模拟买入tradeValue金额的资产，计算价格冲击
+        let remainingValue = tradeValue;
+        let totalSize = 0;
+        let totalCost = 0;
+
+        for (const ask of orderBook.asks) {
+          const price = parseFloat(ask.p);
+          const size = parseFloat(ask.s);
+          const askValue = price * size;
+
+          if (remainingValue <= askValue) {
+            const buySize = remainingValue / price;
+            totalSize += buySize;
+            totalCost += remainingValue;
+            break;
+          } else {
+            totalSize += size;
+            totalCost += askValue;
+            remainingValue -= askValue;
+          }
+        }
+
+        if (totalSize === 0) return 0;
+
+        const avgPrice = totalCost / totalSize;
+        const midPrice =
+          (parseFloat(orderBook.bids[0].p) + parseFloat(orderBook.asks[0].p)) /
+          2;
+
+        return (((avgPrice - midPrice) / midPrice) * 100).toFixed(4);
+      };
+
+      // 计算VWAP
+      const vwap = calculateVWAP(tradeData.trades);
+
+      // 计算订单簿斜率
+      const orderBookSlope = calculateOrderBookSlope(
+        orderBookData.bids,
+        orderBookData.asks
+      );
+
+      // 计算价格冲击成本（模拟10万美元的买入）
+      const priceImpact = calculatePriceImpact(orderBookData, 100000);
+
+      return {
+        contract,
+        timestamp: Date.now(),
+        orderBookMetrics: orderBookData.metrics,
+        tradeMetrics: {
+          distribution: tradeData.distribution,
+          executionSpeed: tradeData.executionSpeed,
+          liquidityRatio: tradeData.liquidityRatio,
+          vwap,
+        },
+        additionalMetrics: {
+          orderBookSlope,
+          priceImpact,
+        },
+        rawData: {
+          orderBook: orderBookData,
+          trades: tradeData.trades,
+        },
+      };
+    } catch (error: any) {
+      logger.error(`获取 ${contract} 市场微观结构指标失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 蔡森策略滞后性补偿机制
+   * 使用实时微观结构数据修正技术指标的滞后性
+   */
+  async getCaiSenLagCompensatedMetrics(contract: string): Promise<any> {
+    try {
+      // 并行获取所需数据
+      const [marketData, microstructureMetrics] = await Promise.all([
+        this.getFuturesTicker(contract),
+        this.getMarketMicrostructureMetrics(contract),
+      ]);
+
+      // 获取1分钟K线数据用于实时指标计算
+      const candles1m = await this.getFuturesCandles(contract, "1m", 100);
+
+      // 计算实时技术指标
+      const { calculateIndicators } = await import(
+        "../tools/trading/marketData"
+      );
+      const realTimeIndicators = calculateIndicators(candles1m);
+
+      // 实现蔡森策略的滞后性补偿算法
+      const compensateLag = (
+        indicatorValue: number,
+        microstructureData: any
+      ) => {
+        // 基于市场微观结构数据修正指标滞后
+        const { orderBookMetrics, tradeMetrics } = microstructureData;
+
+        // 计算补偿因子
+        let compensationFactor = 1.0;
+
+        // 1. 基于订单簿深度变化率调整
+        const depthChange =
+          (orderBookMetrics.bidDepthChangeRate +
+            orderBookMetrics.askDepthChangeRate) /
+          2;
+        compensationFactor += depthChange * 0.1;
+
+        // 2. 基于大额订单影响调整
+        const largeOrderImpact =
+          (orderBookMetrics.largeBids - orderBookMetrics.largeAsks) * 0.05;
+        compensationFactor += largeOrderImpact;
+
+        // 3. 基于成交分布特征调整
+        const tradeDistributionImpact =
+          (tradeMetrics.distribution.buySellRatio - 1) * 0.2;
+        compensationFactor += tradeDistributionImpact;
+
+        // 4. 基于流动性比率调整
+        const liquidityImpact =
+          (parseFloat(tradeMetrics.liquidityRatio) - 1) * 0.1;
+        compensationFactor += liquidityImpact;
+
+        // 确保补偿因子在合理范围内
+        compensationFactor = Math.max(0.5, Math.min(1.5, compensationFactor));
+
+        // 应用补偿因子
+        return indicatorValue * compensationFactor;
+      };
+
+      // 对关键技术指标进行滞后性补偿
+      const compensatedIndicators = {
+        ...realTimeIndicators,
+        ema20: compensateLag(realTimeIndicators.ema20, microstructureMetrics),
+        ema50: compensateLag(realTimeIndicators.ema50, microstructureMetrics),
+        macd: compensateLag(realTimeIndicators.macd, microstructureMetrics),
+        rsi14: compensateLag(realTimeIndicators.rsi14, microstructureMetrics),
+        // 保留原始指标用于对比
+        raw: realTimeIndicators,
+      };
+
+      // 计算滚动5分钟变化率
+      const candles5m = await this.getFuturesCandles(contract, "5m", 2);
+      const indicators5m = calculateIndicators(candles5m);
+
+      const calculateChangeRate = (current: number, previous: number) => {
+        if (previous === 0) return 0;
+        return ((current - previous) / previous) * 100;
+      };
+
+      const changeRates = {
+        ema20: calculateChangeRate(
+          compensatedIndicators.ema20,
+          indicators5m.ema20
+        ),
+        ema50: calculateChangeRate(
+          compensatedIndicators.ema50,
+          indicators5m.ema50
+        ),
+        macd: calculateChangeRate(
+          compensatedIndicators.macd,
+          indicators5m.macd
+        ),
+        rsi14: calculateChangeRate(
+          compensatedIndicators.rsi14,
+          indicators5m.rsi14
+        ),
+        volume: calculateChangeRate(
+          compensatedIndicators.volume,
+          indicators5m.volume
+        ),
+      };
+
+      return {
+        contract,
+        timestamp: Date.now(),
+        price: parseFloat(marketData.last),
+        indicators: compensatedIndicators,
+        changeRates,
+        microstructure: microstructureMetrics,
+      };
+    } catch (error: any) {
+      logger.error(`获取 ${contract} 蔡森策略滞后补偿指标失败:`, error);
       throw error;
     }
   }
@@ -1188,14 +1827,21 @@ export class OkxClient {
   }
 
   /**
-   * 获取已完成的订单历史
+   * 获取订单历史
+   * @param contract 合约名称（可选）
+   * @param limit 返回数量，默认10条
+   * @param state 订单状态，默认filled（已成交），可选canceled（已取消）
    */
-  async getOrderHistory(contract?: string, limit = 10): Promise<any[]> {
+  async getOrderHistory(
+    contract?: string,
+    limit = 10,
+    state: "filled" | "canceled" = "filled"
+  ): Promise<any[]> {
     try {
       const params: any = {
         instType: "SWAP",
         limit: Math.min(limit, 100).toString(),
-        state: "filled",
+        state: state,
       };
 
       if (contract) {
@@ -1222,7 +1868,7 @@ export class OkxClient {
           size: size.toString(),
           price: order.px || "0",
           fill_price: order.avgPx || "0",
-          status: "finished",
+          status: state === "filled" ? "finished" : "cancelled",
           create_time: Number.parseInt(order.cTime) / 1000,
           finish_time: Number.parseInt(order.uTime) / 1000,
         };
@@ -1367,6 +2013,31 @@ export class OkxClient {
       const orderBookImbalance =
         ((bidVolume - askVolume) / (bidVolume + askVolume)) * 100;
 
+      // 5. 计算交易量分布（上涨/下跌时的交易量比例）
+      const volumeDistribution = candles24h.reduce(
+        (acc, candle) => {
+          const open = parseFloat(candle.o);
+          const close = parseFloat(candle.c);
+          const volume = parseFloat(candle.v);
+
+          if (close > open) {
+            acc.upVolume += volume;
+          } else if (close < open) {
+            acc.downVolume += volume;
+          }
+
+          acc.totalVolume += volume;
+          return acc;
+        },
+        { upVolume: 0, downVolume: 0, totalVolume: 0 }
+      );
+
+      const volumeRatio =
+        volumeDistribution.totalVolume > 0
+          ? (volumeDistribution.upVolume - volumeDistribution.downVolume) /
+            volumeDistribution.totalVolume
+          : 0;
+
       // 计算各项指标得分（0-100）
       // 价格动量得分：上涨为贪婪，下跌为恐惧
       const priceMomentumScore = Math.min(
@@ -1389,12 +2060,19 @@ export class OkxClient {
         100
       );
 
-      // 计算最终恐惧贪婪指数（加权平均）
+      // 交易量分布得分：上涨时交易量占比高为贪婪，下跌时交易量占比高为恐惧
+      const volumeDistributionScore = Math.min(
+        Math.max(50 + volumeRatio * 100, 0),
+        100
+      );
+
+      // 计算最终恐惧贪婪指数（加权平均，增加交易量分布指标）
       const fearGreedIndex = Math.round(
-        priceMomentumScore * 0.25 +
-          volatilityScore * 0.25 +
-          fundingRateScore * 0.25 +
-          orderBookScore * 0.25
+        priceMomentumScore * 0.2 +
+          volatilityScore * 0.2 +
+          fundingRateScore * 0.2 +
+          orderBookScore * 0.2 +
+          volumeDistributionScore * 0.2
       );
 
       // 确定描述
@@ -1416,16 +2094,19 @@ export class OkxClient {
           volatility: volatilityScore,
           fundingRate: fundingRateScore,
           orderBook: orderBookScore,
+          volumeDistribution: volumeDistributionScore,
         },
         // 添加计算公式说明
         calculationMethod: {
           formula:
-            "恐惧贪婪指数 = 0.25*价格动量得分 + 0.25*波动率得分 + 0.25*资金费率得分 + 0.25*订单簿不平衡得分",
+            "恐惧贪婪指数 = 0.2*价格动量得分 + 0.2*波动率得分 + 0.2*资金费率得分 + 0.2*订单簿不平衡得分 + 0.2*交易量分布得分",
           components: {
             priceMomentum: "价格动量得分 = 50 + 价格变化率(%) * 2",
             volatility: "波动率得分 = 100 - ATR百分比 * 5",
             fundingRate: "资金费率得分 = 50 + 资金费率(%) * 100",
             orderBook: "订单簿不平衡得分 = 50 + 订单簿不平衡百分比",
+            volumeDistribution:
+              "交易量分布得分 = 50 + (上涨交易量-下跌交易量)/总交易量 * 100",
           },
         },
       };

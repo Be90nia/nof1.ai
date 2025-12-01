@@ -102,9 +102,12 @@ export function generateCaiSenPrompt(
    - ADX：>25趋势强烈，<20趋势微弱
    - OBV：与价格背离时反转信号
    - VWAP：价格在VWAP上方看涨，下方看跌
-   - 恐惧贪婪指数：<30恐惧(买入)，>70贪婪(卖出)
-     - 算法提示：恐惧贪婪指数 = 0.2*价格动量得分 + 0.2*波动率得分 + 0.2*资金费率得分 + 0.2*订单簿不平衡得分
-     - 各组件计算：价格动量得分=50+价格变化率(%)*2；波动率得分=100-ATR百分比*5；资金费率得分=50+资金费率(%)*100；订单簿不平衡得分=50+订单簿不平衡百分比
+    - 恐惧贪婪指数：<30恐惧(买入信号)，>70贪婪(卖出信号)
+     - 算法提示：恐惧贪婪指数 = 0.2*价格动量得分 + 0.2*波动率得分 + 0.2*资金费率得分 + 0.2*订单簿不平衡得分 + 0.2*交易量分布得分
+     - 各组件计算：价格动量得分=50+价格变化率(%)*2；波动率得分=100-ATR百分比*5；资金费率得分=50+资金费率(%)*100；订单簿不平衡得分=50+订单簿不平衡百分比；交易量分布得分=50+(上涨交易量-下跌交易量)/总交易量*100
+     - 与其他技术指标形成背离时，信号强度增强
+     - 例如：恐惧贪婪指数>70（贪婪）+ 技术指标看跌 = 强做空信号
+     - 例如：恐惧贪婪指数<30（恐惧）+ 技术指标看涨 = 强做多信号
 7. 风险管理：单笔亏损≤1%，单日亏损≤5%，持仓≤24小时
 8. 执行速度：信号出现后2根5分钟K线内必须决策
 
@@ -173,7 +176,39 @@ export function generateCaiSenPrompt(
 
     // 资金费率
     if (data.fundingRate !== undefined) {
-      prompt += `资金费率: ${data.fundingRate.toExponential(2)}\n`;
+      prompt += `资金费率: ${data.fundingRate.toExponential(2)}
+`;
+    }
+
+    // 微观结构指标
+    if (data.microstructure) {
+      const ms = data.microstructure;
+      prompt += `微观结构: 订单簿不平衡度=${Number(
+        ms.orderBookMetrics.orderBookImbalance
+      ).toFixed(4)}, 买卖价差=${Number(ms.orderBookMetrics.spread).toFixed(4)}
+`;
+      prompt += `大额订单: 买单${ms.orderBookMetrics.largeBids}个, 卖单${ms.orderBookMetrics.largeAsks}个
+`;
+      prompt += `深度变化: 买盘${Number(
+        ms.orderBookMetrics.bidDepthChangeRate
+      ).toFixed(2)}%, 卖盘${Number(
+        ms.orderBookMetrics.askDepthChangeRate
+      ).toFixed(2)}%
+`;
+      prompt += `成交特征: 总成交${
+        ms.tradeMetrics.distribution.totalTrades
+      }笔, 买卖比=${Number(ms.tradeMetrics.distribution.buySellRatio).toFixed(
+        2
+      )}
+`;
+      prompt += `流动性: 执行速度=${Number(
+        ms.tradeMetrics.executionSpeed
+      ).toFixed(2)}, 比率=${Number(ms.tradeMetrics.liquidityRatio).toFixed(2)}
+`;
+      prompt += `高级指标: VWAP=${ms.tradeMetrics.vwap}, 订单簿斜率=${
+        ms.additionalMetrics.orderBookSlope.bidSlope
+      }, 价格冲击=${Number(ms.additionalMetrics.priceImpact).toFixed(4)}%
+`;
     }
 
     // 5分钟核心时序数据（仅保留最近30个数据点）

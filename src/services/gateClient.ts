@@ -861,6 +861,31 @@ export class GateClient {
       const orderBookImbalance =
         ((bidVolume - askVolume) / (bidVolume + askVolume)) * 100;
 
+      // 5. 计算交易量分布（上涨/下跌时的交易量比例）
+      const volumeDistribution = candles24h.reduce(
+        (acc, candle) => {
+          const open = parseFloat(candle.o);
+          const close = parseFloat(candle.c);
+          const volume = parseFloat(candle.v);
+
+          if (close > open) {
+            acc.upVolume += volume;
+          } else if (close < open) {
+            acc.downVolume += volume;
+          }
+
+          acc.totalVolume += volume;
+          return acc;
+        },
+        { upVolume: 0, downVolume: 0, totalVolume: 0 }
+      );
+
+      const volumeRatio =
+        volumeDistribution.totalVolume > 0
+          ? (volumeDistribution.upVolume - volumeDistribution.downVolume) /
+            volumeDistribution.totalVolume
+          : 0;
+
       // 计算各项指标得分（0-100）
       // 价格动量得分：上涨为贪婪，下跌为恐惧
       const priceMomentumScore = Math.min(
@@ -883,12 +908,19 @@ export class GateClient {
         100
       );
 
-      // 计算最终恐惧贪婪指数（加权平均）
+      // 交易量分布得分：上涨时交易量占比高为贪婪，下跌时交易量占比高为恐惧
+      const volumeDistributionScore = Math.min(
+        Math.max(50 + volumeRatio * 100, 0),
+        100
+      );
+
+      // 计算最终恐惧贪婪指数（加权平均，增加交易量分布指标）
       const fearGreedIndex = Math.round(
-        priceMomentumScore * 0.25 +
-          volatilityScore * 0.25 +
-          fundingRateScore * 0.25 +
-          orderBookScore * 0.25
+        priceMomentumScore * 0.2 +
+          volatilityScore * 0.2 +
+          fundingRateScore * 0.2 +
+          orderBookScore * 0.2 +
+          volumeDistributionScore * 0.2
       );
 
       // 确定描述
@@ -910,21 +942,130 @@ export class GateClient {
           volatility: volatilityScore,
           fundingRate: fundingRateScore,
           orderBook: orderBookScore,
+          volumeDistribution: volumeDistributionScore,
         },
         // 添加计算公式说明
         calculationMethod: {
           formula:
-            "恐惧贪婪指数 = 0.25*价格动量得分 + 0.25*波动率得分 + 0.25*资金费率得分 + 0.25*订单簿不平衡得分",
+            "恐惧贪婪指数 = 0.2*价格动量得分 + 0.2*波动率得分 + 0.2*资金费率得分 + 0.2*订单簿不平衡得分 + 0.2*交易量分布得分",
           components: {
             priceMomentum: "价格动量得分 = 50 + 价格变化率(%) * 2",
             volatility: "波动率得分 = 100 - ATR百分比 * 5",
             fundingRate: "资金费率得分 = 50 + 资金费率(%) * 100",
             orderBook: "订单簿不平衡得分 = 50 + 订单簿不平衡百分比",
+            volumeDistribution:
+              "交易量分布得分 = 50 + (上涨交易量-下跌交易量)/总交易量 * 100",
           },
         },
       };
     } catch (error) {
       logger.error(`获取${baseSymbol}市场恐惧贪婪指数失败:`, error as any);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取市场微观结构指标
+   * 实现基础版本，包含从现有数据计算得出的指标
+   */
+  async getMarketMicrostructureMetrics(contract: string) {
+    try {
+      // 获取订单簿数据
+      const orderBook = await this.getOrderBook(contract, 20);
+
+      // 获取最近成交数据
+      const recentTrades = await this.futuresApi.listFuturesTrades(
+        this.settle,
+        contract,
+        {
+          limit: 100,
+        }
+      );
+
+      // 获取当前ticker数据
+      const ticker = await this.getFuturesTicker(contract);
+
+      // 计算订单簿指标
+      const bidVolume = orderBook.bids.reduce(
+        (sum: number, bid: any) => sum + parseFloat(bid.s),
+        0
+      );
+      const askVolume = orderBook.asks.reduce(
+        (sum: number, ask: any) => sum + parseFloat(ask.s),
+        0
+      );
+      const orderBookImbalance =
+        ((bidVolume - askVolume) / (bidVolume + askVolume)) * 100;
+
+      // 计算买卖价差
+      const spread =
+        parseFloat(orderBook.asks[0].p) - parseFloat(orderBook.bids[0].p);
+
+      // 计算大额订单数量（>100k USD）
+      const largeOrderThreshold = 100000;
+      const largeBids = orderBook.bids.filter(
+        (bid: any) =>
+          parseFloat(bid.p) * parseFloat(bid.s) > largeOrderThreshold
+      ).length;
+      const largeAsks = orderBook.asks.filter(
+        (ask: any) =>
+          parseFloat(ask.p) * parseFloat(ask.s) > largeOrderThreshold
+      ).length;
+
+      // 计算成交指标
+      const trades = recentTrades.body;
+      const totalTrades = trades.length;
+      const buyTrades = trades.filter(
+        (trade: any) => trade.side === "buy"
+      ).length;
+      const sellTrades = trades.filter(
+        (trade: any) => trade.side === "sell"
+      ).length;
+      const buySellRatio = sellTrades > 0 ? buyTrades / sellTrades : buyTrades;
+
+      // 计算执行速度（简化版，使用最近成交的时间差）
+      let executionSpeed = 0;
+      if (trades.length > 1) {
+        const firstTradeTime = new Date(trades[0].create_time).getTime();
+        const lastTradeTime = new Date(
+          trades[trades.length - 1].create_time
+        ).getTime();
+        executionSpeed = (lastTradeTime - firstTradeTime) / trades.length;
+      }
+
+      // 计算流动性比率
+      const liquidityRatio =
+        bidVolume + askVolume > 0 ? spread / (bidVolume + askVolume) : 0;
+
+      // 返回基础微观结构指标
+      return {
+        orderBookMetrics: {
+          orderBookImbalance,
+          spread,
+          largeBids,
+          largeAsks,
+          bidDepthChangeRate: 0, // Gate.io API不直接提供，设为0
+          askDepthChangeRate: 0, // Gate.io API不直接提供，设为0
+        },
+        tradeMetrics: {
+          distribution: {
+            totalTrades,
+            buySellRatio,
+          },
+          executionSpeed,
+          liquidityRatio,
+          vwap: parseFloat(ticker.last), // 使用当前价格作为简化版VWAP
+        },
+        additionalMetrics: {
+          orderBookSlope: {
+            bidSlope: 0, // Gate.io API不直接提供，设为0
+            askSlope: 0, // Gate.io API不直接提供，设为0
+          },
+          priceImpact: 0, // Gate.io API不直接提供，设为0
+        },
+      };
+    } catch (error) {
+      logger.error(`获取${contract}微观结构指标失败:`, error as any);
       throw error;
     }
   }

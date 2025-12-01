@@ -156,6 +156,11 @@ export interface IExchangeClient {
    * 获取市场恐惧贪婪指数
    */
   getFearAndGreedIndex(baseSymbol: string): Promise<any>;
+
+  /**
+   * 获取市场微观结构指标
+   */
+  getMarketMicrostructureMetrics(contract: string): Promise<any>;
 }
 
 /**
