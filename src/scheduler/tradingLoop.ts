@@ -2018,7 +2018,7 @@ async function monitorPositions(): Promise<void> {
       const params = getStrategyParams(strategy);
 
       // 记录策略配置日志，用于调试
-      logger.info(`策略配置: ${JSON.stringify(params.stopLoss)}`);
+      // logger.info(`策略配置: ${JSON.stringify(params.stopLoss)}`);
 
       // 直接使用策略配置的止损线，忽略position.stop_loss（因为它可能不存在或不正确）
       let stopLoss;

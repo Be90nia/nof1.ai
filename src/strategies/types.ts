@@ -341,6 +341,20 @@ export interface StrategyParams {
 	/** 峰值回撤保护阈值（百分比），盈利从峰值回撤达到此值时强烈建议平仓 */
 	peakDrawdownProtection: number;
 
+	/** 峰值回落检测配置，用于控制峰值回落时的平仓行为 */
+	peakDrawdownProtectionConfig?: {
+		/** 是否启用峰值回落检测 */
+		enabled?: boolean;
+		/** 峰值回落触发阈值（百分比） */
+		drawdownThreshold?: number;
+		/** 回落平仓比例（百分比） */
+		closePercent?: number;
+		/** 最小持仓时间（毫秒），避免刚开仓就触发回落平仓 */
+		minHoldingTime?: number;
+		/** 单次回落平仓最大比例 */
+		maxClosePercent?: number;
+	};
+
 	/** 波动率调整系数，根据市场波动率动态调整杠杆和仓位 */
 	volatilityAdjustment: {
 		/** 高波动时的调整系数（ATR > 5%） */

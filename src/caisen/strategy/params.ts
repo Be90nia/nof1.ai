@@ -171,6 +171,15 @@ export function getCaiSenStrategy(
     enableCodeLevelProtection: true,
     allowAiOverrideProtection: true,
 
+    // ==================== 峰值回落检测配置 ====================
+    peakDrawdownProtectionConfig: {
+      enabled: true,
+      drawdownThreshold: 5, // 回落5%触发检测
+      closePercent: 30, // 回落时平仓30%
+      minHoldingTime: 5 * 60 * 1000, // 5分钟
+      maxClosePercent: 50, // 单次最大平仓50%
+    },
+
     // ==================== 蔡森策略特定参数 ====================
     caiSen: {
       // 多时间框架分析参数
