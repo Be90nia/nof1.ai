@@ -60,10 +60,22 @@ const dbClient = createClient({
 // 当策略未配置时使用的默认值
 const DEFAULT_PEAK_DRAWDOWN_CONFIG = {
   enabled: true,
-  drawdownThreshold: 5, // 回落5%触发检测
-  closePercent: 30, // 回落时平仓30%
+  levels: [
+    { peakThreshold: 20, drawdownThreshold: 8, closePercent: 30 }, // 峰值达到20%，回落8%，平仓30%
+    { peakThreshold: 40, drawdownThreshold: 15, closePercent: 50 }, // 峰值达到40%，回落15%，平仓50%
+    { peakThreshold: 60, drawdownThreshold: 20, closePercent: 100 }, // 峰值达到60%，回落20%，平仓100%
+  ],
   minHoldingTime: 5 * 60 * 1000, // 5分钟
-  maxClosePercent: 50, // 单次最大平仓50%
+};
+
+// ==================== 分批止盈默认配置 ====================
+const DEFAULT_PARTIAL_TAKE_PROFIT_CONFIG = {
+  enabled: true,
+  levels: [
+    { trigger: 15, closePercent: 30 }, // 盈利达到15%，平仓30%
+    { trigger: 30, closePercent: 50 }, // 盈利达到30%，平仓50%
+    { trigger: 50, closePercent: 100 }, // 盈利达到50%，平仓100%
+  ],
 };
 
 // ==================== 数据结构 ====================
@@ -518,6 +530,57 @@ async function executePartialClose(
 }
 
 /**
+ * 检查是否应该触发峰值回落平仓
+ * 返回需要平仓的配置，如果不需要平仓则返回 null
+ */
+function checkPeakDrawdownClose(
+  pnlPercent: number,
+  drawdownPercent: number,
+  alreadyClosedPercent: number
+): {
+  shouldClose: boolean;
+  closePercent: number;
+  totalClosedPercent: number;
+  description: string;
+} | null {
+  const strategy = getTradingStrategy();
+  const params = getStrategyParams(strategy);
+
+  // 获取峰值回落检测配置，使用默认值作为回退
+  const peakDrawdownConfig = {
+    ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
+    ...params.peakDrawdownProtectionConfig,
+  };
+
+  // 如果禁用或没有配置，返回null
+  if (!peakDrawdownConfig.enabled || !peakDrawdownConfig.drawdownThreshold) {
+    return null;
+  }
+
+  // 检查是否达到回落阈值
+  if (drawdownPercent >= peakDrawdownConfig.drawdownThreshold) {
+    // 检查是否已经平仓过足够比例
+    const closePercent = peakDrawdownConfig.closePercent || 30;
+    if (alreadyClosedPercent < closePercent) {
+      // 计算本次需要平仓的百分比
+      const thisClosePercent = closePercent - alreadyClosedPercent;
+      const totalClosedPercent = alreadyClosedPercent + thisClosePercent;
+
+      return {
+        shouldClose: true,
+        closePercent: thisClosePercent,
+        totalClosedPercent,
+        description: `峰值回落 ${drawdownPercent.toFixed(
+          2
+        )}%，触发峰值回落保护`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * 执行峰值回落平仓
  * 当价格从峰值回落且满足条件时执行平仓
  */
@@ -533,24 +596,16 @@ async function executeDrawdownClose(
   drawdownPercent: number,
   alreadyClosedPercent: number
 ): Promise<boolean> {
-  // 获取当前策略参数
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
-
-  // 获取峰值回落检测配置，使用默认值作为回退
-  const peakDrawdownConfig = {
-    ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
-    ...params.peakDrawdownProtectionConfig,
-  };
-
-  // 计算平仓比例，不超过最大限制
-  const closePercent = Math.min(
-    peakDrawdownConfig.closePercent ||
-      DEFAULT_PEAK_DRAWDOWN_CONFIG.closePercent,
-    peakDrawdownConfig.maxClosePercent ||
-      DEFAULT_PEAK_DRAWDOWN_CONFIG.maxClosePercent
+  // 检查是否应该触发峰值回落平仓
+  const drawdownResult = checkPeakDrawdownClose(
+    pnlPercent,
+    drawdownPercent,
+    alreadyClosedPercent
   );
-  const totalClosedPercent = alreadyClosedPercent + closePercent;
+
+  if (!drawdownResult || !drawdownResult.shouldClose) {
+    return false;
+  }
 
   // 使用现有的executePartialClose函数执行平仓
   return await executePartialClose(
@@ -561,9 +616,9 @@ async function executeDrawdownClose(
     currentPrice,
     leverage,
     pnlPercent,
-    closePercent,
-    totalClosedPercent,
-    "peak_drawdown_protection"
+    drawdownResult.closePercent,
+    drawdownResult.totalClosedPercent,
+    `peak_drawdown_protection`
   );
 }
 
@@ -716,12 +771,15 @@ async function checkPartialProfitConditions() {
           openedAt
         );
 
+        // 检查是否应该触发峰值回落平仓
+        const peakDrawdownCloseResult = checkPeakDrawdownClose(
+          pnlPercent,
+          drawdownResult.drawdownPercent,
+          alreadyClosedPercent
+        );
+
         // 如果触发回落检测
-        if (
-          drawdownResult.drawdownPercent >
-          (peakDrawdownConfig.drawdownThreshold ||
-            DEFAULT_PEAK_DRAWDOWN_CONFIG.drawdownThreshold)
-        ) {
+        if (peakDrawdownCloseResult && peakDrawdownCloseResult.shouldClose) {
           // 检查持仓时间，避免刚开仓就触发回落平仓
           const holdingTime = Date.now() - openedAt;
           const minHoldingTime =
@@ -748,6 +806,7 @@ async function checkPartialProfitConditions() {
               logger.warn(`${symbol} 触发峰值回落保护:`);
               logger.warn(`  峰值价格: ${drawdownResult.peakPrice.toFixed(2)}`);
               logger.warn(`  当前价格: ${currentPrice.toFixed(2)}`);
+              logger.warn(`  当前盈利: ${pnlPercent.toFixed(2)}%`);
               logger.warn(
                 `  回落幅度: ${drawdownResult.drawdownPercent.toFixed(2)}%`
               );
@@ -756,12 +815,7 @@ async function checkPartialProfitConditions() {
                 `  总手续费: ${profitResult.totalFee.toFixed(2)} USDT`
               );
               logger.warn(
-                `  平仓比例: ${Math.min(
-                  peakDrawdownConfig.closePercent ||
-                    DEFAULT_PEAK_DRAWDOWN_CONFIG.closePercent,
-                  peakDrawdownConfig.maxClosePercent ||
-                    DEFAULT_PEAK_DRAWDOWN_CONFIG.maxClosePercent
-                )}%`
+                `  平仓比例: ${peakDrawdownCloseResult.closePercent}% (累计 ${peakDrawdownCloseResult.totalClosedPercent}%)`
               );
 
               // 执行回落平仓

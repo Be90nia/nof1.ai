@@ -47,7 +47,7 @@ import { createLogger } from "./utils/loggerUtils";
 process.env.TZ = "Asia/Shanghai";
 
 // 增加事件监听器限制，解决 MaxListenersExceededWarning 警告
-process.setMaxListeners(20);
+process.setMaxListeners(100);
 
 // 初始化终端编码设置（解决Windows中文乱码问题）
 initializeTerminalEncoding();
