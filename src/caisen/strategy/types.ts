@@ -409,10 +409,15 @@ export interface StrategyParams {
   peakDrawdownProtectionConfig?: {
     /** 是否启用峰值回落检测 */
     enabled?: boolean;
-    /** 峰值回落触发阈值（百分比） */
-    drawdownThreshold?: number;
-    /** 回落平仓比例（百分比） */
-    closePercent?: number;
+    /** 多级峰值回落保护配置 */
+    levels?: Array<{
+      /** 峰值阈值（百分比），达到该值后开始监测回落 */
+      peakThreshold: number;
+      /** 回落触发阈值（百分比） */
+      drawdownThreshold: number;
+      /** 回落平仓比例（百分比） */
+      closePercent: number;
+    }>;
     /** 最小持仓时间（毫秒），避免刚开仓就触发回落平仓 */
     minHoldingTime?: number;
     /** 单次回落平仓最大比例 */

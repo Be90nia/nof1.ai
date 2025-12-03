@@ -38,6 +38,7 @@ export function generateCaiSenPrompt(
     tradeHistory?: any[];
     recentDecisions?: any[];
     positionCount?: number;
+    agentParamsBySymbol?: Record<string, Record<string, any>>;
   }
 ): string {
   // 计算杠杆推荐值（用于提示词）
@@ -88,13 +89,14 @@ export function generateCaiSenPrompt(
    - 必须明确调用closePosition或openPosition工具执行平仓
    - 平仓决策需基于综合指标分析，说明关键依据
 5. 止盈止损阈值设置：
-   - 每次交易必须同时设置分批平仓和峰值回落平仓参数
+   - 【必须执行】每次决策时，若有持仓或开仓任何货币，必须为每个货币**独立**调用setPartialTakeProfitParams和setPeakDrawdownParams工具设置分批平仓和峰值回落平仓参数，且参数设置必须互不干扰；若无持仓或开仓货币，则无需设置任何参数
+   - 【关键】只有调用工具设置了参数，系统才会执行平仓操作；若未调用工具设置这两类参数，则系统不会自动执行平仓，可能导致盈利回吐
    - 设置必须保守，优先考虑风险控制
    - 需基于提供的技术指标（如ATR、RSI、MACD等）进行保守预测和设置
    - 风险控制：仍需遵守单笔亏损≤1%，单日亏损≤5%的风险控制原则
    - 止损设置建议：参考ATR值动态设置，避免过度僵化
-   - 分批平仓建议：保守设置，例如+1%平20%，+2%平40%，+3%全平
-   - 峰值回落平仓建议：保守设置，例如从峰值回落0.5%平30%，回落1%平60%，回落2%全平
+   - 分批平仓建议：建议保守设置，例如+1%平20%，+2%平40%，+3%全平（请根据指标数据给出合理的止盈阈值以及分批平仓比例）
+   - 峰值回落平仓建议：建议保守设置，例如从峰值回落0.5%平30%，回落1%平60%，回落2%全平（请根据指标数据给出合理的止盈阈值以及分批平仓比例）
 6. 指标判断标准：
    - RSI7：<30超卖，>70超买
    - MACD：金叉看涨，死叉看跌
@@ -138,6 +140,31 @@ export function generateCaiSenPrompt(
     params.partialTakeProfit.stage2.closePercent
   }%，+${params.partialTakeProfit.stage3.trigger}%全平
 
+${
+  data?.agentParamsBySymbol
+    ? `【当前已设置的分币种参数】
+${Object.entries(data.agentParamsBySymbol)
+  .map(([symbol, params]) => {
+    const hasTakeProfit = params.partialTakeProfit;
+    const hasDrawdown = params.peakDrawdownProtectionConfig;
+    return `
+${symbol}：
+${
+  hasTakeProfit
+    ? `  - 分批止盈：阶段1+${params.partialTakeProfit.stage1.trigger}%平${params.partialTakeProfit.stage1.closePercent}%，阶段2+${params.partialTakeProfit.stage2.trigger}%平${params.partialTakeProfit.stage2.closePercent}%，阶段3+${params.partialTakeProfit.stage3.trigger}%平${params.partialTakeProfit.stage3.closePercent}%`
+    : "  - 分批止盈：未设置"
+}
+${
+  hasDrawdown
+    ? `  - 峰值回落：级别1回落${params.peakDrawdownProtectionConfig.levels[0].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[0].closePercent}%，级别2回落${params.peakDrawdownProtectionConfig.levels[1].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[1].closePercent}%，级别3回落${params.peakDrawdownProtectionConfig.levels[2].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[2].closePercent}%`
+    : "  - 峰值回落：未设置"
+}
+`;
+  })
+  .join("")}`
+    : ""
+}
+
 【交易周期】#${iteration} ${formatChinaTime()}
 已运行 ${minutesElapsed} 分钟，执行周期 ${intervalMinutes} 分钟
 
@@ -152,10 +179,78 @@ export function generateCaiSenPrompt(
    - 止损/止盈/加仓 → closePosition/openPosition
    - 每次交易必须同时考虑分批平仓和峰值回落平仓策略
    - 必须基于技术指标设置保守的平仓参数
+   - 可使用setPartialTakeProfitParams工具设置分批止盈参数
+   - 可使用setPeakDrawdownParams工具设置峰值回落参数
+   - 可使用getCurrentStrategyParams工具获取当前策略参数
+   - 可使用resetStrategyParams工具重置策略参数到默认值
 3. 新交易机会：
    - 做多/做空 → openPosition
    - 开仓时必须同时设置分批平仓和峰值回落平仓参数
 4. 风险评估 → calculateRisk
+
+【可用工具说明】
+- setPartialTakeProfitParams：设置分批止盈参数，可配置不同盈利阶段的平仓比例，**必须指定币种**
+- setPeakDrawdownParams：设置峰值回落参数，可配置回落触发阈值和平仓比例，**必须指定币种**
+- getCurrentStrategyParams：获取当前策略参数，查看已设置的参数，可指定币种获取特定币种参数
+- resetStrategyParams：重置策略参数到默认值，可指定币种重置特定币种参数
+
+【工具使用示例】
+- 🌰 为ETH设置分批止盈：setPartialTakeProfitParams(strategy: 'cai-sen', symbol: 'ETH', stage1: { trigger: 3, closePercent: 30 }, stage2: { trigger: 6, closePercent: 50 }, stage3: { trigger: 9, closePercent: 100 })
+- 🌰 为ETH设置峰值回落：setPeakDrawdownParams(strategy: 'cai-sen', symbol: 'ETH', level1: { drawdownThreshold: 1, closePercent: 30 }, level2: { drawdownThreshold: 2, closePercent: 50 }, level3: { drawdownThreshold: 3, closePercent: 100 }, minHoldingTime: 5)
+- 🌰 为BTC设置分批止盈：setPartialTakeProfitParams(strategy: 'cai-sen', symbol: 'BTC', stage1: { trigger: 2, closePercent: 30 }, stage2: { trigger: 4, closePercent: 50 }, stage3: { trigger: 7, closePercent: 100 })
+- 🌰 为BTC设置峰值回落：setPeakDrawdownParams(strategy: 'cai-sen', symbol: 'BTC', level1: { drawdownThreshold: 0.8, closePercent: 30 }, level2: { drawdownThreshold: 1.5, closePercent: 50 }, level3: { drawdownThreshold: 2.5, closePercent: 100 }, minHoldingTime: 5)
+- 获取ETH当前参数：getCurrentStrategyParams(strategy: 'cai-sen', symbol: 'ETH')
+- 获取所有参数：getCurrentStrategyParams(strategy: 'cai-sen')
+- 重置ETH参数：resetStrategyParams(strategy: 'cai-sen', symbol: 'ETH')
+- 重置所有参数：resetStrategyParams(strategy: 'cai-sen')
+
+【🚨 最高优先级要求 - 必须严格执行】
+1. 🔑 每次开仓**新货币对**时，必须**立即**为该货币对**独立**调用以下两个工具设置参数：
+   - setPartialTakeProfitParams：设置分批止盈参数
+   - setPeakDrawdownParams：设置峰值回落参数
+   - 这是系统自动执行平仓的**唯一方式**，未调用工具则不会触发自动平仓！
+
+2. 🔑 每次决策时，若有**现有持仓**，必须为**每个持仓货币对**重新评估并设置参数：
+   - 基于最新技术指标调整参数
+   - 确保参数与当前市场波动相匹配
+   - 波动大时设置更保守的参数，波动小时可适当放宽
+
+3. 🔑 工具调用**必须包含完整参数**：
+   - setPartialTakeProfitParams：必须提供完整的三级参数（stage1, stage2, stage3）
+   - setPeakDrawdownParams：必须提供完整的三级参数（level1, level2, level3）和minHoldingTime
+   - 参数必须为正数，trigger/drawdownThreshold > 0，closePercent > 0
+
+4. 🔑 基于技术指标设置**合理参数**：
+   - 分批止盈：根据ATR、RSI、MACD等指标设置保守的触发阈值
+   - 峰值回落：根据市场波动设置合理的回落阈值，避免频繁触发
+   - 建议：使用当前ATR值作为参考，例如ATR=0.5%时，可设置回落阈值为ATR的1-2倍
+
+5. 🔑 验证参数设置结果：
+   - 可使用getCurrentStrategyParams工具检查已设置的参数
+   - 确保参数已正确保存到数据库
+   - 若参数设置失败，必须重新尝试设置
+
+【⚠️ 严重后果警告】
+- 未调用工具设置参数 → 系统不会自动执行分批平仓和峰值回落平仓
+- 盈利回吐风险 → 已获得的利润可能全部回吐
+- 系统仅执行工具设置的参数，不会使用默认参数
+- 终端仅显示工具设置的参数，不显示默认参数
+
+【📝 工具使用检查清单】
+- ✅ 开仓新货币对 → 立即设置该货币对的两个参数
+- ✅ 有现有持仓 → 为每个持仓货币对重新设置参数
+- ✅ 参数基于技术指标 → 不是凭空猜测
+- ✅ 工具调用包含完整参数 → 三级参数+minHoldingTime
+- ✅ 参数为正数 → 触发阈值和平仓百分比都大于0
+- ✅ 不同货币对使用不同参数 → 互不干扰
+- ✅ 波动大时参数更保守 → 波动小时可适当放宽
+
+【💡 最佳实践建议】
+- 参考ATR值设置参数：例如ATR=0.5%，可设置回落阈值为0.5-1%
+- 参考RSI值设置止盈：RSI>70时，可设置较保守的止盈阈值
+- 参考MACD值设置参数：MACD金叉强劲时，可设置较高的止盈阈值
+- 小仓位可适当放宽参数：小仓位风险低，可设置较高的止盈阈值
+- 大仓位必须保守设置：大仓位风险高，必须设置较低的止盈阈值和平仓比例
 
 【数据说明】
 所有价格数据：最旧→最新

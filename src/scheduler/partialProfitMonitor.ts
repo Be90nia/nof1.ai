@@ -42,6 +42,7 @@
 import { createClient } from "@libsql/client";
 import { getStrategyParams, getTradingStrategy } from "../agents/tradingAgent";
 import { createExchangeClient } from "../services/exchangeClient";
+import { getAgentStrategyParams } from "../tools/strategyParams";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
@@ -214,24 +215,57 @@ async function calculateProfitAndFee(
  * 检查是否应该触发分批止盈
  * 返回需要平仓的百分比，如果不需要平仓则返回 null
  */
-function checkPartialProfit(
+async function checkPartialProfit(
   currentPnlPercent: number,
   alreadyClosedPercent: number
-): {
+): Promise<{
   shouldClose: boolean;
   stage: string;
   closePercent: number;
   totalClosedPercent: number;
   description: string;
-} | null {
+} | null> {
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
 
-  if (!params.partialTakeProfit) {
+  // 读取Agent设置的策略参数
+  logger.debug(
+    `检查分批止盈：当前盈利${currentPnlPercent.toFixed(
+      2
+    )}%，已平仓${alreadyClosedPercent}%`
+  );
+  const agentParams = await getAgentStrategyParams(strategy);
+
+  // 如果Agent设置了partialTakeProfit参数，则使用Agent的设置
+  let partialTakeProfit = params.partialTakeProfit;
+  let usedParamsSource = "default";
+
+  if (agentParams.partialTakeProfit) {
+    partialTakeProfit = agentParams.partialTakeProfit;
+    usedParamsSource = "agent";
+    logger.info(
+      `✅ 使用Agent设置的分批止盈参数: ${JSON.stringify(partialTakeProfit)}`
+    );
+  } else {
+    logger.debug(
+      `ℹ️ 未找到Agent设置的分批止盈参数，使用默认参数: ${JSON.stringify(
+        params.partialTakeProfit
+      )}`
+    );
+  }
+
+  if (!partialTakeProfit) {
+    logger.debug(`⚠️ 未配置分批止盈参数，跳过检查`);
     return null;
   }
 
-  const { stage1, stage2, stage3 } = params.partialTakeProfit;
+  logger.debug(
+    `使用${usedParamsSource}参数进行分批止盈检查：当前盈利${currentPnlPercent.toFixed(
+      2
+    )}%`
+  );
+
+  const { stage1, stage2, stage3 } = partialTakeProfit;
 
   // 按照从低到高的顺序检查（stage1 -> stage2 -> stage3）
   // 每个阶段只触发一次，检查是否已经平仓过
@@ -533,50 +567,141 @@ async function executePartialClose(
  * 检查是否应该触发峰值回落平仓
  * 返回需要平仓的配置，如果不需要平仓则返回 null
  */
-function checkPeakDrawdownClose(
+async function checkPeakDrawdownClose(
   pnlPercent: number,
   drawdownPercent: number,
   alreadyClosedPercent: number
-): {
+): Promise<{
   shouldClose: boolean;
   closePercent: number;
   totalClosedPercent: number;
   description: string;
-} | null {
+} | null> {
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
+
+  // 读取Agent设置的策略参数
+  logger.debug(
+    `检查峰值回落：当前盈利${pnlPercent.toFixed(
+      2
+    )}%，回落${drawdownPercent.toFixed(2)}%，已平仓${alreadyClosedPercent}%`
+  );
+  const agentParams = await getAgentStrategyParams(strategy);
 
   // 获取峰值回落检测配置，使用默认值作为回退
   const peakDrawdownConfig = {
     ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
     ...params.peakDrawdownProtectionConfig,
+    ...agentParams.peakDrawdownProtectionConfig,
   };
 
+  // 记录使用的配置来源
+  let usedParamsSource = "default";
+  if (agentParams.peakDrawdownProtectionConfig) {
+    usedParamsSource = "agent";
+    logger.info(
+      `✅ 使用Agent设置的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+    );
+  } else if (params.peakDrawdownProtectionConfig) {
+    logger.debug(
+      `ℹ️ 使用策略默认的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+    );
+  } else {
+    logger.debug(
+      `ℹ️ 使用系统默认的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+    );
+  }
+
   // 如果禁用或没有配置，返回null
-  if (!peakDrawdownConfig.enabled || !peakDrawdownConfig.drawdownThreshold) {
+  if (!peakDrawdownConfig.enabled) {
+    logger.debug(`⚠️ 峰值回落检测已禁用，跳过检查`);
     return null;
   }
 
-  // 检查是否达到回落阈值
-  if (drawdownPercent >= peakDrawdownConfig.drawdownThreshold) {
-    // 检查是否已经平仓过足够比例
-    const closePercent = peakDrawdownConfig.closePercent || 30;
-    if (alreadyClosedPercent < closePercent) {
-      // 计算本次需要平仓的百分比
-      const thisClosePercent = closePercent - alreadyClosedPercent;
-      const totalClosedPercent = alreadyClosedPercent + thisClosePercent;
+  // 检查是否有最低盈利阈值，如果没有达到则不触发
+  const minProfitThreshold = peakDrawdownConfig.minProfitThreshold || 2; // 默认最低2%盈利
+  if (pnlPercent < minProfitThreshold) {
+    logger.debug(
+      `ℹ️ 当前盈利${pnlPercent.toFixed(
+        2
+      )}%未达到最低盈利阈值${minProfitThreshold}%，跳过峰值回落检查`
+    );
+    return null;
+  }
 
-      return {
-        shouldClose: true,
-        closePercent: thisClosePercent,
-        totalClosedPercent,
-        description: `峰值回落 ${drawdownPercent.toFixed(
-          2
-        )}%，触发峰值回落保护`,
-      };
+  // 检查是否有三级配置（Agent设置的多级配置）
+  if (peakDrawdownConfig.levels) {
+    logger.debug(
+      `检查多级峰值回落配置，共${peakDrawdownConfig.levels.length}级`
+    );
+    // 按照从低到高的顺序检查
+    for (const level of peakDrawdownConfig.levels.sort(
+      (a: { drawdownThreshold: number }, b: { drawdownThreshold: number }) =>
+        a.drawdownThreshold - b.drawdownThreshold
+    )) {
+      logger.debug(
+        `检查第${
+          level.drawdownThreshold
+        }%回落级别，当前回落${drawdownPercent.toFixed(2)}%`
+      );
+      if (drawdownPercent >= level.drawdownThreshold) {
+        if (alreadyClosedPercent < level.closePercent) {
+          const thisClosePercent = level.closePercent - alreadyClosedPercent;
+          const totalClosedPercent = level.closePercent;
+
+          logger.info(
+            `📉 触发峰值回落保护：回落${drawdownPercent.toFixed(
+              2
+            )}%，使用${usedParamsSource}配置`
+          );
+          return {
+            shouldClose: true,
+            closePercent: thisClosePercent,
+            totalClosedPercent,
+            description: `峰值回落 ${drawdownPercent.toFixed(
+              2
+            )}%，触发峰值回落保护${
+              level.drawdownThreshold
+            }%阈值，平仓${thisClosePercent}%（累计${totalClosedPercent}%）`,
+          };
+        }
+      }
+    }
+  }
+  // 兼容旧的单一阈值配置
+  else if (peakDrawdownConfig.drawdownThreshold) {
+    logger.debug(
+      `检查单一峰值回落配置：回落阈值${
+        peakDrawdownConfig.drawdownThreshold
+      }%，当前回落${drawdownPercent.toFixed(2)}%`
+    );
+    // 检查是否达到回落阈值
+    if (drawdownPercent >= peakDrawdownConfig.drawdownThreshold) {
+      // 检查是否已经平仓过足够比例
+      const closePercent = peakDrawdownConfig.closePercent || 30;
+      if (alreadyClosedPercent < closePercent) {
+        // 计算本次需要平仓的百分比
+        const thisClosePercent = closePercent - alreadyClosedPercent;
+        const totalClosedPercent = alreadyClosedPercent + thisClosePercent;
+
+        logger.info(
+          `📉 触发峰值回落保护：回落${drawdownPercent.toFixed(
+            2
+          )}%，使用${usedParamsSource}配置`
+        );
+        return {
+          shouldClose: true,
+          closePercent: thisClosePercent,
+          totalClosedPercent,
+          description: `峰值回落 ${drawdownPercent.toFixed(
+            2
+          )}%，触发峰值回落保护，平仓${thisClosePercent}%（累计${totalClosedPercent}%）`,
+        };
+      }
     }
   }
 
+  logger.debug(`ℹ️ 未触发峰值回落保护：当前回落${drawdownPercent.toFixed(2)}%`);
   return null;
 }
 
@@ -597,7 +722,7 @@ async function executeDrawdownClose(
   alreadyClosedPercent: number
 ): Promise<boolean> {
   // 检查是否应该触发峰值回落平仓
-  const drawdownResult = checkPeakDrawdownClose(
+  const drawdownResult = await checkPeakDrawdownClose(
     pnlPercent,
     drawdownPercent,
     alreadyClosedPercent
@@ -669,6 +794,7 @@ function getPartialProfitConfig() {
  */
 async function checkPartialProfitConditions() {
   if (!isRunning) {
+    logger.debug("分批止盈监控器未运行，跳过检查");
     return;
   }
 
@@ -676,20 +802,29 @@ async function checkPartialProfitConditions() {
   const autoCloseEnabled = isPartialProfitEnabled();
   if (!autoCloseEnabled) {
     // 未启用，不执行自动平仓
+    logger.debug("代码级分批止盈未启用，跳过自动平仓");
     return;
   }
 
   try {
+    logger.info("🔍 开始分批止盈和峰值回落检查...");
+    const startTime = Date.now();
+
     const exchangeClient = createExchangeClient();
 
     // 获取当前策略参数
     const strategy = getTradingStrategy();
     const params = getStrategyParams(strategy);
+    logger.debug(`当前策略：${strategy}`);
+
+    // 读取Agent设置的策略参数
+    const agentParams = await getAgentStrategyParams(strategy);
 
     // 获取峰值回落检测配置，使用默认值作为回退
     const peakDrawdownConfig = {
       ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
       ...params.peakDrawdownProtectionConfig,
+      ...agentParams.peakDrawdownProtectionConfig,
     };
 
     // 如果未启用峰值回落检测，跳过相关逻辑
@@ -703,11 +838,14 @@ async function checkPartialProfitConditions() {
       (p: any) => Number.parseInt(p.size || "0") !== 0
     );
 
+    logger.info(`📊 检测到${activePositions.length}个活跃持仓`);
     if (activePositions.length === 0) {
+      logger.debug("没有活跃持仓，结束检查");
       return;
     }
 
     // 2. 从数据库获取持仓信息（获取已平仓比例和开仓时间）
+    logger.debug("从数据库获取持仓信息...");
     const dbResult = await dbClient.execute(
       "SELECT symbol, partial_close_percentage, opened_at FROM positions"
     );
@@ -726,7 +864,10 @@ async function checkPartialProfitConditions() {
       ])
     );
 
+    logger.debug(`从数据库获取了${dbResult.rows.length}条持仓记录`);
+
     // 3. 检查每个持仓
+    logger.debug("开始检查每个持仓的分批止盈和峰值回落条件...");
     for (const pos of activePositions) {
       const size = Number.parseInt(pos.size || "0");
       const symbol = pos.contract.replace("_USDT", "");
@@ -736,8 +877,23 @@ async function checkPartialProfitConditions() {
       const currentPrice = Number.parseFloat(pos.markPrice || "0");
       const leverage = Number.parseInt(pos.leverage || "1");
 
+      logger.info(
+        `🔹 检查持仓: ${symbol} ${
+          side === "long" ? "多" : "空"
+        } 持仓量: ${quantity} 张 杠杆: ${leverage}x`
+      );
+      logger.debug(
+        `   入仓价: ${entryPrice.toFixed(2)} 现价: ${currentPrice.toFixed(2)}`
+      );
+
       // 获取开仓时间
       const openedAt = dbOpenedAtMap.get(symbol) || Date.now();
+      const holdingTime = Date.now() - openedAt;
+      logger.debug(
+        `   开仓时间: ${new Date(openedAt).toISOString()} (持有${Math.round(
+          holdingTime / 1000 / 60
+        )}分钟)`
+      );
 
       // 更新开仓时间缓存
       positionOpenedAtMap.set(symbol, openedAt);
@@ -759,9 +915,15 @@ async function checkPartialProfitConditions() {
       // 获取已平仓比例
       const alreadyClosedPercent = dbPartialCloseMap.get(symbol) || 0;
 
+      logger.info(
+        `   当前盈利: ${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(2)}%`
+      );
+      logger.info(`   已平仓比例: ${alreadyClosedPercent}%`);
+
       // ==================== 新增：峰值回落检测 ====================
       // 如果启用了峰值回落检测
       if (peakDrawdownConfig.enabled) {
+        logger.debug(`   开始峰值回落检测...`);
         // 检查峰值回落情况
         const drawdownResult = checkPeakDrawdown(
           symbol,
@@ -771,8 +933,14 @@ async function checkPartialProfitConditions() {
           openedAt
         );
 
+        logger.debug(
+          `   峰值价格: ${drawdownResult.peakPrice.toFixed(
+            2
+          )} 回落幅度: ${drawdownResult.drawdownPercent.toFixed(2)}%`
+        );
+
         // 检查是否应该触发峰值回落平仓
-        const peakDrawdownCloseResult = checkPeakDrawdownClose(
+        const peakDrawdownCloseResult = await checkPeakDrawdownClose(
           pnlPercent,
           drawdownResult.drawdownPercent,
           alreadyClosedPercent
@@ -847,12 +1015,15 @@ async function checkPartialProfitConditions() {
               logger.debug(`  净收益: ${profitResult.profit.toFixed(2)} USDT`);
             }
           }
+        } else {
+          logger.debug(`   未触发峰值回落保护`);
         }
       }
 
       // ==================== 原有：分批止盈检查 ====================
+      logger.debug(`   开始分批止盈检查...`);
       // 检查是否应该触发分批止盈
-      const partialProfitResult = checkPartialProfit(
+      const partialProfitResult = await checkPartialProfit(
         pnlPercent,
         alreadyClosedPercent
       );
@@ -878,10 +1049,15 @@ async function checkPartialProfitConditions() {
         if (success) {
           logger.info(`${symbol} 分批止盈平仓成功`);
         }
+      } else {
+        logger.debug(`   未触发分批止盈`);
       }
     }
+
+    const endTime = Date.now();
+    logger.info(`✅ 分批止盈和峰值回落检查完成，耗时${endTime - startTime}ms`);
   } catch (error: any) {
-    logger.error(`分批止盈检查失败: ${error.message}`);
+    logger.error(`❌ 分批止盈检查失败: ${error.message}`, error);
   }
 }
 

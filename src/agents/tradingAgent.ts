@@ -1696,6 +1696,11 @@ async function createCommonDependencies() {
     tradingTools.checkOrderStatusTool,
     tradingTools.calculateRiskTool,
     tradingTools.syncPositionsTool,
+    // 策略参数设置工具
+    tradingTools.setPartialTakeProfitParams,
+    tradingTools.setPeakDrawdownParams,
+    tradingTools.getCurrentStrategyParams,
+    tradingTools.resetStrategyParams,
   ];
 
   return { openai, memory, tradingToolsSet };

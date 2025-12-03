@@ -56,9 +56,9 @@ export function getCaiSenStrategy(
 
   // 根据AI预估收益率动态调整分批止盈参数
   // 默认值（硬编码值作为 fallback）
-  let takeProfitStage1 = 15;
-  let takeProfitStage2 = 30;
-  let takeProfitStage3 = 50;
+  let takeProfitStage1 = 5;
+  let takeProfitStage2 = 10;
+  let takeProfitStage3 = 15;
 
   // 如果有AI预估收益率，根据预估调整止盈阈值
   if (aiReturnPrediction && !Number.isNaN(aiReturnPrediction)) {
@@ -71,13 +71,13 @@ export function getCaiSenStrategy(
     // 第一阶段：30% of AI prediction
     // 第二阶段：60% of AI prediction
     // 第三阶段：90% of AI prediction
-    takeProfitStage1 = Math.max(5, Math.round(aiReturnPrediction * 0.3));
+    takeProfitStage1 = Math.max(3, Math.round(aiReturnPrediction * 0.3));
     takeProfitStage2 = Math.max(
-      takeProfitStage1 + 5,
+      takeProfitStage1 + 2,
       Math.round(aiReturnPrediction * 0.6)
     );
     takeProfitStage3 = Math.max(
-      takeProfitStage2 + 5,
+      takeProfitStage2 + 2,
       Math.round(aiReturnPrediction * 0.9)
     );
 
@@ -174,10 +174,13 @@ export function getCaiSenStrategy(
     // ==================== 峰值回落检测配置 ====================
     peakDrawdownProtectionConfig: {
       enabled: true,
-      drawdownThreshold: 5, // 回落5%触发检测
-      closePercent: 30, // 回落时平仓30%
+      levels: [
+        { peakThreshold: 3, drawdownThreshold: 1, closePercent: 30 }, // 峰值达到3%，回落1%，平仓30%
+        { peakThreshold: 5, drawdownThreshold: 2, closePercent: 50 }, // 峰值达到5%，回落2%，平仓50%
+        { peakThreshold: 8, drawdownThreshold: 3, closePercent: 100 }, // 峰值达到8%，回落3%，平仓100%
+      ],
       minHoldingTime: 5 * 60 * 1000, // 5分钟
-      maxClosePercent: 50, // 单次最大平仓50%
+      maxClosePercent: 100, // 单次最大平仓100%
     },
 
     // ==================== 蔡森策略特定参数 ====================

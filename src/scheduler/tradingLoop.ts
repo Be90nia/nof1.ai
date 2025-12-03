@@ -1545,6 +1545,11 @@ export async function executeTradingDecision() {
       );
       const strategy = getTradingStrategy();
       const params = getStrategyParams(strategy);
+      
+      // 从数据库读取Agent设置的分币种参数
+      const { getAgentStrategyParams } = await import("../tools/strategyParams");
+      const agentParamsBySymbol = await getAgentStrategyParams(strategy);
+      
       prompt = generateCaiSenPrompt(
         params,
         {
@@ -1564,6 +1569,7 @@ export async function executeTradingDecision() {
           tradeHistory,
           recentDecisions,
           positionCount: positions.length,
+          agentParamsBySymbol: agentParamsBySymbol
         }
       );
     } else {

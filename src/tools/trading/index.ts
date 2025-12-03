@@ -47,3 +47,11 @@ export {
   calculateRiskTool,
   syncPositionsTool,
 } from "./accountManagement";
+
+// 策略参数设置工具
+export {
+  setPartialTakeProfitParams,
+  setPeakDrawdownParams,
+  getCurrentStrategyParams,
+  resetStrategyParams
+} from "../strategyParams";
