@@ -508,4 +508,22 @@ export interface StrategyParams {
       batchTakeProfitRatios: number[];
     };
   };
+
+  /**
+   * 动态止损阈值配置
+   * Dynamic stop loss threshold configuration
+   * 
+   * 用于存储蔡森Agent动态设置的止损阈值
+   * 按货币对进行配置，支持不同货币对设置不同的止损阈值
+   */
+  dynamicStopLoss?: Record<string, {
+    /** 止损阈值（百分比），如-2.5表示亏损2.5%止损 */
+    threshold: number;
+    /** 评估周期（分钟），如30表示每30分钟评估一次 */
+    evaluationInterval: number;
+    /** 触发条件数组，用于控制止损阈值的调整 */
+    conditions?: Array<{ type: 'volatility' | 'trend' | 'news'; value: number }>;
+    /** 最后更新时间，ISO格式字符串 */
+    lastUpdated: string;
+  }>;
 }

@@ -53,5 +53,6 @@ export {
   setPartialTakeProfitParams,
   setPeakDrawdownParams,
   getCurrentStrategyParams,
-  resetStrategyParams
+  resetStrategyParams,
+  setDynamicStopLossParams,
 } from "../strategyParams";

@@ -941,6 +941,104 @@ async function fixHistoricalPnlRecords() {
 }
 
 /**
+ * 定期评估和更新止损阈值
+ * Evaluate and update stop loss thresholds periodically
+ */
+async function evaluateAndUpdateStopLossThresholds(): Promise<void> {
+  logger.info("开始评估和更新止损阈值...");
+
+  try {
+    const strategy = getTradingStrategy();
+    if (strategy !== "cai-sen") {
+      logger.info("当前策略不是蔡森策略，跳过止损阈值评估");
+      return;
+    }
+
+    // 获取当前策略参数
+    const params = getStrategyParams(strategy);
+
+    // 检查是否已初始化动态止损配置
+    if (!params.dynamicStopLoss) {
+      params.dynamicStopLoss = {};
+    }
+
+    // 遍历所有交易币种
+    for (const symbol of SYMBOLS) {
+      try {
+        // 获取当前市场数据
+        const exchangeClient = createExchangeClient();
+        const contract = `${symbol}_USDT`;
+        const ticker = await exchangeClient.getFuturesTicker(contract);
+        const currentPrice = Number.parseFloat(ticker.last || "0");
+
+        if (currentPrice === 0) {
+          logger.warn(`获取 ${symbol} 价格失败，跳过该币种的止损阈值更新`);
+          continue;
+        }
+
+        // 这里可以添加更复杂的市场分析逻辑
+        // 例如：基于波动率、趋势强度、市场情绪等因素动态调整止损阈值
+
+        // 简单示例：根据当前波动率调整止损阈值
+        // 高波动率时，扩大止损范围；低波动率时，缩小止损范围
+        const candles = await exchangeClient.getFuturesCandles(
+          contract,
+          "1h",
+          24
+        );
+        if (candles.length > 0) {
+          // 计算波动率（简单的价格变动百分比）
+          const priceChanges = [];
+          for (let i = 1; i < candles.length; i++) {
+            const change = Math.abs(
+              ((candles[i].close - candles[i - 1].close) /
+                candles[i - 1].close) *
+                100
+            );
+            priceChanges.push(change);
+          }
+
+          const averageVolatility =
+            priceChanges.length > 0
+              ? priceChanges.reduce((sum, change) => sum + change, 0) /
+                priceChanges.length
+              : 1.0;
+
+          // 根据波动率动态调整止损阈值
+          // 基础止损阈值：2%
+          // 波动率每增加1%，止损阈值增加0.5%
+          let dynamicThreshold = -2.0 - (averageVolatility - 1.0) * 0.5;
+
+          // 限制止损阈值范围（-1% 到 -10%）
+          dynamicThreshold = Math.max(dynamicThreshold, -10.0);
+          dynamicThreshold = Math.min(dynamicThreshold, -1.0);
+
+          // 更新动态止损阈值
+          params.dynamicStopLoss[symbol] = {
+            threshold: dynamicThreshold,
+            evaluationInterval: 30, // 30分钟评估一次
+            conditions: [{ type: "volatility", value: averageVolatility }],
+            lastUpdated: new Date().toISOString(),
+          };
+
+          logger.info(
+            `更新 ${symbol} 动态止损阈值: ${dynamicThreshold.toFixed(2)}% ` +
+              `(基于24小时波动率: ${averageVolatility.toFixed(2)}%)`
+          );
+        }
+      } catch (error) {
+        logger.warn(`更新 ${symbol} 止损阈值失败:`, error as any);
+        // 继续处理下一个币种
+      }
+    }
+
+    logger.info("止损阈值评估和更新完成");
+  } catch (error) {
+    logger.error("评估和更新止损阈值失败:", error as any);
+  }
+}
+
+/**
  * 清仓所有持仓
  */
 async function closeAllPositions(reason: string): Promise<void> {
@@ -1526,6 +1624,17 @@ export async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
 
+    // 9. 定期评估和更新止损阈值（每30分钟执行一次）
+    if (iterationCount % 6 === 0) {
+      // 假设每5分钟一个交易周期，每30分钟执行一次
+      try {
+        await evaluateAndUpdateStopLossThresholds();
+      } catch (error) {
+        logger.warn("评估和更新止损阈值失败:", error as any);
+        // 不影响主流程，继续执行
+      }
+    }
+
     // 9. 检查是否激活蔡森策略
     const currentStrategy = getTradingStrategy();
     let shouldUseCaiSenStrategy = false;
@@ -1545,11 +1654,13 @@ export async function executeTradingDecision() {
       );
       const strategy = getTradingStrategy();
       const params = getStrategyParams(strategy);
-      
+
       // 从数据库读取Agent设置的分币种参数
-      const { getAgentStrategyParams } = await import("../tools/strategyParams");
+      const { getAgentStrategyParams } = await import(
+        "../tools/strategyParams"
+      );
       const agentParamsBySymbol = await getAgentStrategyParams(strategy);
-      
+
       prompt = generateCaiSenPrompt(
         params,
         {
@@ -1569,7 +1680,7 @@ export async function executeTradingDecision() {
           tradeHistory,
           recentDecisions,
           positionCount: positions.length,
-          agentParamsBySymbol: agentParamsBySymbol
+          agentParamsBySymbol: agentParamsBySymbol,
         }
       );
     } else {

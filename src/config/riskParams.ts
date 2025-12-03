@@ -72,4 +72,34 @@ export const RISK_PARAMS = {
 		process.env.ACCOUNT_DRAWDOWN_WARNING_PERCENT || "10",
 		10,
 	),
+
+	// 智能止损配置
+	// 是否启用智能止损
+	ENABLE_SMART_STOP_LOSS: process.env.ENABLE_SMART_STOP_LOSS !== "false",
+
+	// 智能止损的默认评估周期（分钟）
+	SMART_STOP_LOSS_EVALUATION_INTERVAL: Number.parseInt(
+		process.env.SMART_STOP_LOSS_EVALUATION_INTERVAL || "30",
+		10,
+	),
+
+	// 智能止损的最小信心度阈值
+	SMART_STOP_LOSS_MIN_CONFIDENCE: Number.parseFloat(
+		process.env.SMART_STOP_LOSS_MIN_CONFIDENCE || "0.5",
+	),
+
+	// 智能止损的波动率调整系数
+	SMART_STOP_LOSS_VOLATILITY_ADJUSTMENT: Number.parseFloat(
+		process.env.SMART_STOP_LOSS_VOLATILITY_ADJUSTMENT || "0.5",
+	),
+
+	// 智能止损的最大止损阈值（百分比）
+	SMART_STOP_LOSS_MAX_THRESHOLD: Number.parseFloat(
+		process.env.SMART_STOP_LOSS_MAX_THRESHOLD || "-1",
+	),
+
+	// 智能止损的最小止损阈值（百分比）
+	SMART_STOP_LOSS_MIN_THRESHOLD: Number.parseFloat(
+		process.env.SMART_STOP_LOSS_MIN_THRESHOLD || "-10",
+	),
 } as const;

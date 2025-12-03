@@ -73,17 +73,72 @@ const DEFAULT_STOP_LOSS_CONFIG = {
 
 /**
  * 根据杠杆倍数确定止损阈值
- * 支持自定义杠杆范围配置
+ * 支持自定义杠杆范围配置、动态止损阈值和数据库存储
  */
-function getStopLossThreshold(leverage: number): {
+export async function getStopLossThreshold(
+  leverage: number,
+  symbol?: string
+): Promise<{
   threshold: number;
   level: string;
   description: string;
-} {
+}> {
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+  let dynamicStopLoss = null;
 
-  // 获取止损配置，使用默认值作为回退
+  // 1. 检查是否存在数据库存储的动态止损阈值（优先级最高）
+  if (symbol && strategy === "cai-sen") {
+    try {
+      const { createClient } = await import("@libsql/client");
+      const dbClient = createClient({
+        url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+      });
+
+      const result = await dbClient.execute({
+        sql: `SELECT value FROM strategy_params WHERE key = ? AND strategy = ?`,
+        args: [`dynamic_stop_loss_${symbol}`, strategy],
+      });
+
+      if (result.rows && result.rows.length > 0) {
+        dynamicStopLoss = JSON.parse(result.rows[0].value as string);
+        logger.info(
+          `从数据库读取动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        `从数据库读取动态止损阈值失败: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      // 读取失败时，继续检查内存中的动态止损配置
+    }
+  }
+
+  // 2. 检查是否存在内存中的动态止损阈值（蔡森Agent设置）
+  if (
+    !dynamicStopLoss &&
+    symbol &&
+    params.dynamicStopLoss &&
+    params.dynamicStopLoss[symbol]
+  ) {
+    dynamicStopLoss = params.dynamicStopLoss[symbol];
+    logger.debug(
+      `使用内存中的动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`
+    );
+  }
+
+  // 3. 如果存在动态止损阈值，返回该阈值
+  if (dynamicStopLoss) {
+    return {
+      threshold: dynamicStopLoss.threshold,
+      level: "动态止损",
+      description: `蔡森Agent动态设置：${symbol} 亏损 ${dynamicStopLoss.threshold}% 时止损（评估周期：${dynamicStopLoss.evaluationInterval}分钟）`,
+    };
+  }
+
+  // 4. 获取止损配置，使用默认值作为回退
   let stopLossConfig;
   if (params.stopLoss) {
     // 处理旧格式配置（兼容）
@@ -123,9 +178,7 @@ function getStopLossThreshold(leverage: number): {
     stopLossConfig = DEFAULT_STOP_LOSS_CONFIG;
   }
 
-  // 不需要检查enabled和levels，因为我们使用的是旧格式配置
-
-  // 根据杠杆范围自动映射到 low/mid/high
+  // 5. 根据杠杆范围自动映射到 low/mid/high
   // 低杠杆：leverageMin ~ leverageMin + (leverageMax - leverageMin) * 0.33
   // 中杠杆：低杠杆上限 + 1 ~ leverageMin + (leverageMax - leverageMin) * 0.67
   // 高杠杆：中杠杆上限 + 1 ~ leverageMax
@@ -646,8 +699,8 @@ async function checkStopLoss() {
       history.lastCheckTime = now;
 
       // 3. 检查止损条件
-      // 根据杠杆倍数确定止损阈值
-      const thresholdInfo = getStopLossThreshold(leverage);
+      // 根据杠杆倍数和币种确定止损阈值（支持动态止损）
+      const thresholdInfo = await getStopLossThreshold(leverage, symbol);
 
       // 检查止损线合理性，防止异常值
       if (thresholdInfo.threshold >= 0) {

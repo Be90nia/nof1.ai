@@ -666,54 +666,52 @@ async function executeCaiSenMonitor(): Promise<void> {
 
       if (takeProfitConfig) {
         // 计算当前盈亏百分比
-        const entryPrice = Number.parseFloat(position.entryPrice);
-        const currentPrice = await getCurrentPrice(symbol);
-        const size = Math.abs(Number.parseFloat(position.size));
-        const leverage = Number.parseFloat(position.leverage || "1");
+          const entryPrice = Number.parseFloat(position.entryPrice);
+          const currentPrice = await getCurrentPrice(symbol);
+          const size = Math.abs(Number.parseFloat(position.size));
+          const leverage = Number.parseFloat(position.leverage || "1");
 
-        if (currentPrice > 0 && entryPrice > 0 && size > 0) {
-          // 计算价格变动百分比
-          const priceChangePercent =
-            ((currentPrice - entryPrice) / entryPrice) * 100;
-          // 考虑杠杆后的盈亏百分比
-          const pnlPercent =
-            side === "long"
-              ? priceChangePercent * leverage
-              : -priceChangePercent * leverage;
+          if (currentPrice > 0 && entryPrice > 0 && size > 0) {
+            // 计算价格变动百分比（不考虑杠杆）
+            const priceChangePercent = 
+              ((currentPrice - entryPrice) / entryPrice) * 100;
+            // 考虑杠杆后的盈亏百分比
+            const pnlPercent = 
+              side === "long"
+                ? priceChangePercent * leverage
+                : -priceChangePercent * leverage;
 
-          logger.debug(`${symbol} 当前盈亏: ${pnlPercent.toFixed(2)}%`);
+            logger.debug(`${symbol} 价格变动: ${priceChangePercent.toFixed(2)}%，当前盈亏: ${pnlPercent.toFixed(2)}%，杠杆: ${leverage}x`);
 
-          // 检查是否达到止盈条件
-          if (pnlPercent >= takeProfitConfig.stage3.trigger) {
-            // 达到第三阶段止盈，全部平仓
-            logger.info(
-              `${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                takeProfitConfig.stage3.trigger
-              }%`
-            );
-            logger.info("准备执行全部平仓操作");
-          } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
-            // 达到第二阶段止盈，平仓部分仓位
-            logger.info(
-              `${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                takeProfitConfig.stage2.trigger
-              }%`
-            );
-            logger.info(
-              `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
-            );
-          } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
-            // 达到第一阶段止盈，平仓部分仓位
-            logger.info(
-              `${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                takeProfitConfig.stage1.trigger
-              }%`
-            );
-            logger.info(
-              `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
-            );
+            // 检查是否达到止盈条件（只在盈利时检查）
+            if (pnlPercent > 0) {
+              if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+                // 达到第三阶段止盈，全部平仓
+                logger.info(
+                  `${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${takeProfitConfig.stage3.trigger}%`
+                );
+                logger.info("准备执行全部平仓操作");
+              } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+                // 达到第二阶段止盈，平仓部分仓位
+                logger.info(
+                  `${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${takeProfitConfig.stage2.trigger}%`
+                );
+                logger.info(
+                  `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
+                );
+              } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+                // 达到第一阶段止盈，平仓部分仓位
+                logger.info(
+                  `${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${takeProfitConfig.stage1.trigger}%`
+                );
+                logger.info(
+                  `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
+                );
+              }
+            } else {
+              logger.debug(`${symbol} 当前亏损: ${pnlPercent.toFixed(2)}%，不检查止盈条件`);
+            }
           }
-        }
       }
     }
   } catch (error) {

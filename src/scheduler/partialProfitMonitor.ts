@@ -230,24 +230,43 @@ async function checkPartialProfit(
   const params = getStrategyParams(strategy);
 
   // 读取Agent设置的策略参数
-  logger.debug(
-    `检查分批止盈：当前盈利${currentPnlPercent.toFixed(
+  logger.info(
+    `📋 检查分批止盈：当前盈利${currentPnlPercent.toFixed(
       2
     )}%，已平仓${alreadyClosedPercent}%`
   );
   const agentParams = await getAgentStrategyParams(strategy, symbol);
 
   // 参数验证：检查返回的参数是否包含预期的配置
-  logger.debug(`获取到的Agent参数：${JSON.stringify(agentParams)}`);
+  logger.info(`📊 获取到的Agent参数：${JSON.stringify(agentParams, null, 2)}`);
   if (agentParams[symbol]) {
     logger.info(
       `✅ 检测到${symbol}的Agent参数：${Object.keys(agentParams[symbol]).join(
         ", "
       )}`
     );
+    logger.info(
+      `   - ${symbol}参数详情：${JSON.stringify(agentParams[symbol], null, 2)}`
+    );
   }
   if (agentParams.partialTakeProfit) {
-    logger.info(`✅ 检测到全局partialTakeProfit参数`);
+    logger.info(
+      `✅ 检测到全局partialTakeProfit参数: ${JSON.stringify(
+        agentParams.partialTakeProfit
+      )}`
+    );
+  }
+  // 显示所有按币种组织的参数
+  for (const [coin, coinParams] of Object.entries(agentParams)) {
+    if (
+      typeof coinParams === "object" &&
+      coinParams !== null &&
+      !Array.isArray(coinParams)
+    ) {
+      logger.info(
+        `📋 检测到${coin}的参数：${Object.keys(coinParams).join(", ")}`
+      );
+    }
   }
 
   // 如果Agent设置了partialTakeProfit参数，则使用Agent的设置
@@ -258,18 +277,28 @@ async function checkPartialProfit(
     partialTakeProfit = agentParams[symbol].partialTakeProfit;
     usedParamsSource = "agent";
     logger.info(
-      `✅ 使用Agent设置的分批止盈参数: ${JSON.stringify(partialTakeProfit)}`
+      `✅ 使用${symbol}的Agent分批止盈参数: ${JSON.stringify(
+        partialTakeProfit,
+        null,
+        2
+      )}`
     );
   } else if (agentParams.partialTakeProfit) {
     partialTakeProfit = agentParams.partialTakeProfit;
     usedParamsSource = "agent_global";
     logger.info(
-      `✅ 使用Agent设置的全局分批止盈参数: ${JSON.stringify(partialTakeProfit)}`
+      `✅ 使用全局Agent分批止盈参数: ${JSON.stringify(
+        partialTakeProfit,
+        null,
+        2
+      )}`
     );
   } else {
-    logger.debug(
+    logger.info(
       `ℹ️ 未找到Agent设置的分批止盈参数，使用默认参数: ${JSON.stringify(
-        params.partialTakeProfit
+        params.partialTakeProfit,
+        null,
+        2
       )}`
     );
   }

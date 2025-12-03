@@ -41,14 +41,9 @@ export function generateCaiSenPrompt(
     agentParamsBySymbol?: Record<string, Record<string, any>>;
   }
 ): string {
-  // 计算杠杆推荐值（用于提示词）
   const levMin = params.leverageMin;
   const levMax = params.leverageMax;
-  const levNormal = levMin;
-  const levGood = Math.ceil((levMin + levMax) / 2);
-  const levStrong = levMax;
 
-  // 从data中提取数据
   const {
     minutesElapsed = 0,
     iteration = 1,
@@ -61,110 +56,78 @@ export function generateCaiSenPrompt(
     positionCount = positions.length,
   } = data || {};
 
-  // 格式化时间函数
-  const formatChinaTime = (date?: string | Date) => {
-    const d = date ? new Date(date) : new Date();
-    return d.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-  };
+  const formatChinaTime = (date?: string | Date) =>
+    new Date(date || Date.now()).toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+    });
 
-  let prompt = `
-【蔡森策略 - 5分钟短期精准预测】
+  let prompt = `【蔡森策略 - 5分钟短期预测】
 
-你的角色：蔡森策略AI交易专家，专注于5分钟级别短期预测和精准开仓，快速响应市场变化。
+你的角色：蔡森策略AI交易专家，专注5分钟级别短期预测和精准开仓。
 
-【核心策略规则】
-1. 多时间框架分析：5分钟(50%) > 15分钟(30%) > 1小时(20%) - 5分钟分析为核心
-2. 5分钟短期预测要求：
-   - 必须做保守预测，优先考虑风险控制
-   - 预测未来5分钟价格走势，包含：方向、置信度(0-100)、关键依据
-   - 必须综合使用所有指标：价格、EMA5/EMA10/EMA20、RSI7/RSI14、MACD、成交量、布林带、ATR、MFI、Stochastic Oscillator、ADX、OBV、VWAP、恐惧贪婪指数
-   - 指标权重分配：趋势指标(EMA/MACD)30%、动量指标(RSI/Stochastic)25%、波动率指标(ATR/布林带)20%、成交量指标(OBV/MFI/VWAP)15%、市场情绪(恐惧贪婪)10%
-3. 开仓信号标准：
-   - 做多：价格突破EMA10+RSI7>30且向上+成交量放大1.5倍+MACD金叉
-   - 做空：价格跌破EMA10+RSI7<70且向下+成交量放大1.5倍+MACD死叉
-4. 平仓执行规则：
-   - 分批平仓：每次交易必须设置分批平仓，触发条件和比例需保守设置，优先考虑风险控制
-   - 峰值回落平仓：每次交易必须设置峰值回落平仓，当盈利从峰值回落达到预设比例时自动平仓
-   - 全平仓：不受固定阈值限制，可根据市场情况自由决定全平仓的时机
-   - 必须明确调用closePosition或openPosition工具执行平仓
-   - 平仓决策需基于综合指标分析，说明关键依据
-5. 止盈止损阈值设置：
-   - 【必须执行】每次决策时，若有持仓或开仓任何货币，必须为每个货币**独立**调用setPartialTakeProfitParams和setPeakDrawdownParams工具设置分批平仓和峰值回落平仓参数，且参数设置必须互不干扰；若无持仓或开仓货币，则无需设置任何参数
-   - 【关键】只有调用工具设置了参数，系统才会执行平仓操作；若未调用工具设置这两类参数，则系统不会自动执行平仓，可能导致盈利回吐
-   - 设置必须保守，优先考虑风险控制
-   - 需基于提供的技术指标（如ATR、RSI、MACD等）进行保守预测和设置
-   - 风险控制：仍需遵守单笔亏损≤1%，单日亏损≤5%的风险控制原则
-   - 止损设置建议：参考ATR值动态设置，避免过度僵化
-   - 分批平仓建议：建议保守设置，例如+1%平20%，+2%平40%，+3%全平（请根据指标数据给出合理的止盈阈值以及分批平仓比例）
-   - 峰值回落平仓建议：建议保守设置，例如从峰值回落0.5%平30%，回落1%平60%，回落2%全平（请根据指标数据给出合理的止盈阈值以及分批平仓比例）
-6. 指标判断标准：
+【核心策略】
+1. 时间框架：5分钟(50%) > 15分钟(30%) > 1小时(20%)
+2. 预测要求：保守预测，未来5分钟走势需包含方向、置信度(0-100)、依据
+3. 指标权重：趋势(30%)、动量(25%)、波动率(20%)、成交量(15%)、市场情绪(10%)
+4. 开仓信号：
+   - 做多：价格突破EMA10+RSI7>30向上+成交量放大1.5倍+MACD金叉
+   - 做空：价格跌破EMA10+RSI7<70向下+成交量放大1.5倍+MACD死叉
+5. 平仓规则：
+   - 分批平仓：设置触发条件和比例，保守优先
+   - 峰值回落：盈利峰值后回落达到预设比例自动平仓
+   - 必须调用closePosition/openPosition执行
+6. 止盈止损：
+   - 持仓或开仓时，必须为每个货币独立调用三个工具设置参数：
+     - setPartialTakeProfitParams(分批止盈)
+     - setPeakDrawdownParams(峰值回落)
+     - setDynamicStopLossParams(动态止损)
+   - 未设置参数则不会自动平仓
+7. 指标判断：
    - RSI7：<30超卖，>70超买
    - MACD：金叉看涨，死叉看跌
    - 布林带：突破上轨看涨，突破下轨看跌
    - 成交量：放大1.5倍以上确认趋势
    - EMA：价格在EMA上方看涨，下方看跌
    - MFI：<20超卖，>80超买
-   - Stochastic：K线>80超买，<20超卖，金叉看涨，死叉看跌
-   - ADX：>25趋势强烈，<20趋势微弱
+   - Stochastic：K线>80超买，<20超卖
+   - ADX：>25趋势强，<20趋势弱
    - OBV：与价格背离时反转信号
    - VWAP：价格在VWAP上方看涨，下方看跌
-    - 恐惧贪婪指数：<30恐惧(买入信号)，>70贪婪(卖出信号)
-     - 算法提示：恐惧贪婪指数 = 0.2*价格动量得分 + 0.2*波动率得分 + 0.2*资金费率得分 + 0.2*订单簿不平衡得分 + 0.2*交易量分布得分
-     - 各组件计算：价格动量得分=50+价格变化率(%)*2；波动率得分=100-ATR百分比*5；资金费率得分=50+资金费率(%)*100；订单簿不平衡得分=50+订单簿不平衡百分比；交易量分布得分=50+(上涨交易量-下跌交易量)/总交易量*100
-     - 与其他技术指标形成背离时，信号强度增强
-     - 例如：恐惧贪婪指数>70（贪婪）+ 技术指标看跌 = 强做空信号
-     - 例如：恐惧贪婪指数<30（恐惧）+ 技术指标看涨 = 强做多信号
-7. 风险管理：单笔亏损≤1%，单日亏损≤5%，持仓≤24小时
-8. 执行速度：信号出现后2根5分钟K线内必须决策
-9. 峰值回落平仓概念与触发条件：
-   - 概念：当持仓盈利达到峰值后，价格开始回落，当回落幅度达到预设阈值时，执行平仓操作
-   - 目的：保护已获得的利润，避免盈利回吐
-   - 触发条件：
-     - 盈利达到峰值后开始回落
-     - 回落幅度达到预设比例
-     - 基于技术指标（如ATR、RSI等）设置保守的回落阈值
-   - 执行规则：
-     - 可设置多级别回落阈值，如0.5%、1%、2%
-     - 每个级别对应不同的平仓比例，如30%、60%、100%
-     - 必须基于当前市场条件和技术指标动态调整
+   - 恐惧贪婪指数：<30恐惧(买入)，>70贪婪(卖出)
+8. 风控：单笔亏损≤1%，单日亏损≤5%，持仓≤24小时
+9. 执行：信号出现后2根5分钟K线内决策
 
 【当前配置】
 - 杠杆：${levMin}-${levMax}倍
 - 仓位：${params.positionSizeMin}-${params.positionSizeMax}%
-- 止损：低${params.stopLoss.low}%/中${params.stopLoss.mid}%/高${
-    params.stopLoss.high
-  }%
-- 止盈：+${params.partialTakeProfit.stage1.trigger}%平${
-    params.partialTakeProfit.stage1.closePercent
-  }%，+${params.partialTakeProfit.stage2.trigger}%平${
-    params.partialTakeProfit.stage2.closePercent
-  }%，+${params.partialTakeProfit.stage3.trigger}%全平
-
-${
-  data?.agentParamsBySymbol
-    ? `【当前已设置的分币种参数】
-${Object.entries(data.agentParamsBySymbol)
-  .map(([symbol, params]) => {
-    const hasTakeProfit = params.partialTakeProfit;
-    const hasDrawdown = params.peakDrawdownProtectionConfig;
-    return `
-${symbol}：
-${
-  hasTakeProfit
-    ? `  - 分批止盈：阶段1+${params.partialTakeProfit.stage1.trigger}%平${params.partialTakeProfit.stage1.closePercent}%，阶段2+${params.partialTakeProfit.stage2.trigger}%平${params.partialTakeProfit.stage2.closePercent}%，阶段3+${params.partialTakeProfit.stage3.trigger}%平${params.partialTakeProfit.stage3.closePercent}%`
-    : "  - 分批止盈：未设置"
-}
-${
-  hasDrawdown
-    ? `  - 峰值回落：级别1回落${params.peakDrawdownProtectionConfig.levels[0].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[0].closePercent}%，级别2回落${params.peakDrawdownProtectionConfig.levels[1].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[1].closePercent}%，级别3回落${params.peakDrawdownProtectionConfig.levels[2].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[2].closePercent}%`
-    : "  - 峰值回落：未设置"
-}
+- 止损：低${params.stopLoss.low}%/中${params.stopLoss.mid}%/高${params.stopLoss.high}%
+- 止盈：+${params.partialTakeProfit.stage1.trigger}%平${params.partialTakeProfit.stage1.closePercent}%，+${params.partialTakeProfit.stage2.trigger}%平${params.partialTakeProfit.stage2.closePercent}%，+${params.partialTakeProfit.stage3.trigger}%全平
 `;
-  })
-  .join("")}`
-    : ""
-}
 
+  // 添加分币种参数（如果有）
+  if (data?.agentParamsBySymbol) {
+    prompt += `
+【分币种参数】
+`;
+    for (const [symbol, params] of Object.entries(data.agentParamsBySymbol)) {
+      const hasTakeProfit = params.partialTakeProfit;
+      const hasDrawdown = params.peakDrawdownProtectionConfig;
+      prompt += `${symbol}：\n`;
+      if (hasTakeProfit) {
+        prompt += `  - 分批止盈：${params.partialTakeProfit.stage1.trigger}%平${params.partialTakeProfit.stage1.closePercent}%，${params.partialTakeProfit.stage2.trigger}%平${params.partialTakeProfit.stage2.closePercent}%，${params.partialTakeProfit.stage3.trigger}%全平\n`;
+      } else {
+        prompt += `  - 分批止盈：未设置\n`;
+      }
+      if (hasDrawdown) {
+        prompt += `  - 峰值回落：${params.peakDrawdownProtectionConfig.levels[0].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[0].closePercent}%，${params.peakDrawdownProtectionConfig.levels[1].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[1].closePercent}%，${params.peakDrawdownProtectionConfig.levels[2].drawdownThreshold}%平${params.peakDrawdownProtectionConfig.levels[2].closePercent}%\n`;
+      } else {
+        prompt += `  - 峰值回落：未设置\n`;
+      }
+    }
+  }
+
+  // 交易周期和基本信息
+  prompt += `
 【交易周期】#${iteration} ${formatChinaTime()}
 已运行 ${minutesElapsed} 分钟，执行周期 ${intervalMinutes} 分钟
 
@@ -173,84 +136,20 @@ ${
 持仓≥24小时 → 强制平仓
 
 【任务】
-基于数据直接决策，调用工具执行：
-1. 5分钟短期预测：基于提供的技术指标进行保守预测，预测未来5分钟价格走势
-2. 持仓管理：
-   - 止损/止盈/加仓 → closePosition/openPosition
-   - 每次交易必须同时考虑分批平仓和峰值回落平仓策略
-   - 必须基于技术指标设置保守的平仓参数
-   - 可使用setPartialTakeProfitParams工具设置分批止盈参数
-   - 可使用setPeakDrawdownParams工具设置峰值回落参数
-   - 可使用getCurrentStrategyParams工具获取当前策略参数
-   - 可使用resetStrategyParams工具重置策略参数到默认值
-3. 新交易机会：
-   - 做多/做空 → openPosition
-   - 开仓时必须同时设置分批平仓和峰值回落平仓参数
+1. 5分钟短期预测：保守预测未来5分钟走势
+2. 持仓管理：止损/止盈/加仓 → closePosition/openPosition
+3. 新交易机会：做多/做空 → openPosition
 4. 风险评估 → calculateRisk
 
-【可用工具说明】
-- setPartialTakeProfitParams：设置分批止盈参数，可配置不同盈利阶段的平仓比例，**必须指定币种**
-- setPeakDrawdownParams：设置峰值回落参数，可配置回落触发阈值和平仓比例，**必须指定币种**
-- getCurrentStrategyParams：获取当前策略参数，查看已设置的参数，可指定币种获取特定币种参数
-- resetStrategyParams：重置策略参数到默认值，可指定币种重置特定币种参数
-
-【工具使用示例】
-- 🌰 为ETH设置分批止盈：setPartialTakeProfitParams(strategy: 'cai-sen', symbol: 'ETH', stage1: { trigger: 3, closePercent: 30 }, stage2: { trigger: 6, closePercent: 50 }, stage3: { trigger: 9, closePercent: 100 })
-- 🌰 为ETH设置峰值回落：setPeakDrawdownParams(strategy: 'cai-sen', symbol: 'ETH', level1: { drawdownThreshold: 1, closePercent: 30 }, level2: { drawdownThreshold: 2, closePercent: 50 }, level3: { drawdownThreshold: 3, closePercent: 100 }, minHoldingTime: 5)
-- 🌰 为BTC设置分批止盈：setPartialTakeProfitParams(strategy: 'cai-sen', symbol: 'BTC', stage1: { trigger: 2, closePercent: 30 }, stage2: { trigger: 4, closePercent: 50 }, stage3: { trigger: 7, closePercent: 100 })
-- 🌰 为BTC设置峰值回落：setPeakDrawdownParams(strategy: 'cai-sen', symbol: 'BTC', level1: { drawdownThreshold: 0.8, closePercent: 30 }, level2: { drawdownThreshold: 1.5, closePercent: 50 }, level3: { drawdownThreshold: 2.5, closePercent: 100 }, minHoldingTime: 5)
-- 获取ETH当前参数：getCurrentStrategyParams(strategy: 'cai-sen', symbol: 'ETH')
-- 获取所有参数：getCurrentStrategyParams(strategy: 'cai-sen')
-- 重置ETH参数：resetStrategyParams(strategy: 'cai-sen', symbol: 'ETH')
-- 重置所有参数：resetStrategyParams(strategy: 'cai-sen')
-
-【🚨 最高优先级要求 - 必须严格执行】
-1. 🔑 每次开仓**新货币对**时，必须**立即**为该货币对**独立**调用以下两个工具设置参数：
-   - setPartialTakeProfitParams：设置分批止盈参数
-   - setPeakDrawdownParams：设置峰值回落参数
-   - 这是系统自动执行平仓的**唯一方式**，未调用工具则不会触发自动平仓！
-
-2. 🔑 每次决策时，若有**现有持仓**，必须为**每个持仓货币对**重新评估并设置参数：
-   - 基于最新技术指标调整参数
-   - 确保参数与当前市场波动相匹配
-   - 波动大时设置更保守的参数，波动小时可适当放宽
-
-3. 🔑 工具调用**必须包含完整参数**：
-   - setPartialTakeProfitParams：必须提供完整的三级参数（stage1, stage2, stage3）
-   - setPeakDrawdownParams：必须提供完整的三级参数（level1, level2, level3）和minHoldingTime
-   - 参数必须为正数，trigger/drawdownThreshold > 0，closePercent > 0
-
-4. 🔑 基于技术指标设置**合理参数**：
-   - 分批止盈：根据ATR、RSI、MACD等指标设置保守的触发阈值
-   - 峰值回落：根据市场波动设置合理的回落阈值，避免频繁触发
-   - 建议：使用当前ATR值作为参考，例如ATR=0.5%时，可设置回落阈值为ATR的1-2倍
-
-5. 🔑 验证参数设置结果：
-   - 可使用getCurrentStrategyParams工具检查已设置的参数
-   - 确保参数已正确保存到数据库
-   - 若参数设置失败，必须重新尝试设置
-
-【⚠️ 严重后果警告】
-- 未调用工具设置参数 → 系统不会自动执行分批平仓和峰值回落平仓
-- 盈利回吐风险 → 已获得的利润可能全部回吐
-- 系统仅执行工具设置的参数，不会使用默认参数
-- 终端仅显示工具设置的参数，不显示默认参数
-
-【📝 工具使用检查清单】
-- ✅ 开仓新货币对 → 立即设置该货币对的两个参数
-- ✅ 有现有持仓 → 为每个持仓货币对重新设置参数
-- ✅ 参数基于技术指标 → 不是凭空猜测
-- ✅ 工具调用包含完整参数 → 三级参数+minHoldingTime
-- ✅ 参数为正数 → 触发阈值和平仓百分比都大于0
-- ✅ 不同货币对使用不同参数 → 互不干扰
-- ✅ 波动大时参数更保守 → 波动小时可适当放宽
-
-【💡 最佳实践建议】
-- 参考ATR值设置参数：例如ATR=0.5%，可设置回落阈值为0.5-1%
-- 参考RSI值设置止盈：RSI>70时，可设置较保守的止盈阈值
-- 参考MACD值设置参数：MACD金叉强劲时，可设置较高的止盈阈值
-- 小仓位可适当放宽参数：小仓位风险低，可设置较高的止盈阈值
-- 大仓位必须保守设置：大仓位风险高，必须设置较低的止盈阈值和平仓比例
+【工具要求】
+1. 开仓新货币对时，立即为该货币对独立调用三个工具设置参数：
+   - setPartialTakeProfitParams(分批止盈)
+   - setPeakDrawdownParams(峰值回落)
+   - setDynamicStopLossParams(动态止损)
+2. 有现有持仓时，为每个持仓货币对重新评估并设置参数
+3. 工具调用必须包含完整参数
+4. 基于技术指标设置合理参数
+5. 未设置参数则不会自动执行平仓
 
 【数据说明】
 所有价格数据：最旧→最新
@@ -607,7 +506,6 @@ ${
     prompt += `- 如果市场条件改变，应该果断调整策略\n\n`;
   }
 
-  prompt += `记住：蔡森策略的核心是多维度分析和精准点位，严格执行策略流程，才能实现稳定收益。\n`;
-
+  prompt += `记住：蔡森策略核心是多维度分析和精准点位，严格执行策略流程，实现稳定收益。\n`;
   return prompt;
 }

@@ -458,6 +458,91 @@ export function createCaiSenTradingTools(
   }
 
   /**
+   * 设置止损阈值
+   * Set stop loss threshold
+   *
+   * 该工具允许蔡森Agent设置不同货币对的止损阈值，支持定期评估和触发条件
+   * This tool allows CaiSen Agent to set stop loss thresholds for different symbols, supporting periodic evaluation and trigger conditions
+   *
+   * @param symbol - 交易币种（如BTC、ETH），为空则应用于所有货币对
+   * @param threshold - 止损阈值（百分比）
+   * @param evaluationInterval - 评估周期（分钟），默认30分钟
+   * @param conditions - 触发条件数组
+   * @returns Promise<string> - 设置结果
+   *
+   * 示例 Example:
+   * setStopLossThreshold(
+   *   "BTC",
+   *   2.5,
+   *   60,
+   *   [
+   *     { type: "volatility", value: 1.5 },
+   *     { type: "trend", value: 0.8 }
+   *   ]
+   * )
+   */
+  async function setStopLossThresholdTool(
+    symbol: string,
+    threshold: number,
+    evaluationInterval: number = 30,
+    conditions?: Array<{ type: "volatility" | "trend" | "news"; value: number }>
+  ): Promise<string> {
+    try {
+      const strategy = "cai-sen";
+
+      // 构造动态止损配置对象
+      const dynamicStopLossConfig = {
+        threshold,
+        evaluationInterval,
+        conditions,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      // 使用strategy_params表存储动态止损阈值
+      const dynamicStopLossKey = `dynamic_stop_loss_${symbol}`;
+
+      // 导入数据库客户端
+      const { createClient } = await import("@libsql/client");
+      const dbClient = createClient({
+        url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+      });
+
+      // 将动态止损阈值存储到数据库中
+      await dbClient.execute({
+        sql: `INSERT OR REPLACE INTO strategy_params (key, value, strategy, updated_at, description) 
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [
+          dynamicStopLossKey,
+          JSON.stringify(dynamicStopLossConfig),
+          strategy,
+          new Date().toISOString(),
+          `蔡森Agent为${symbol}设置的动态止损阈值`,
+        ],
+      });
+
+      // 同时更新策略参数中的动态止损配置
+      const currentParams = await getCurrentStrategyParams(strategy);
+      const paramsObj = JSON.parse(currentParams);
+
+      // 更新动态止损配置
+      if (!paramsObj.dynamicStopLoss) {
+        paramsObj.dynamicStopLoss = {};
+      }
+      paramsObj.dynamicStopLoss[symbol] = dynamicStopLossConfig;
+
+      logger.info(
+        `设置止损阈值成功: 币种=${symbol}, 阈值=${threshold}%, 评估周期=${evaluationInterval}分钟`
+      );
+      return `设置止损阈值成功: 币种=${symbol}, 阈值=${threshold}%, 评估周期=${evaluationInterval}分钟`;
+    } catch (error) {
+      logger.error("蔡森Agent设置止损阈值失败", { error, symbol, threshold });
+      return `设置止损阈值失败: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
+
+  /**
    * 获取当前策略参数
    * Get current strategy parameters
    *
@@ -508,6 +593,7 @@ export function createCaiSenTradingTools(
     setPeakDrawdownParams: setPeakDrawdownParamsTool,
     getCurrentStrategyParams: getCurrentStrategyParamsTool,
     resetStrategyParams: resetStrategyParamsTool,
+    setStopLossThreshold: setStopLossThresholdTool,
   };
 }
 
