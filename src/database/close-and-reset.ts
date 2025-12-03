@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS trade_logs (
     fee REAL,
     status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS strategy_params (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    description TEXT
+);
 `;
 
 /**
@@ -184,6 +193,7 @@ async function resetDatabase(): Promise<void> {
 		await client.execute("DROP TABLE IF EXISTS trading_signals");
 		await client.execute("DROP TABLE IF EXISTS positions");
 		await client.execute("DROP TABLE IF EXISTS account_history");
+		await client.execute("DROP TABLE IF EXISTS strategy_params");
 		logger.info("✅ 现有表已删除");
 
 		// 重新创建表

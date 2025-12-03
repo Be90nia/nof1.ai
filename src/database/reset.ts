@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS trade_logs (
     fee REAL,
     status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS strategy_params (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    description TEXT
+);
 `;
 
 /**

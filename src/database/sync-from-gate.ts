@@ -101,6 +101,7 @@ async function syncFromGate() {
       DROP TABLE IF EXISTS account_history;
       DROP TABLE IF EXISTS trading_signals;
       DROP TABLE IF EXISTS agent_decisions;
+      DROP TABLE IF EXISTS strategy_params;
     `);
 		logger.info("✅ 现有表已删除");
 

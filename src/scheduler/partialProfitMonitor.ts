@@ -217,7 +217,8 @@ async function calculateProfitAndFee(
  */
 async function checkPartialProfit(
   currentPnlPercent: number,
-  alreadyClosedPercent: number
+  alreadyClosedPercent: number,
+  symbol: string
 ): Promise<{
   shouldClose: boolean;
   stage: string;
@@ -234,17 +235,36 @@ async function checkPartialProfit(
       2
     )}%，已平仓${alreadyClosedPercent}%`
   );
-  const agentParams = await getAgentStrategyParams(strategy);
+  const agentParams = await getAgentStrategyParams(strategy, symbol);
+
+  // 参数验证：检查返回的参数是否包含预期的配置
+  logger.debug(`获取到的Agent参数：${JSON.stringify(agentParams)}`);
+  if (agentParams[symbol]) {
+    logger.info(
+      `✅ 检测到${symbol}的Agent参数：${Object.keys(agentParams[symbol]).join(
+        ", "
+      )}`
+    );
+  }
+  if (agentParams.partialTakeProfit) {
+    logger.info(`✅ 检测到全局partialTakeProfit参数`);
+  }
 
   // 如果Agent设置了partialTakeProfit参数，则使用Agent的设置
   let partialTakeProfit = params.partialTakeProfit;
   let usedParamsSource = "default";
 
-  if (agentParams.partialTakeProfit) {
-    partialTakeProfit = agentParams.partialTakeProfit;
+  if (agentParams[symbol]?.partialTakeProfit) {
+    partialTakeProfit = agentParams[symbol].partialTakeProfit;
     usedParamsSource = "agent";
     logger.info(
       `✅ 使用Agent设置的分批止盈参数: ${JSON.stringify(partialTakeProfit)}`
+    );
+  } else if (agentParams.partialTakeProfit) {
+    partialTakeProfit = agentParams.partialTakeProfit;
+    usedParamsSource = "agent_global";
+    logger.info(
+      `✅ 使用Agent设置的全局分批止盈参数: ${JSON.stringify(partialTakeProfit)}`
     );
   } else {
     logger.debug(
@@ -570,7 +590,8 @@ async function executePartialClose(
 async function checkPeakDrawdownClose(
   pnlPercent: number,
   drawdownPercent: number,
-  alreadyClosedPercent: number
+  alreadyClosedPercent: number,
+  symbol: string
 ): Promise<{
   shouldClose: boolean;
   closePercent: number;
@@ -586,21 +607,42 @@ async function checkPeakDrawdownClose(
       2
     )}%，回落${drawdownPercent.toFixed(2)}%，已平仓${alreadyClosedPercent}%`
   );
-  const agentParams = await getAgentStrategyParams(strategy);
+  const agentParams = await getAgentStrategyParams(strategy, symbol);
+
+  // 参数验证：检查返回的参数是否包含预期的配置
+  logger.debug(`获取到的Agent参数：${JSON.stringify(agentParams)}`);
+  if (agentParams[symbol]) {
+    logger.info(
+      `✅ 检测到${symbol}的Agent参数：${Object.keys(agentParams[symbol]).join(
+        ", "
+      )}`
+    );
+  }
+  if (agentParams.peakDrawdownProtectionConfig) {
+    logger.info(`✅ 检测到全局peakDrawdownProtectionConfig参数`);
+  }
 
   // 获取峰值回落检测配置，使用默认值作为回退
   const peakDrawdownConfig = {
     ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
     ...params.peakDrawdownProtectionConfig,
-    ...agentParams.peakDrawdownProtectionConfig,
+    ...(agentParams[symbol]?.peakDrawdownProtectionConfig || {}),
+    ...(agentParams.peakDrawdownProtectionConfig || {}),
   };
 
   // 记录使用的配置来源
   let usedParamsSource = "default";
-  if (agentParams.peakDrawdownProtectionConfig) {
+  if (agentParams[symbol]?.peakDrawdownProtectionConfig) {
     usedParamsSource = "agent";
     logger.info(
       `✅ 使用Agent设置的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+    );
+  } else if (agentParams.peakDrawdownProtectionConfig) {
+    usedParamsSource = "agent_global";
+    logger.info(
+      `✅ 使用Agent设置的全局峰值回落配置: ${JSON.stringify(
+        peakDrawdownConfig
+      )}`
     );
   } else if (params.peakDrawdownProtectionConfig) {
     logger.debug(
@@ -725,7 +767,8 @@ async function executeDrawdownClose(
   const drawdownResult = await checkPeakDrawdownClose(
     pnlPercent,
     drawdownPercent,
-    alreadyClosedPercent
+    alreadyClosedPercent,
+    symbol
   );
 
   if (!drawdownResult || !drawdownResult.shouldClose) {
@@ -817,20 +860,7 @@ async function checkPartialProfitConditions() {
     const params = getStrategyParams(strategy);
     logger.debug(`当前策略：${strategy}`);
 
-    // 读取Agent设置的策略参数
-    const agentParams = await getAgentStrategyParams(strategy);
-
-    // 获取峰值回落检测配置，使用默认值作为回退
-    const peakDrawdownConfig = {
-      ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
-      ...params.peakDrawdownProtectionConfig,
-      ...agentParams.peakDrawdownProtectionConfig,
-    };
-
-    // 如果未启用峰值回落检测，跳过相关逻辑
-    if (!peakDrawdownConfig.enabled) {
-      logger.debug("峰值回落检测未启用，跳过相关检查");
-    }
+    // 移除了不必要的getAgentStrategyParams调用，改为在每个币种的循环中单独获取
 
     // 1. 获取所有持仓
     const gatePositions = await exchangeClient.getPositions();
@@ -921,6 +951,13 @@ async function checkPartialProfitConditions() {
       logger.info(`   已平仓比例: ${alreadyClosedPercent}%`);
 
       // ==================== 新增：峰值回落检测 ====================
+      // 获取当前币种的峰值回落检测配置，使用默认值作为回退
+      const peakDrawdownConfig = {
+        ...DEFAULT_PEAK_DRAWDOWN_CONFIG,
+        ...params.peakDrawdownProtectionConfig,
+        // 峰值回落保护配置将在checkPeakDrawdownClose函数中获取
+      };
+
       // 如果启用了峰值回落检测
       if (peakDrawdownConfig.enabled) {
         logger.debug(`   开始峰值回落检测...`);
@@ -943,7 +980,8 @@ async function checkPartialProfitConditions() {
         const peakDrawdownCloseResult = await checkPeakDrawdownClose(
           pnlPercent,
           drawdownResult.drawdownPercent,
-          alreadyClosedPercent
+          alreadyClosedPercent,
+          symbol
         );
 
         // 如果触发回落检测
@@ -1025,7 +1063,8 @@ async function checkPartialProfitConditions() {
       // 检查是否应该触发分批止盈
       const partialProfitResult = await checkPartialProfit(
         pnlPercent,
-        alreadyClosedPercent
+        alreadyClosedPercent,
+        symbol
       );
 
       if (partialProfitResult && partialProfitResult.shouldClose) {
