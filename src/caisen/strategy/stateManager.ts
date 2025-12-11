@@ -3,15 +3,11 @@
  * 负责管理策略的运行状态、异常事件和等待时间阈值
  */
 
-import { createClient } from "@libsql/client";
 import { createLogger } from "../../utils/loggerUtils";
 import { getChinaTimeISO } from "../../utils/timeUtils";
+import { dbClient } from "../../database/dbClient";
 
 const logger = createLogger({ name: "caisen-state-manager", level: "info" });
-
-const dbClient = createClient({
-	url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
-});
 
 /**
  * 异常波动等级

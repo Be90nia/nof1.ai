@@ -238,21 +238,24 @@ async function checkPartialProfit(
   const agentParams = await getAgentStrategyParams(strategy, symbol);
 
   // 参数验证：检查返回的参数是否包含预期的配置
-  logger.info(`📊 获取到的Agent参数：${JSON.stringify(agentParams, null, 2)}`);
+  logger.debug(`📊 获取到的Agent参数：${JSON.stringify(agentParams, null, 2)}`);
   if (agentParams[symbol]) {
     logger.info(
       `✅ 检测到${symbol}的Agent参数：${Object.keys(agentParams[symbol]).join(
         ", "
       )}`
     );
-    logger.info(
+    logger.debug(
       `   - ${symbol}参数详情：${JSON.stringify(agentParams[symbol], null, 2)}`
     );
   }
   if (agentParams.partialTakeProfit) {
-    logger.info(
-      `✅ 检测到全局partialTakeProfit参数: ${JSON.stringify(
-        agentParams.partialTakeProfit
+    logger.info(`✅ 检测到全局partialTakeProfit参数`);
+    logger.debug(
+      `   - 全局partialTakeProfit参数详情：${JSON.stringify(
+        agentParams.partialTakeProfit,
+        null,
+        2
       )}`
     );
   }
@@ -276,26 +279,21 @@ async function checkPartialProfit(
   if (agentParams[symbol]?.partialTakeProfit) {
     partialTakeProfit = agentParams[symbol].partialTakeProfit;
     usedParamsSource = "agent";
-    logger.info(
-      `✅ 使用${symbol}的Agent分批止盈参数: ${JSON.stringify(
-        partialTakeProfit,
-        null,
-        2
-      )}`
+    logger.info(`✅ 使用${symbol}的Agent分批止盈参数`);
+    logger.debug(
+      `   - 分批止盈参数详情: ${JSON.stringify(partialTakeProfit, null, 2)}`
     );
   } else if (agentParams.partialTakeProfit) {
     partialTakeProfit = agentParams.partialTakeProfit;
     usedParamsSource = "agent_global";
-    logger.info(
-      `✅ 使用全局Agent分批止盈参数: ${JSON.stringify(
-        partialTakeProfit,
-        null,
-        2
-      )}`
+    logger.info(`✅ 使用全局Agent分批止盈参数`);
+    logger.debug(
+      `   - 全局分批止盈参数详情: ${JSON.stringify(partialTakeProfit, null, 2)}`
     );
   } else {
-    logger.info(
-      `ℹ️ 未找到Agent设置的分批止盈参数，使用默认参数: ${JSON.stringify(
+    logger.info(`ℹ️ 未找到Agent设置的分批止盈参数，使用默认参数`);
+    logger.debug(
+      `   - 默认分批止盈参数: ${JSON.stringify(
         params.partialTakeProfit,
         null,
         2
@@ -639,7 +637,7 @@ async function checkPeakDrawdownClose(
   const agentParams = await getAgentStrategyParams(strategy, symbol);
 
   // 参数验证：检查返回的参数是否包含预期的配置
-  logger.debug(`获取到的Agent参数：${JSON.stringify(agentParams)}`);
+  logger.debug(`获取到的Agent参数：${JSON.stringify(agentParams, null, 2)}`);
   if (agentParams[symbol]) {
     logger.info(
       `✅ 检测到${symbol}的Agent参数：${Object.keys(agentParams[symbol]).join(
@@ -663,23 +661,35 @@ async function checkPeakDrawdownClose(
   let usedParamsSource = "default";
   if (agentParams[symbol]?.peakDrawdownProtectionConfig) {
     usedParamsSource = "agent";
-    logger.info(
-      `✅ 使用Agent设置的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+    logger.info(`✅ 使用Agent设置的峰值回落配置`);
+    logger.debug(
+      `   - 峰值回落配置详情: ${JSON.stringify(peakDrawdownConfig, null, 2)}`
     );
   } else if (agentParams.peakDrawdownProtectionConfig) {
     usedParamsSource = "agent_global";
-    logger.info(
-      `✅ 使用Agent设置的全局峰值回落配置: ${JSON.stringify(
-        peakDrawdownConfig
+    logger.info(`✅ 使用Agent设置的全局峰值回落配置`);
+    logger.debug(
+      `   - 全局峰值回落配置详情: ${JSON.stringify(
+        peakDrawdownConfig,
+        null,
+        2
       )}`
     );
   } else if (params.peakDrawdownProtectionConfig) {
     logger.debug(
-      `ℹ️ 使用策略默认的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+      `ℹ️ 使用策略默认的峰值回落配置: ${JSON.stringify(
+        peakDrawdownConfig,
+        null,
+        2
+      )}`
     );
   } else {
     logger.debug(
-      `ℹ️ 使用系统默认的峰值回落配置: ${JSON.stringify(peakDrawdownConfig)}`
+      `ℹ️ 使用系统默认的峰值回落配置: ${JSON.stringify(
+        peakDrawdownConfig,
+        null,
+        2
+      )}`
     );
   }
 

@@ -50,9 +50,9 @@ export {
 
 // 策略参数设置工具
 export {
-  setPartialTakeProfitParams,
-  setPeakDrawdownParams,
-  getCurrentStrategyParams,
-  resetStrategyParams,
-  setDynamicStopLossParams,
+  setPartialTakeProfitParamsTool as setPartialTakeProfitParams,
+  setPeakDrawdownParamsTool as setPeakDrawdownParams,
+  getCurrentStrategyParamsTool as getCurrentStrategyParams,
+  resetStrategyParamsTool as resetStrategyParams,
+  setDynamicStopLossParamsTool as setDynamicStopLossParams,
 } from "../strategyParams";

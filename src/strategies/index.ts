@@ -101,6 +101,9 @@ import type {
   TradingStrategy,
 } from "./types";
 import { createClient } from "@libsql/client";
+import { getAgentStrategyParams as getAgentStrategyParamsFromTools } from "../tools/strategyParams";
+// 重新导出统一的getAgentStrategyParams函数
+export { getAgentStrategyParamsFromTools as getAgentStrategyParams };
 import { generateUltraShortPrompt, getUltraShortStrategy } from "./ultraShort";
 
 /**
@@ -161,37 +164,6 @@ export function getStrategyParams(
  * @param strategy - 策略类型
  * @returns Promise<Record<string, any>> - Agent设置的参数对象
  */
-export async function getAgentStrategyParams(
-  strategy: TradingStrategy
-): Promise<Record<string, any>> {
-  try {
-    const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
-    const client = createClient({
-      url: dbUrl,
-    });
-
-    const result = await client.execute({
-      sql: "SELECT key, value FROM strategy_params WHERE strategy = ?",
-      args: [strategy],
-    });
-
-    const params: Record<string, any> = {};
-    for (const row of result.rows as any[]) {
-      try {
-        // 尝试解析JSON，如果失败则作为字符串处理
-        params[row.key] = JSON.parse(row.value);
-      } catch (e) {
-        params[row.key] = row.value;
-      }
-    }
-
-    client.close();
-    return params;
-  } catch (error) {
-    console.error("读取Agent策略参数失败:", error);
-    return {};
-  }
-}
 
 /**
  * 设置Agent动态策略参数

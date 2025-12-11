@@ -63,39 +63,43 @@ export function generateCaiSenPrompt(
 
   let prompt = `【蔡森策略 - 5分钟短期预测】
 
-你的角色：蔡森策略AI交易专家，专注5分钟级别短期预测和精准开仓。
+你的角色：蔡森策略AI交易专家，专注5分钟级别短期预测和精准开仓，核心是多维度分析+七分位策略+动态点位交易系统。
 
 【核心策略】
-1. 时间框架：5分钟(50%) > 15分钟(30%) > 1小时(20%)
+1. 时间框架权重：5分钟(50%) > 15分钟(30%) > 1小时(20%)
 2. 预测要求：保守预测，未来5分钟走势需包含方向、置信度(0-100)、依据
 3. 指标权重：趋势(30%)、动量(25%)、波动率(20%)、成交量(15%)、市场情绪(10%)
-4. 开仓信号：
-   - 做多：价格突破EMA10+RSI7>30向上+成交量放大1.5倍+MACD金叉
-   - 做空：价格跌破EMA10+RSI7<70向下+成交量放大1.5倍+MACD死叉
-5. 平仓规则：
-   - 分批平仓：设置触发条件和比例，保守优先
+4. 七分位策略：
+   - 将价格区间分为7等份，1/7-2/7为超卖区(做多机会)，6/7-7/7为超买区(做空机会)
+   - 计算公式：七分位位置 = (当前价格 - 区间低点) / (区间高点 - 区间低点) * 7
+5. 开仓信号：
+   - 做多：价格在1/7-2/7区+RSI7<30+成交量放大1.5倍+MACD金叉
+   - 做空：价格在6/7-7/7区+RSI7>70+成交量放大1.5倍+MACD死叉
+6. 平仓规则：
+   - 分批止盈：盈利达到不同阶段自动平仓部分仓位
    - 峰值回落：盈利峰值后回落达到预设比例自动平仓
-   - 必须调用closePosition/openPosition执行
-6. 止盈止损：
-   - 持仓或开仓时，必须为每个货币独立调用三个工具设置参数：
-     - setPartialTakeProfitParams(分批止盈)
-     - setPeakDrawdownParams(峰值回落)
-     - setDynamicStopLossParams(动态止损)
-   - 未设置参数则不会自动平仓
-7. 指标判断：
-   - RSI7：<30超卖，>70超买
-   - MACD：金叉看涨，死叉看跌
-   - 布林带：突破上轨看涨，突破下轨看跌
-   - 成交量：放大1.5倍以上确认趋势
-   - EMA：价格在EMA上方看涨，下方看跌
-   - MFI：<20超卖，>80超买
-   - Stochastic：K线>80超买，<20超卖
-   - ADX：>25趋势强，<20趋势弱
-   - OBV：与价格背离时反转信号
-   - VWAP：价格在VWAP上方看涨，下方看跌
-   - 恐惧贪婪指数：<30恐惧(买入)，>70贪婪(卖出)
-8. 风控：单笔亏损≤1%，单日亏损≤5%，持仓≤24小时
-9. 执行：信号出现后2根5分钟K线内决策
+   - 动态止损：根据市场波动自动调整止损比例
+   - 持仓≥24小时或单笔亏损≥3% → 强制平仓
+7. 风控底线：单笔亏损≤1%，单日亏损≤5%，持仓≤24小时
+8. 执行要求：信号出现后2根5分钟K线内决策
+
+【数据延迟提醒】
+- 当前系统存在约1-3秒的数据滞后性，请在决策时考虑这一因素
+- 快速变动市场中，建议等待更强的信号确认再执行交易
+- 滞后补偿：根据当前趋势和波动率，预测滞后期间的可能价格变动
+
+【指标判断规则】
+- RSI7：<30超卖，>70超买
+- MACD：金叉看涨，死叉看跌
+- 布林带：突破上轨看涨，突破下轨看跌
+- 成交量：放大1.5倍以上确认趋势
+- EMA：价格在EMA上方看涨，下方看跌
+- MFI：<20超卖，>80超买
+- Stochastic：K线>80超买，<20超卖
+- ADX：>25趋势强，<20趋势弱
+- OBV：与价格背离时反转信号
+- VWAP：价格在VWAP上方看涨，下方看跌
+- 恐惧贪婪指数：<30恐惧(买入)，>70贪婪(卖出)
 
 【当前配置】
 - 杠杆：${levMin}-${levMax}倍
@@ -141,15 +145,41 @@ export function generateCaiSenPrompt(
 3. 新交易机会：做多/做空 → openPosition
 4. 风险评估 → calculateRisk
 
-【工具要求】
-1. 开仓新货币对时，立即为该货币对独立调用三个工具设置参数：
-   - setPartialTakeProfitParams(分批止盈)
-   - setPeakDrawdownParams(峰值回落)
-   - setDynamicStopLossParams(动态止损)
-2. 有现有持仓时，为每个持仓货币对重新评估并设置参数
-3. 工具调用必须包含完整参数
-4. 基于技术指标设置合理参数
-5. 未设置参数则不会自动执行平仓
+【工具调用规则】
+
+📌 **核心要求**
+- 【有持仓或开仓】→ 必须为每个货币对调用以下三个工具
+- 【无持仓且不开仓】→ 无需调用任何工具
+
+📌 **必须调用的工具（缺一不可）**
+1. setPartialTakeProfitParams - 分批止盈，控制盈利出场时机
+2. setPeakDrawdownParams - 峰值回落，防止盈利回吐
+3. setDynamicStopLossParams - 动态止损，保护本金安全
+
+📌 **工具调用规则**
+1. **每个货币对独立调用**：开仓或持有多少货币对，就调用多少次工具组合
+2. **每次决策都要调用**：即使之前设置过，也要重新调用以反映最新市场变化
+3. **参数必须完整**：所有阈值使用正值，止盈触发阈值>0，平仓百分比>0
+4. **基于市场设置合理参数**：结合技术指标、波动率和趋势强度
+
+📌 **执行流程**
+1. 分析市场数据，确定交易方向
+2. 为目标货币对设置三个工具参数
+3. 执行开仓/平仓操作
+
+📌 **示例**
+\`\`\`
+# 开仓DOGE示例
+openPosition({ symbol: "DOGE", side: "long", quantity: 100, leverage: 10 });
+setPartialTakeProfitParams({ symbol: "DOGE", stage1: { trigger: 2, closePercent: 30 }, stage2: { trigger: 4, closePercent: 50 }, stage3: { trigger: 6, closePercent: 20 } });
+setPeakDrawdownParams({ symbol: "DOGE", level1: { drawdownThreshold: 1.0, closePercent: 30 }, level2: { drawdownThreshold: 2.0, closePercent: 50 }, level3: { drawdownThreshold: 3.0, closePercent: 100 }, minHoldingTime: 5 });
+setDynamicStopLossParams({ symbol: "DOGE", threshold: 2.5, evaluationInterval: 30 });
+\`\`\`
+
+⚠️ **警告**
+- 未调用工具 → 系统不会自动执行平仓
+- 缺少工具 → 对应功能无法生效
+- 未为货币对调用 → 该货币对无自动平仓保护
 
 【数据说明】
 所有价格数据：最旧→最新
@@ -197,32 +227,137 @@ export function generateCaiSenPrompt(
     // 微观结构指标
     if (data.microstructure) {
       const ms = data.microstructure;
-      prompt += `微观结构: 订单簿不平衡度=${Number(
+      let microstructureText = "";
+
+      // 微观结构基础指标（总是显示）
+      microstructureText += `微观结构: 订单簿不平衡度=${Number(
         ms.orderBookMetrics.orderBookImbalance
       ).toFixed(4)}, 买卖价差=${Number(ms.orderBookMetrics.spread).toFixed(4)}
 `;
-      prompt += `大额订单: 买单${ms.orderBookMetrics.largeBids}个, 卖单${ms.orderBookMetrics.largeAsks}个
+
+      // 大额订单（仅当数量大于0时显示）
+      if (
+        ms.orderBookMetrics.largeBids > 0 ||
+        ms.orderBookMetrics.largeAsks > 0
+      ) {
+        microstructureText += `大额订单: 买单${ms.orderBookMetrics.largeBids}个, 卖单${ms.orderBookMetrics.largeAsks}个
 `;
-      prompt += `深度变化: 买盘${Number(
-        ms.orderBookMetrics.bidDepthChangeRate
-      ).toFixed(2)}%, 卖盘${Number(
-        ms.orderBookMetrics.askDepthChangeRate
-      ).toFixed(2)}%
+      }
+
+      // 深度变化（仅当变化率格式化后不为0.00时显示）
+      const bidDepthChangeRate = Number(ms.orderBookMetrics.bidDepthChangeRate);
+      const askDepthChangeRate = Number(ms.orderBookMetrics.askDepthChangeRate);
+      const formattedBidDepth = bidDepthChangeRate.toFixed(2);
+      const formattedAskDepth = askDepthChangeRate.toFixed(2);
+
+      // 检查是否有实际有意义的数值要显示
+      const hasBidDepth =
+        !isNaN(bidDepthChangeRate) && formattedBidDepth !== "0.00";
+      const hasAskDepth =
+        !isNaN(askDepthChangeRate) && formattedAskDepth !== "0.00";
+
+      if (hasBidDepth || hasAskDepth) {
+        let depthText = `深度变化: `;
+        if (hasBidDepth) {
+          depthText += `买盘${formattedBidDepth}%`;
+        }
+        if (hasAskDepth) {
+          if (hasBidDepth) {
+            depthText += `, `;
+          }
+          depthText += `卖盘${formattedAskDepth}%`;
+        }
+        depthText += `
 `;
-      prompt += `成交特征: 总成交${
-        ms.tradeMetrics.distribution.totalTrades
-      }笔, 买卖比=${Number(ms.tradeMetrics.distribution.buySellRatio).toFixed(
-        2
-      )}
+        microstructureText += depthText;
+      }
+
+      // 成交特征（总成交笔数总是显示，买卖比仅当格式化后不为0.00且非NaN时显示）
+      let tradeFeatureText = `成交特征: 总成交${ms.tradeMetrics.distribution.totalTrades}笔`;
+      const buySellRatio = Number(ms.tradeMetrics.distribution.buySellRatio);
+      const formattedBuySell = buySellRatio.toFixed(2);
+
+      // 检查是否有实际有意义的数值要显示
+      if (!isNaN(buySellRatio) && formattedBuySell !== "0.00") {
+        tradeFeatureText += `, 买卖比=${formattedBuySell}`;
+      }
+      tradeFeatureText += `
 `;
-      prompt += `流动性: 执行速度=${Number(
-        ms.tradeMetrics.executionSpeed
-      ).toFixed(2)}, 比率=${Number(ms.tradeMetrics.liquidityRatio).toFixed(2)}
+      microstructureText += tradeFeatureText;
+
+      // 流动性（仅当执行速度或比率格式化后不为0.00且非NaN时显示）
+      const executionSpeed = Number(ms.tradeMetrics.executionSpeed);
+      const liquidityRatio = Number(ms.tradeMetrics.liquidityRatio);
+      const formattedExecutionSpeed = executionSpeed.toFixed(2);
+      const formattedLiquidityRatio = liquidityRatio.toFixed(2);
+
+      // 检查是否有实际有意义的数值要显示
+      const hasExecutionSpeed =
+        !isNaN(executionSpeed) && formattedExecutionSpeed !== "0.00";
+      const hasLiquidityRatio =
+        !isNaN(liquidityRatio) && formattedLiquidityRatio !== "0.00";
+
+      if (hasExecutionSpeed || hasLiquidityRatio) {
+        let liquidityText = `流动性: `;
+        if (hasExecutionSpeed) {
+          liquidityText += `执行速度=${formattedExecutionSpeed}`;
+        }
+        if (hasLiquidityRatio) {
+          if (hasExecutionSpeed) {
+            liquidityText += `, `;
+          }
+          liquidityText += `比率=${formattedLiquidityRatio}`;
+        }
+        liquidityText += `
 `;
-      prompt += `高级指标: VWAP=${ms.tradeMetrics.vwap}, 订单簿斜率=${
-        ms.additionalMetrics.orderBookSlope.bidSlope
-      }, 价格冲击=${Number(ms.additionalMetrics.priceImpact).toFixed(4)}%
+        microstructureText += liquidityText;
+      }
+
+      // 高级指标（仅当VWAP、订单簿斜率或价格冲击格式化后不为0且非NaN时显示）
+      const vwap = Number(ms.tradeMetrics.vwap);
+      const bidSlope = Number(ms.additionalMetrics.orderBookSlope.bidSlope);
+      const askSlope = Number(ms.additionalMetrics.orderBookSlope.askSlope);
+      const priceImpact = Number(ms.additionalMetrics.priceImpact);
+
+      // 格式化并检查数值
+      const formattedVwap = vwap.toFixed(2);
+      const formattedBidSlope = bidSlope.toFixed(2);
+      const formattedAskSlope = askSlope.toFixed(2);
+      const formattedPriceImpact = priceImpact.toFixed(4);
+
+      // 检查是否有实际有意义的数值要显示
+      const hasVwap = !isNaN(vwap) && formattedVwap !== "0.00";
+      const hasBidSlope = !isNaN(bidSlope) && formattedBidSlope !== "0.00";
+      const hasAskSlope = !isNaN(askSlope) && formattedAskSlope !== "0.00";
+      const hasPriceImpact =
+        !isNaN(priceImpact) && formattedPriceImpact !== "0.0000";
+
+      if (hasVwap || hasBidSlope || hasAskSlope || hasPriceImpact) {
+        let advancedText = `高级指标: `;
+        const advancedMetrics = [];
+
+        if (hasVwap) {
+          advancedMetrics.push(`VWAP=${vwap}`);
+        }
+
+        if (hasBidSlope || hasAskSlope) {
+          const slopeValue = hasBidSlope ? bidSlope : askSlope;
+          advancedMetrics.push(`订单簿斜率=${slopeValue}`);
+        }
+
+        if (hasPriceImpact) {
+          advancedMetrics.push(`价格冲击=${formattedPriceImpact}%`);
+        }
+
+        advancedText +=
+          advancedMetrics.join(", ") +
+          `
 `;
+        microstructureText += advancedText;
+      }
+
+      // 将处理后的微观结构指标添加到提示词中
+      prompt += microstructureText;
     }
 
     // 5分钟核心时序数据（仅保留最近30个数据点）

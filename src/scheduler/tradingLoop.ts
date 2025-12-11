@@ -16,7 +16,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createClient } from "@libsql/client";
 /**
  * 交易循环 - 定时执行交易决策
  */
@@ -34,16 +33,37 @@ import { calculateIndicators } from "../tools/trading/marketData";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
-import { parseToolCalls, executeToolCalls } from "../utils/toolCallParser";
+import {
+  parseToolCalls,
+  executeToolCalls,
+  formatToolCallsDisplay,
+} from "../utils/toolCallParser";
+import { dbClient } from "../database/dbClient";
 
 const logger = createLogger({
   name: "trading-loop",
   level: "info",
 });
 
-const dbClient = createClient({
-  url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
-});
+// 定义持仓数据类型
+interface PositionRow {
+  symbol: string;
+  sl_order_id?: string | null;
+  tp_order_id?: string | null;
+  stop_loss?: number | null;
+  profit_target?: number | null;
+  entry_order_id?: string | null;
+  opened_at?: string | null;
+  peak_pnl_percent?: number | string | null;
+  partial_close_percentage?: number | null;
+  leverage?: number | string | null;
+}
+
+interface DbData {
+  opened_at?: string | null;
+  peak_pnl_percent: number;
+  leverage: number;
+}
 
 // 支持的币种 - 从配置中读取
 const SYMBOLS = [...RISK_PARAMS.TRADING_SYMBOLS] as string[];
@@ -443,7 +463,7 @@ async function getAccountInfo() {
     const initialResult = await dbClient.execute(
       "SELECT total_value FROM account_history ORDER BY timestamp ASC LIMIT 1"
     );
-    const initialBalance = initialResult.rows[0]
+    const initialBalance = initialResult.rows?.[0]?.total_value
       ? Number.parseFloat(initialResult.rows[0].total_value as string)
       : 100;
 
@@ -451,7 +471,7 @@ async function getAccountInfo() {
     const peakResult = await dbClient.execute(
       "SELECT MAX(total_value) as peak FROM account_history"
     );
-    const peakBalance = peakResult.rows[0]?.peak
+    const peakBalance = peakResult.rows?.[0]?.peak
       ? Number.parseFloat(peakResult.rows[0].peak as string)
       : initialBalance;
 
@@ -513,8 +533,8 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
     const dbResult = await dbClient.execute(
       "SELECT symbol, sl_order_id, tp_order_id, stop_loss, profit_target, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage FROM positions"
     );
-    const dbPositionsMap = new Map(
-      dbResult.rows.map((row: any) => [row.symbol, row])
+    const dbPositionsMap = new Map<string, PositionRow>(
+      dbResult.rows.map((row: PositionRow) => [row.symbol, row])
     );
 
     // 检查交易所是否有持仓（可能 API 有延迟）
@@ -574,7 +594,8 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
 
       // 保留原有的 entry_order_id，不要覆盖
       const entryOrderId =
-        dbPos?.entry_order_id || `synced-${symbol}-${Date.now()}`;
+        (dbPos?.entry_order_id as string | undefined) ||
+        `synced-${symbol}-${Date.now()}`;
 
       await dbClient.execute({
         sql: `INSERT INTO positions 
@@ -590,14 +611,20 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
           unrealizedPnl,
           leverage,
           side,
-          dbPos?.stop_loss || null,
-          dbPos?.profit_target || null,
+          dbPos?.stop_loss !== undefined ? Number(dbPos.stop_loss) : null,
+          dbPos?.profit_target !== undefined
+            ? Number(dbPos.profit_target)
+            : null,
           dbPos?.sl_order_id || null,
           dbPos?.tp_order_id || null,
           entryOrderId, // 保留原有的订单ID
           dbPos?.opened_at || getChinaTimeISO(), // 保留原有的开仓时间
-          dbPos?.peak_pnl_percent || 0, // 保留峰值盈利
-          dbPos?.partial_close_percentage || 0, // 保留已平仓百分比（关键修复）
+          dbPos?.peak_pnl_percent !== undefined
+            ? Number(dbPos.peak_pnl_percent)
+            : 0, // 保留峰值盈利
+          dbPos?.partial_close_percentage !== undefined
+            ? Number(dbPos.partial_close_percentage)
+            : 0, // 保留已平仓百分比（关键修复）
         ],
       });
 
@@ -634,7 +661,7 @@ async function getPositions(cachedExchangePositions?: any[]) {
     const dbResult = await dbClient.execute(
       "SELECT symbol, opened_at, peak_pnl_percent, leverage FROM positions"
     );
-    const dbDataMap = new Map(
+    const dbDataMap = new Map<string, DbData>(
       dbResult.rows.map((row: any) => [
         row.symbol,
         {
@@ -1661,6 +1688,12 @@ export async function executeTradingDecision() {
       );
       const agentParamsBySymbol = await getAgentStrategyParams(strategy);
 
+      // 调用蔡森策略参数完整性检查
+      const { checkCaiSenParamsIntegrity } = await import(
+        "../caisen/systems/monitor"
+      );
+      await checkCaiSenParamsIntegrity();
+
       prompt = generateCaiSenPrompt(
         params,
         {
@@ -1708,8 +1741,8 @@ export async function executeTradingDecision() {
     const agent = await createTradingAgent(intervalMinutes, marketData);
 
     try {
-      // 设置足够大的 maxOutputTokens 以避免输出被截断
-      // DeepSeek API 限制: max_tokens 范围为 [1, 8192]
+      // 设置更大的 maxOutputTokens 以避免输出被截断
+      // 增加到最大支持值 8192，确保完整获取AI输出
       const response = await agent.generateText(prompt, {
         maxOutputTokens: 8192,
         maxSteps: 20,
@@ -1793,9 +1826,12 @@ export async function executeTradingDecision() {
         }
       }
 
+      // 美化工具调用显示格式
+      const displayText = formatToolCallsDisplay(decisionText || "");
+
       logger.info("【输出 - AI 决策】");
       logger.info("=".repeat(80));
-      logger.info(decisionText || "无决策输出");
+      logger.info(displayText || "无决策输出");
       logger.info("=".repeat(80) + "\n");
 
       // 保存决策记录
@@ -1820,16 +1856,204 @@ export async function executeTradingDecision() {
         if (toolCalls.length > 0) {
           logger.info(`检测到 ${toolCalls.length} 个工具调用`);
 
+          // 蔡森策略工具调用检查
+          if (currentStrategy === "cai-sen") {
+            logger.info(`🔍 开始检查蔡森策略工具调用完整性...`);
+
+            // 获取所有需要检查的货币对（持仓币种 + 交易币种）
+            const allSymbols = new Set<string>();
+
+            // 添加持仓币种
+            positions.forEach((pos) => {
+              allSymbols.add(pos.symbol);
+            });
+
+            // 添加交易币种
+            RISK_PARAMS.TRADING_SYMBOLS.forEach((symbol) => {
+              allSymbols.add(symbol);
+            });
+
+            logger.info(
+              `📋 需要检查的货币对: ${Array.from(allSymbols).join(", ")}`
+            );
+
+            // 按币种分组工具调用
+            const toolCallsBySymbol: Record<string, Set<string>> = {};
+
+            // 初始化每个币种的工具调用集合
+            allSymbols.forEach((symbol) => {
+              toolCallsBySymbol[symbol] = new Set<string>();
+            });
+
+            // 遍历工具调用，按币种分组
+            toolCalls.forEach((toolCall) => {
+              if (toolCall.parameters?.symbol) {
+                const symbol = toolCall.parameters.symbol;
+                toolCallsBySymbol[symbol] =
+                  toolCallsBySymbol[symbol] || new Set<string>();
+                toolCallsBySymbol[symbol].add(toolCall.name);
+              }
+            });
+
+            // 需要调用的三个工具
+            const requiredTools = [
+              "setPartialTakeProfitParams",
+              "setPeakDrawdownParams",
+              "setDynamicStopLossParams",
+            ];
+
+            // 检查每个币种是否调用了所有必需的工具
+            let missingToolCalls = false;
+
+            for (const [symbol, calledTools] of Object.entries(
+              toolCallsBySymbol
+            )) {
+              const missingTools = requiredTools.filter(
+                (tool) => !calledTools.has(tool)
+              );
+
+              if (missingTools.length > 0) {
+                logger.warn(
+                  `⚠️ 币种 ${symbol} 缺少以下工具调用: ${missingTools.join(
+                    ", "
+                  )}`
+                );
+                logger.warn(`📌 系统将自动为该币种设置默认参数...`);
+
+                // 自动为该币种设置默认参数
+                try {
+                  const {
+                    setPartialTakeProfitParams,
+                    setPeakDrawdownParams,
+                    setDynamicStopLossParams,
+                  } = await import("../tools/strategyParams");
+
+                  logger.info(`📤 正在为 ${symbol} 设置默认分批止盈参数...`);
+                  await setPartialTakeProfitParams(
+                    currentStrategy,
+                    symbol,
+                    { trigger: 5, closePercent: 30 },
+                    { trigger: 10, closePercent: 40 },
+                    { trigger: 15, closePercent: 30 }
+                  );
+
+                  logger.info(`📤 正在为 ${symbol} 设置默认峰值回撤参数...`);
+                  await setPeakDrawdownParams(
+                    currentStrategy,
+                    symbol,
+                    { drawdownThreshold: 1.0, closePercent: 30 },
+                    { drawdownThreshold: 2.0, closePercent: 50 },
+                    { drawdownThreshold: 3.0, closePercent: 100 },
+                    5
+                  );
+
+                  logger.info(`📤 正在为 ${symbol} 设置默认动态止损参数...`);
+                  await setDynamicStopLossParams(
+                    currentStrategy,
+                    symbol,
+                    3.0,
+                    30
+                  );
+
+                  logger.info(`✅ 已成功为 ${symbol} 设置所有默认参数`);
+                } catch (error) {
+                  logger.error(`❌ 为 ${symbol} 设置默认参数失败:`, error);
+                }
+
+                missingToolCalls = true;
+              } else {
+                logger.info(`✅ 币种 ${symbol} 已调用所有必需的工具函数`);
+              }
+            }
+
+            if (!missingToolCalls) {
+              logger.info(`✅ 所有币种都已调用了必需的工具函数`);
+            }
+          }
+
           // 执行工具调用
           for (const toolCall of toolCalls) {
             logger.info(`执行工具调用: ${toolCall.name}`, {
               parameters: toolCall.parameters,
             });
 
-            // 这里需要根据工具名称执行对应的工具
-            // 由于工具是动态注册到Agent中的，我们需要一种方式来执行它们
-            // 目前我们可以记录日志，后续可以扩展为实际执行
-            logger.info(`工具调用 ${toolCall.name} 执行成功`);
+            // 执行对应的策略参数设置工具
+            let result = "";
+            try {
+              // 导入并执行对应的策略参数设置工具
+              const {
+                setPartialTakeProfitParams,
+                setPeakDrawdownParams,
+                setDynamicStopLossParams,
+                resetStrategyParams,
+                getCurrentStrategyParams,
+              } = await import("../tools/strategyParams");
+
+              const strategy = getTradingStrategy();
+
+              switch (toolCall.name) {
+                case "setPartialTakeProfitParams":
+                  result = await setPartialTakeProfitParams(
+                    strategy,
+                    toolCall.parameters.symbol,
+                    toolCall.parameters.stage1,
+                    toolCall.parameters.stage2,
+                    toolCall.parameters.stage3
+                  );
+                  break;
+                case "setPeakDrawdownParams":
+                  result = await setPeakDrawdownParams(
+                    strategy,
+                    toolCall.parameters.symbol,
+                    toolCall.parameters.level1,
+                    toolCall.parameters.level2,
+                    toolCall.parameters.level3,
+                    toolCall.parameters.minHoldingTime
+                  );
+                  break;
+                case "setDynamicStopLossParams":
+                  result = await setDynamicStopLossParams(
+                    strategy,
+                    toolCall.parameters.symbol,
+                    toolCall.parameters.threshold,
+                    toolCall.parameters.evaluationInterval,
+                    toolCall.parameters.conditions
+                  );
+                  break;
+                case "resetStrategyParams":
+                  result = await resetStrategyParams(
+                    strategy,
+                    toolCall.parameters.symbol
+                  );
+                  break;
+                case "getCurrentStrategyParams":
+                case "getAgentStrategyParams":
+                  result = await getCurrentStrategyParams(
+                    strategy,
+                    toolCall.parameters.symbol
+                  );
+                  break;
+                default:
+                  logger.warn(`未知的工具调用: ${toolCall.name}`);
+                  result = `未知的工具调用: ${toolCall.name}`;
+              }
+
+              logger.info(`工具调用 ${toolCall.name} 执行成功`, {
+                result: result,
+              });
+            } catch (error) {
+              logger.error(
+                `工具调用 ${toolCall.name} 执行失败: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+                {
+                  error: error,
+                }
+              );
+              result = `工具调用 ${toolCall.name} 执行失败: ${
+                error instanceof Error ? error.message : String(error)
+              }`;
+            }
           }
         }
       } catch (error) {

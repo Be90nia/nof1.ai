@@ -21,6 +21,7 @@ import type { TradingStrategy } from "../../strategies";
 import {
   setPartialTakeProfitParams,
   setPeakDrawdownParams,
+  setDynamicStopLossParams,
   getCurrentStrategyParams,
   resetStrategyParams,
 } from "../../tools/strategyParams";
@@ -380,12 +381,20 @@ export function createCaiSenTradingTools(
    * @param stage3 - 第三阶段止盈参数
    * @returns Promise<string> - 设置结果
    *
-   * 示例 Example:
+   * 示例 Example (做多场景):
    * setPartialTakeProfitParams(
    *   "BTC",
    *   { trigger: 1, closePercent: 20 },
    *   { trigger: 2, closePercent: 40 },
    *   { trigger: 3, closePercent: 40 }
+   * )
+   *
+   * 示例 Example (做空场景):
+   * setPartialTakeProfitParams(
+   *   "ETH",
+   *   { trigger: 2, closePercent: 30 },
+   *   { trigger: 4, closePercent: 50 },
+   *   { trigger: 6, closePercent: 20 }
    * )
    */
   async function setPartialTakeProfitParamsTool(
@@ -424,12 +433,21 @@ export function createCaiSenTradingTools(
    * @param minHoldingTime - 最小持仓时间（分钟）
    * @returns Promise<string> - 设置结果
    *
-   * 示例 Example:
+   * 示例 Example (做多场景):
    * setPeakDrawdownParams(
    *   "BTC",
    *   { drawdownThreshold: 0.5, closePercent: 30 },
    *   { drawdownThreshold: 1, closePercent: 60 },
    *   { drawdownThreshold: 1.5, closePercent: 100 },
+   *   5
+   * )
+   *
+   * 示例 Example (做空场景):
+   * setPeakDrawdownParams(
+   *   "ETH",
+   *   { drawdownThreshold: 0.8, closePercent: 30 },
+   *   { drawdownThreshold: 1.5, closePercent: 50 },
+   *   { drawdownThreshold: 2.5, closePercent: 100 },
    *   5
    * )
    */
@@ -452,6 +470,52 @@ export function createCaiSenTradingTools(
     } catch (error) {
       logger.error("蔡森Agent设置峰值回落参数失败", { error });
       return `设置峰值回落参数失败: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
+
+  /**
+   * 设置动态止损参数
+   * Set dynamic stop loss parameters
+   *
+   * 该工具允许蔡森Agent设置动态止损策略参数
+   * This tool allows CaiSen Agent to set dynamic stop loss strategy parameters
+   *
+   * @param symbol - 交易币种（如BTC、ETH）
+   * @param threshold - 止损阈值（百分比）
+   * @param evaluationInterval - 评估周期（分钟）
+   * @param conditions - 触发条件数组
+   * @returns Promise<string> - 设置结果
+   *
+   * 示例 Example:
+   * setDynamicStopLossParams(
+   *   "BTC",
+   *   2.5,
+   *   60,
+   *   [
+   *     { type: "volatility", value: 1.5 },
+   *     { type: "trend", value: 0.8 }
+   *   ]
+   * )
+   */
+  async function setDynamicStopLossParamsTool(
+    symbol: string,
+    threshold: number,
+    evaluationInterval: number = 30,
+    conditions?: Array<{ type: "volatility" | "trend" | "news"; value: number }>
+  ): Promise<string> {
+    try {
+      return await setDynamicStopLossParams(
+        "cai-sen",
+        symbol,
+        threshold,
+        evaluationInterval,
+        conditions
+      );
+    } catch (error) {
+      logger.error("蔡森Agent设置动态止损参数失败", { error });
+      return `设置动态止损参数失败: ${
         error instanceof Error ? error.message : String(error)
       }`;
     }
@@ -591,6 +655,7 @@ export function createCaiSenTradingTools(
     getStopProfitLossStatus,
     setPartialTakeProfitParams: setPartialTakeProfitParamsTool,
     setPeakDrawdownParams: setPeakDrawdownParamsTool,
+    setDynamicStopLossParams: setDynamicStopLossParamsTool,
     getCurrentStrategyParams: getCurrentStrategyParamsTool,
     resetStrategyParams: resetStrategyParamsTool,
     setStopLossThreshold: setStopLossThresholdTool,
