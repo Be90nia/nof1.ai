@@ -434,96 +434,132 @@ function formatToolCallsDisplay(decision) {
     return decision;
   }
 
-  // 查找工具调用的开始和结束标记 - 使用半角竖线和下划线，与实际数据保持一致
-  const toolCallsBegin = "<|tool_calls_begin|>";
-  const toolCallsEnd = "<|tool_calls_end|>";
-  const toolCallBegin = "<|tool_call_begin|>";
-  const toolCallEnd = "<|tool_call_end|>";
-  const toolSep = "<|tool_sep|>";
-
   let result = decision;
 
-  // 处理所有工具调用块
-  let startIndex = result.indexOf(toolCallsBegin);
-  while (startIndex !== -1) {
-    const endIndex = result.indexOf(toolCallsEnd, startIndex);
-    if (endIndex === -1) break;
+  // 1. 查找工具调用块的开始和结束位置（使用完整的标记）
+  const callsBegin = result.indexOf("<|tool_calls_begin|");
+  const callsEnd = result.indexOf("<|tool_calls_end|", callsBegin);
 
-    // 提取工具调用块
-    const toolCallsBlock = result.substring(
-      startIndex + toolCallsBegin.length,
-      endIndex
+  if (callsBegin !== -1 && callsEnd !== -1) {
+    // 提取完整的工具调用块
+    const callBlock = result.substring(
+      callsBegin,
+      callsEnd + "<|tool_calls_end|".length
     );
 
-    // 解析单个工具调用
-    let formattedToolCalls = "";
-    let callStart = toolCallsBlock.indexOf(toolCallBegin);
-    while (callStart !== -1) {
-      const callEnd = toolCallsBlock.indexOf(toolCallEnd, callStart);
-      if (callEnd === -1) break;
+    // 2. 提取工具名称（使用实际的内部标记格式 |||tool_call_begin||>）
+    const toolNameStart = callBlock.indexOf("|||tool_call_begin||>");
+    if (toolNameStart !== -1) {
+      // 找到实际的工具名称，处理复杂的分隔符情况
+      const sepMatch = callBlock.match(/\|\|tool_sep\|\|>/g);
+      if (sepMatch && sepMatch.length > 0) {
+        const toolNameEnd = callBlock.indexOf(sepMatch[0], toolNameStart);
+        if (toolNameEnd !== -1) {
+          let toolName = callBlock
+            .substring(toolNameStart + 18, toolNameEnd)
+            .trim();
 
-      // 提取单个工具调用
-      const callContent = toolCallsBlock.substring(
-        callStart + toolCallBegin.length,
-        callEnd
-      );
+          // 清理工具名称中的多余字符
+          toolName = toolName.replace(/^\|\|>/, "").trim();
 
-      // 分离工具名称和参数
-      const sepIndex = callContent.indexOf(toolSep);
-      if (sepIndex !== -1) {
-        const toolName = callContent.substring(0, sepIndex).trim();
-        const toolArgs = callContent
-          .substring(sepIndex + toolSep.length)
-          .trim();
+          // 3. 提取工具参数
+          const argsStart = toolNameEnd + sepMatch[0].length;
+          const argsEnd = callBlock.indexOf("||tool_call_end||", argsStart);
+          if (argsEnd !== -1) {
+            let toolArgs = callBlock.substring(argsStart, argsEnd).trim();
 
-        try {
-          // 尝试解析JSON参数
-          const argsObj = JSON.parse(toolArgs);
+            try {
+              // 修复JSON解析问题
+              let fixedArgs = toolArgs;
 
-          // 格式化参数，添加换行和缩进
-          const formattedArgs = JSON.stringify(argsObj, null, 2)
-            .replace(/"(\w+)":/g, "$1:") // 移除键名引号
-            .replace(/\n/g, "<br>") // 替换换行为HTML换行
-            .replace(/  /g, "&nbsp;&nbsp;"); // 替换空格为HTML空格
+              // 1. 移除多余的括号和字符
+              // 处理 {(` 开头和 `)` 结尾的特殊格式
+              if (fixedArgs.startsWith("{(")) {
+                // 移除开头的 {( 和结尾的 )
+                // 例如：{(`symbol":"BCH", ...)} -> {"symbol":"BCH", ...}
+                fixedArgs = fixedArgs.substring(1); // 移除开头的 {
+                fixedArgs = fixedArgs.substring(1, fixedArgs.length - 1); // 移除开头的 ( 和结尾的 )
+                fixedArgs = "{" + fixedArgs + "}"; // 添加正确的 {} 包裹
+              }
+              // 处理普通括号包裹的情况
+              else if (fixedArgs.startsWith("(") && fixedArgs.endsWith(")")) {
+                fixedArgs = fixedArgs.substring(1, fixedArgs.length - 1);
+                fixedArgs = "{" + fixedArgs + "}";
+              }
 
-          // 构建美化的工具调用字符串
-          formattedToolCalls += `<div class="tool-call">
-                        <div class="tool-name">工具: ${toolName}</div>
-                        <div class="tool-params">参数: <br>${formattedArgs}</div>
-                    </div>`;
-        } catch (e) {
-          // 如果JSON解析失败，使用原始格式
-          formattedToolCalls += `<div class="tool-call">
-                        <div class="tool-name">工具: ${toolName}</div>
-                        <div class="tool-params">参数: ${toolArgs}</div>
-                    </div>`;
+              // 2. 修复可能存在的引号问题
+              // 将单引号替换为双引号
+              fixedArgs = fixedArgs.replace(
+                /'([^']*?)'(\s*[:},\]])/g,
+                '"$1"$2'
+              );
+
+              // 3. 修复尾部逗号
+              fixedArgs = fixedArgs.replace(/,\s*([}\]])/g, "$1");
+
+              // 4. 确保JSON的完整性
+              // 统计括号数量，确保平衡
+              const openBraces = (fixedArgs.match(/\{/g) || []).length;
+              const closeBraces = (fixedArgs.match(/\}/g) || []).length;
+              const openBrackets = (fixedArgs.match(/\[/g) || []).length;
+              const closeBrackets = (fixedArgs.match(/\]/g) || []).length;
+
+              // 补全缺失的括号
+              if (openBraces > closeBraces) {
+                fixedArgs += "}".repeat(openBraces - closeBraces);
+              }
+              if (openBrackets > closeBrackets) {
+                fixedArgs += "]".repeat(openBrackets - closeBrackets);
+              }
+
+              // 尝试解析JSON参数
+              const argsObj = JSON.parse(fixedArgs);
+
+              // 修复组件嵌套问题（针对setPositionExitStrategy工具）
+              if (toolName === "setPositionExitStrategy") {
+                argsObj.symbol = argsObj.symbol || "";
+                argsObj.strategyType = argsObj.strategyType || "combination";
+                argsObj.enabled =
+                  argsObj.enabled !== undefined ? argsObj.enabled : true;
+              }
+
+              // 格式化参数，添加换行和缩进
+              const formattedArgs = JSON.stringify(argsObj, null, 2)
+                .replace(/"(\w+)":/g, "$1:") // 移除键名引号
+                .replace(/\n/g, "<br>") // 替换换行为HTML换行
+                .replace(/\s{2}/g, "&nbsp;&nbsp;"); // 替换空格为HTML空格
+
+              // 构建美化的工具调用字符串
+              const formattedCall = `<div class="tool-calls-container">
+                                    <div class="tool-calls-header">执行工具调用:</div>
+                                    <div class="tool-calls-content">
+                                      <div class="tool-call">
+                                        <div class="tool-name">工具: ${toolName}</div>
+                                        <div class="tool-params">参数: <br>${formattedArgs}</div>
+                                      </div>
+                                    </div>
+                                  </div>`;
+
+              // 替换原始工具调用块为格式化后的HTML
+              result = result.replace(callBlock, formattedCall);
+            } catch (e) {
+              console.error("JSON解析失败:", e, "参数:", toolArgs);
+              // 如果解析失败，使用简化显示
+              const simpleCall = `<div class="tool-calls-container">
+                                    <div class="tool-calls-header">执行工具调用:</div>
+                                    <div class="tool-calls-content">
+                                      <div class="tool-call">
+                                        <div class="tool-name">工具: ${toolName}</div>
+                                        <div class="tool-params">参数: 解析失败，显示原始参数</div>
+                                      </div>
+                                    </div>
+                                  </div>`;
+              result = result.replace(callBlock, simpleCall);
+            }
+          }
         }
       }
-
-      // 查找下一个工具调用
-      callStart = toolCallsBlock.indexOf(
-        toolCallBegin,
-        callEnd + toolCallEnd.length
-      );
     }
-
-    // 替换原始工具调用块为美化后的HTML
-    if (formattedToolCalls) {
-      const replacement = `<div class="tool-calls-container">
-                <div class="tool-calls-header">执行工具调用:</div>
-                <div class="tool-calls-content">
-                    ${formattedToolCalls}
-                </div>
-            </div>`;
-
-      result =
-        result.substring(0, startIndex) +
-        replacement +
-        result.substring(endIndex + toolCallsEnd.length);
-    }
-
-    // 查找下一个工具调用块
-    startIndex = result.indexOf(toolCallsBegin, startIndex + 1);
   }
 
   return result;

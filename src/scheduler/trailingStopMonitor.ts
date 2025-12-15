@@ -86,7 +86,8 @@ function checkExitConditions(
   peakPnlPercent: number,
   currentPnlPercent: number,
   exitStrategy?: any,
-  partialClosePercentage: number = 0
+  partialClosePercentage: number = 0,
+  executedLevels: Set<string> = new Set() // 已执行的平仓级别，用于避免重复执行
 ): {
   shouldClose: boolean;
   level: string;
@@ -115,7 +116,8 @@ function checkExitConditions(
       exitStrategy,
       peakPnlPercent,
       currentPnlPercent,
-      partialClosePercentage
+      partialClosePercentage,
+      executedLevels
     );
   }
 
@@ -125,7 +127,8 @@ function checkExitConditions(
       params.positionExitStrategy,
       peakPnlPercent,
       currentPnlPercent,
-      partialClosePercentage
+      partialClosePercentage,
+      executedLevels
     );
   }
 
@@ -174,11 +177,12 @@ function checkExitConditions(
         let drawdownThreshold = 0;
         if (
           params.partialTakeProfit &&
-          params.partialTakeProfit.dynamicStopLoss &&
-          params.partialTakeProfit.dynamicStopLoss.peakDrawdown
+          // 修复类型错误：添加类型断言和更严格的检查
+          (params.partialTakeProfit as any).dynamicStopLoss &&
+          (params.partialTakeProfit as any).dynamicStopLoss.peakDrawdown
         ) {
-          const peakDrawdown =
-            params.partialTakeProfit.dynamicStopLoss.peakDrawdown;
+          const peakDrawdown = (params.partialTakeProfit as any).dynamicStopLoss
+            .peakDrawdown;
           if (stage.name === "stage1" && peakDrawdown.level1) {
             drawdownThreshold = peakDrawdown.level1.drawdownThreshold;
           } else if (stage.name === "stage2" && peakDrawdown.level2) {
@@ -237,7 +241,13 @@ function checkExitConditions(
       if (peakPnlPercent >= level.trigger) {
         // 峰值达到了触发点
         if (currentPnlPercent <= level.stopAt) {
-          // 当前盈利回落到止损点或以下，触发平仓
+          // 当前盈利回落到止损点或以下，检查该级别是否已执行
+          if (executedLevels.has(level.name)) {
+            // 该级别已经执行过，跳过
+            logger.debug(`${level.name} 已执行，跳过`);
+            continue;
+          }
+          // 触发平仓
           return {
             shouldClose: true,
             level: level.name,
@@ -305,7 +315,8 @@ function checkPositionExitStrategy(
   exitStrategy: any,
   peakPnlPercent: number,
   currentPnlPercent: number,
-  partialClosePercentage: number = 0
+  partialClosePercentage: number = 0,
+  executedLevels: Set<string> = new Set() // 已执行的平仓级别，用于避免重复执行
 ): {
   shouldClose: boolean;
   level: string;
@@ -440,6 +451,12 @@ function checkPositionExitStrategy(
 
       // 检查是否达到峰值回落触发阈值
       if (drawdownPercent >= level.trigger) {
+        // 检查该级别是否已执行
+        if (executedLevels.has(level.name)) {
+          // 该级别已经执行过，跳过
+          logger.debug(`${level.name} 已执行，跳过`);
+          continue;
+        }
         return {
           shouldClose: true,
           level: level.name,
@@ -571,7 +588,7 @@ function checkPositionExitStrategy(
   };
 }
 
-// 持仓盈利记录：symbol -> { peakPnlPercent, lastCheckTime, priceHistory, initialQuantity }
+// 持仓盈利记录：symbol -> { peakPnlPercent, lastCheckTime, priceHistory, initialQuantity, executedLevels }
 const positionPnlHistory = new Map<
   string,
   {
@@ -579,6 +596,7 @@ const positionPnlHistory = new Map<
     lastCheckTime: number;
     checkCount: number; // 检查次数，用于日志
     initialQuantity: number; // 初始开仓数量，用于计算已平仓百分比
+    executedLevels: Set<string>; // 已执行的平仓级别，用于避免重复执行
   }
 >();
 
@@ -1135,6 +1153,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
           lastCheckTime: now,
           checkCount: 0,
           initialQuantity: initialQuantity,
+          executedLevels: new Set<string>(), // 初始化已执行级别集合
         };
         positionPnlHistory.set(symbol, history);
         logger.info(
@@ -1184,12 +1203,13 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 
       // ===== 检查平仓条件（适用于所有启用自动平仓的策略）=====
       if (autoCloseEnabled || (exitStrategy && exitStrategy.strategyType)) {
-        // 使用新的检查函数，支持多种平仓策略，传递已平仓百分比
+        // 使用新的检查函数，支持多种平仓策略，传递已平仓百分比和已执行级别
         const exitResult = checkExitConditions(
           history.peakPnlPercent,
           pnlPercent,
           exitStrategy,
-          partialClosePercentage
+          partialClosePercentage,
+          history.executedLevels // 传递已执行的平仓级别
         );
 
         // 调试日志：每10次检查输出一次
@@ -1235,6 +1255,10 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 
           if (success) {
             logger.info(`${symbol} 平仓成功`);
+
+            // 记录已执行的平仓级别，避免重复执行
+            history.executedLevels.add(exitResult.level);
+            logger.info(`${symbol} 记录已执行平仓级别: ${exitResult.level}`);
 
             // 如果是分批平仓，更新峰值盈利
             if (closePercent < 100) {
