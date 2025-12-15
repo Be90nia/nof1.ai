@@ -1698,10 +1698,10 @@ async function createCommonDependencies() {
     tradingTools.calculateRiskTool,
     tradingTools.syncPositionsTool,
     // 策略参数设置工具
-    tradingTools.setPartialTakeProfitParams,
-    tradingTools.setPeakDrawdownParams,
     tradingTools.getCurrentStrategyParams,
     tradingTools.resetStrategyParams,
+    tradingTools.setDynamicStopLossParams,
+    tradingTools.setPositionExitStrategyTool,
   ];
 
   return { openai, memory, tradingToolsSet };
@@ -1876,80 +1876,6 @@ async function createCaiSenStrategyAgent(
 
   // 将蔡森特有的交易工具转换为Agent可以使用的格式，使用createTool和zod验证
   const caiSenSpecificTools = [
-    createTool({
-      name: "setPartialTakeProfitParams",
-      description: "分批止盈策略，控制盈利出场时机",
-      parameters: z.object({
-        symbol: z.string().describe("交易币种（如BTC、ETH）"),
-        stage1: z
-          .object({
-            trigger: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第一阶段止盈参数"),
-        stage2: z
-          .object({
-            trigger: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第二阶段止盈参数"),
-        stage3: z
-          .object({
-            trigger: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第三阶段止盈参数"),
-      }),
-      execute: async ({ symbol, stage1, stage2, stage3 }) => {
-        return await caiSenTradingTools.setPartialTakeProfitParams(
-          symbol,
-          stage1,
-          stage2,
-          stage3
-        );
-      },
-    }),
-    createTool({
-      name: "setPeakDrawdownParams",
-      description: "峰值回落，防止盈利回吐",
-      parameters: z.object({
-        symbol: z.string().describe("交易币种（如BTC、ETH）"),
-        level1: z
-          .object({
-            drawdownThreshold: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第一级回落参数"),
-        level2: z
-          .object({
-            drawdownThreshold: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第二级回落参数"),
-        level3: z
-          .object({
-            drawdownThreshold: z.number(),
-            closePercent: z.number(),
-          })
-          .describe("第三级回落参数"),
-        minHoldingTime: z.number().default(5).describe("最小持仓时间（分钟）"),
-      }),
-      execute: async ({
-        symbol,
-        level1,
-        level2,
-        level3,
-        minHoldingTime = 5,
-      }) => {
-        return await caiSenTradingTools.setPeakDrawdownParams(
-          symbol,
-          level1,
-          level2,
-          level3,
-          minHoldingTime
-        );
-      },
-    }),
     createTool({
       name: "setDynamicStopLossParams",
       description: "动态止损，保护本金安全",

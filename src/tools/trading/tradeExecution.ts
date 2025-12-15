@@ -702,7 +702,8 @@ export const openPositionTool = createTool({
           sql: `UPDATE positions SET 
                 quantity = ?, entry_price = ?, current_price = ?, liquidation_price = ?, 
                 unrealized_pnl = ?, leverage = ?, side = ?, profit_target = ?, stop_loss = ?, 
-                tp_order_id = ?, sl_order_id = ?, entry_order_id = ?
+                tp_order_id = ?, sl_order_id = ?, entry_order_id = ?, 
+                opened_at = COALESCE(opened_at, ?)
                 WHERE symbol = ?`,
           args: [
             finalQuantity,
@@ -717,6 +718,7 @@ export const openPositionTool = createTool({
             tpOrderId || null,
             slOrderId || null,
             order.id?.toString() || "",
+            getChinaTimeISO(), // 如果opened_at为空，则使用当前时间
             symbol,
           ],
         });
@@ -1259,11 +1261,11 @@ export const setSimpleStopProfitLossTool = createTool({
 });
 
 /**
- * 设置分批平仓工具
+ * 设置分批平仓工具（兼容旧接口）
  */
 export const setBatchClosingTool = createTool({
   name: "setBatchClosing",
-  description: "为指定持仓设置或更新分批平仓策略",
+  description: "为指定持仓设置或更新分批平仓策略（兼容旧接口）",
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     percentages: z.array(z.number()).describe("每批次平仓的百分比"),
@@ -1282,17 +1284,30 @@ export const setBatchClosingTool = createTool({
     try {
       logger.info(`设置分批平仓策略: ${symbol}, 批次: ${percentages.length}个`);
 
+      // 转换为新的策略格式
+      const stages = percentages.map((percent, index) => ({
+        trigger: triggerConditions[index]?.value || 0,
+        closePercent: percent,
+      }));
+
+      const exitStrategy = {
+        strategyType: "batch" as const,
+        stopLoss: undefined,
+        takeProfit: undefined,
+        batchParams: {
+          stages,
+          peakDrawdownProtection: 10, // 默认值
+        },
+        peakDrawdownParams: undefined,
+      };
+
       // 更新数据库中的持仓信息
       await dbClient.execute({
         sql: `UPDATE positions SET 
-					closing_type = ?, 
-					batch_params = ? 
-				WHERE symbol = ?`,
-        args: [
-          "batch",
-          JSON.stringify({ percentages, triggerConditions }),
-          symbol,
-        ],
+				exit_strategy = ?, 
+				closing_type = ? 
+			WHERE symbol = ?`,
+        args: [JSON.stringify(exitStrategy), "batch", symbol],
       });
 
       return {

@@ -161,10 +161,14 @@ CREATE TABLE IF NOT EXISTS positions (
   sl_order_id TEXT,
   entry_order_id TEXT NOT NULL,
   opened_at TEXT NOT NULL,
+  closed_at TEXT,
   confidence REAL,
   risk_usd REAL,
   peak_pnl_percent REAL DEFAULT 0,
-  partial_close_percentage REAL DEFAULT 0
+  partial_close_percentage REAL DEFAULT 0,
+  closing_type TEXT,
+  batch_params TEXT,
+  exit_strategy TEXT
 );
 
 -- 账户历史表

@@ -51,6 +51,66 @@ export enum SevenSegmentZone {
 }
 
 /**
+ * 市场状态枚举
+ * Market state enumeration
+ */
+export enum MarketState {
+  /** 趋势市 - 牛市 Bull market */
+  TRENDING_BULL = "TRENDING_BULL",
+  /** 趋势市 - 熊市 Bear market */
+  TRENDING_BEAR = "TRENDING_BEAR",
+  /** 震荡市 Sideways market */
+  SIDEWAYS = "SIDEWAYS",
+  /** 高波动市场 High volatility market */
+  HIGH_VOLATILITY = "HIGH_VOLATILITY",
+  /** 低波动市场 Low volatility market */
+  LOW_VOLATILITY = "LOW_VOLATILITY",
+  /** 极端行情 Extreme market conditions */
+  EXTREME = "EXTREME",
+}
+
+/**
+ * 微观结构数据接口
+ * Market microstructure data interface
+ */
+export interface MarketMicrostructureData {
+  /** 订单簿深度 Order book depth */
+  orderBookDepth: {
+    /** 买单深度 Bid depth */
+    bid: Array<{ price: number; amount: number }>;
+    /** 卖单深度 Ask depth */
+    ask: Array<{ price: number; amount: number }>;
+  };
+  /** 买卖盘力量对比 Order book imbalance */
+  orderBookImbalance: number;
+  /** 成交笔数 Trade count */
+  tradeCount: number;
+  /** 平均每笔成交量 Average trade size */
+  avgTradeSize: number;
+  /** 资金费率 Funding rate */
+  fundingRate: number;
+  /** 恐惧贪婪指数 Fear & Greed Index */
+  fearGreedIndex: number;
+  /** ADX指标值 ADX indicator value */
+  adx: number;
+  /** KDJ指标值 KDJ indicator values */
+  kdj: {
+    k: number;
+    d: number;
+    j: number;
+  };
+  /** CCI指标值 CCI indicator value */
+  cci: number;
+  /** 布林带指标值 Bollinger Bands values */
+  bollingerBands: {
+    upper: number;
+    middle: number;
+    lower: number;
+    bandwidth: number;
+  };
+}
+
+/**
  * 蔡森策略多时间框架分析结果
  * Cai Sen strategy multi-timeframe analysis result
  */
@@ -68,6 +128,17 @@ export interface MultiTimeframeAnalysis {
   };
   /** 小时线分析结果 Hourly analysis result */
   hourly: {
+    /** 趋势方向 Trend direction */
+    trend: "BULLISH" | "BEARISH" | "SIDEWAYS";
+    /** 趋势强度 Trend strength */
+    strength: number;
+    /** 关键支撑位 Key support level */
+    support: number;
+    /** 关键阻力位 Key resistance level */
+    resistance: number;
+  };
+  /** 15分钟线分析结果 15-minute analysis result */
+  fifteenMin: {
     /** 趋势方向 Trend direction */
     trend: "BULLISH" | "BEARISH" | "SIDEWAYS";
     /** 趋势强度 Trend strength */
@@ -221,14 +292,24 @@ export interface CaiSenStrategyParams {
    * Multi-timeframe analysis parameters
    */
   timeframeAnalysis: {
-    /** 日线分析权重 Daily analysis weight */
+    /** 日线分析基础权重 Daily analysis base weight */
     dailyWeight: number;
-    /** 小时线分析权重 Hourly analysis weight */
+    /** 小时线分析基础权重 Hourly analysis base weight */
     hourlyWeight: number;
-    /** 5分钟线分析权重 5-minute analysis weight */
+    /** 15分钟线分析基础权重 15-minute analysis base weight */
+    fifteenMinWeight?: number;
+    /** 5分钟线分析基础权重 5-minute analysis base weight */
     fiveMinWeight: number;
     /** 趋势确认阈值 Trend confirmation threshold */
     trendConfirmationThreshold: number;
+    /** 是否启用动态时间框架权重分配 Whether to enable dynamic timeframe weight allocation */
+    dynamicWeightEnabled?: boolean;
+    /** 波动率敏感度 Volatility sensitivity (0-1) */
+    volatilitySensitivity?: number;
+    /** 趋势敏感度 Trend sensitivity (0-1) */
+    trendSensitivity?: number;
+    /** 市场状态检测灵敏度 Market state detection sensitivity (0-1) */
+    marketStateSensitivity?: number;
   };
 
   /**
@@ -249,6 +330,12 @@ export interface CaiSenStrategyParams {
       /** 6/7区域置信度 Zone 6/7 confidence */
       zone6_7: number;
     };
+    /** 是否启用优化的七分位计算 Whether to enable optimized seven-segment calculation */
+    optimizedCalculationEnabled?: boolean;
+    /** 成交量权重因子 Volume weight factor for level adjustment */
+    volumeWeightFactor?: number;
+    /** 历史数据周期（用于优化计算） Historical data period (for optimized calculation) */
+    historicalDataPeriod?: number;
   };
 
   /**

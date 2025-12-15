@@ -27,10 +27,7 @@ import {
 import { RISK_PARAMS } from "./config/riskParams";
 import { initDatabase } from "./database/init";
 import { startAccountRecorder } from "./scheduler/accountRecorder";
-import {
-  startPartialProfitMonitor,
-  stopPartialProfitMonitor,
-} from "./scheduler/partialProfitMonitor";
+
 import {
   startStopLossMonitor,
   stopStopLossMonitor,
@@ -99,13 +96,12 @@ async function main() {
   // 获取当前策略类型
   const strategy = getTradingStrategy();
 
-  if (strategy !== "cai-sen") {
-    // 6. 启动移动止盈监控器（每10秒检查一次）
-    logger.info("启动移动止盈监控器...");
-    startTrailingStopMonitor();
-  } else {
-    logger.info("启动分批止盈监控器...");
-    startPartialProfitMonitor();
+  // 6. 启动移动止盈监控器（每10秒检查一次）
+  logger.info("启动移动止盈监控器...");
+  startTrailingStopMonitor();
+
+  // 对于蔡森策略，额外启动蔡森监控器
+  if (strategy === "cai-sen") {
     // 9. 启动蔡森策略监控器（每10秒检查一次）
     logger.info("启动蔡森策略监控器...");
     startCaiSenMonitor();

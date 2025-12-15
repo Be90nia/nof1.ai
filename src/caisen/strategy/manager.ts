@@ -23,11 +23,28 @@ import {
 import { getAgentStrategyParams } from "../../tools/strategyParams";
 import { createLogger } from "../../utils/loggerUtils";
 import { generateCaiSenPrompt } from "./prompt";
+import {
+  allocateDynamicTimeframeWeights,
+  confirmSignal,
+  calculateOptimizedSevenSegments,
+  detectMarketState,
+  calculateIntelligentTrailingStop,
+  calculateDynamicPositionSize,
+  runScenarioSimulations,
+  calculatePortfolioDiversification,
+} from "./optimization";
 import type {
   CaiSenAnalysisResult,
   StrategyParams,
   StrategyPromptContext,
+  MultiTimeframeAnalysis,
+  SevenSegmentAnalysis,
 } from "./types";
+import type {
+  MarketStateData,
+  TrailingStopParams,
+  DynamicPositionSizingParams,
+} from "./optimization";
 
 const logger = createLogger({
   name: "caisen-strategy-manager",
@@ -232,6 +249,267 @@ export class CaiSenStrategyManager {
       lastAnalysisCount: this.lastAnalysisResults.size,
       executionHistoryCount: this.strategyExecutionHistory.length,
     };
+  }
+
+  /**
+   * 分配动态时间框架权重
+   * @param volatility 市场波动率
+   * @param trendStrength 趋势强度
+   * @param marketState 市场状态
+   * @returns 动态调整后的时间框架权重
+   */
+  public allocateDynamicWeights(
+    volatility: number,
+    trendStrength: number,
+    marketState: string
+  ): ReturnType<typeof allocateDynamicTimeframeWeights> {
+    const params = this.getCurrentStrategy();
+    if (!params?.caiSen?.timeframeAnalysis) {
+      throw new Error("蔡森策略参数未配置");
+    }
+
+    const {
+      dailyWeight,
+      hourlyWeight,
+      fifteenMinWeight = 0.3,
+      fiveMinWeight,
+    } = params.caiSen.timeframeAnalysis;
+
+    return allocateDynamicTimeframeWeights(
+      volatility,
+      trendStrength,
+      marketState,
+      {
+        daily: dailyWeight,
+        hourly: hourlyWeight,
+        fifteenMin: fifteenMinWeight,
+        fiveMin: fiveMinWeight,
+      }
+    );
+  }
+
+  /**
+   * 检测市场状态
+   * @param marketData 市场数据
+   * @returns 市场状态
+   */
+  public detectCurrentMarketState(
+    marketData: MarketStateData
+  ): ReturnType<typeof detectMarketState> {
+    return detectMarketState(marketData);
+  }
+
+  /**
+   * 确认交易信号
+   * @param multiTimeframeAnalysis 多时间框架分析结果
+   * @param sevenSegmentAnalysis 七分位分析结果
+   * @param marketData 市场数据
+   * @param microstructureData 微观结构数据（可选）
+   * @returns 信号确认结果
+   */
+  public confirmTradingSignal(
+    multiTimeframeAnalysis: MultiTimeframeAnalysis,
+    sevenSegmentAnalysis: SevenSegmentAnalysis,
+    marketData: MarketStateData,
+    microstructureData?: any
+  ): ReturnType<typeof confirmSignal> {
+    return confirmSignal(
+      multiTimeframeAnalysis,
+      sevenSegmentAnalysis,
+      marketData,
+      microstructureData
+    );
+  }
+
+  /**
+   * 计算优化的七分位
+   * @param marketData 市场数据
+   * @param historicalPrices 历史价格数据
+   * @param historicalVolumes 历史成交量数据
+   * @returns 优化的七分位计算结果
+   */
+  public calculateOptimizedSegments(
+    marketData: MarketStateData,
+    historicalPrices: number[],
+    historicalVolumes: number[]
+  ): ReturnType<typeof calculateOptimizedSevenSegments> {
+    return calculateOptimizedSevenSegments(
+      marketData,
+      historicalPrices,
+      historicalVolumes
+    );
+  }
+
+  /**
+   * 计算智能移动止损
+   * @param entryPrice 开仓价格
+   * @param currentPrice 当前价格
+   * @param direction 交易方向
+   * @param atr 当前ATR值
+   * @param holdingTime 持仓时间（分钟）
+   * @param highestPrice 持仓期间最高价
+   * @param lowestPrice 持仓期间最低价
+   * @param params 移动止损参数
+   * @returns 计算出的智能移动止损价格
+   */
+  public calculateTrailingStop(
+    entryPrice: number,
+    currentPrice: number,
+    direction: "LONG" | "SHORT",
+    atr: number,
+    holdingTime: number,
+    highestPrice: number,
+    lowestPrice: number,
+    params: TrailingStopParams
+  ): ReturnType<typeof calculateIntelligentTrailingStop> {
+    return calculateIntelligentTrailingStop(
+      entryPrice,
+      currentPrice,
+      direction,
+      atr,
+      holdingTime,
+      highestPrice,
+      lowestPrice,
+      params
+    );
+  }
+
+  /**
+   * 计算动态仓位大小
+   * @param accountBalance 账户余额
+   * @param entryPrice 开仓价格
+   * @param stopLossPrice 止损价格
+   * @param signalScore 信号得分
+   * @param volatility 当前波动率
+   * @param avgVolatility 平均波动率
+   * @param trendStrength 趋势强度
+   * @param params 动态仓位调整参数
+   * @param currentPositions 当前持仓情况
+   * @returns 计算出的仓位大小
+   */
+  public calculatePositionSize(
+    accountBalance: number,
+    entryPrice: number,
+    stopLossPrice: number,
+    signalScore: number,
+    volatility: number,
+    avgVolatility: number,
+    trendStrength: number,
+    params: DynamicPositionSizingParams,
+    currentPositions: Array<{
+      symbol: string;
+      positionSize: number;
+      direction: "LONG" | "SHORT";
+    }>
+  ): ReturnType<typeof calculateDynamicPositionSize> {
+    return calculateDynamicPositionSize(
+      accountBalance,
+      entryPrice,
+      stopLossPrice,
+      signalScore,
+      volatility,
+      avgVolatility,
+      trendStrength,
+      params,
+      currentPositions
+    );
+  }
+
+  /**
+   * 运行情景模拟
+   * @param entryPrice 开仓价格
+   * @param stopLossPrice 止损价格
+   * @param takeProfitPrice 止盈价格
+   * @param volatility 当前波动率
+   * @param trendStrength 趋势强度
+   * @param scenarioNames 要模拟的情景名称列表
+   * @returns 情景模拟结果数组
+   */
+  public runScenarioAnalysis(
+    entryPrice: number,
+    stopLossPrice: number,
+    takeProfitPrice: number,
+    volatility: number,
+    trendStrength: number,
+    scenarioNames: string[] = ["base", "best", "worst"]
+  ): ReturnType<typeof runScenarioSimulations> {
+    return runScenarioSimulations(
+      entryPrice,
+      stopLossPrice,
+      takeProfitPrice,
+      volatility,
+      trendStrength,
+      scenarioNames
+    );
+  }
+
+  /**
+   * 计算投资组合分散度
+   * @param positions 当前持仓列表
+   * @returns 风险分散度得分
+   */
+  public calculatePortfolioDiversificationScore(
+    positions: Array<{
+      symbol: string;
+      positionSize: number;
+      direction: "LONG" | "SHORT";
+    }>
+  ): ReturnType<typeof calculatePortfolioDiversification> {
+    return calculatePortfolioDiversification(positions);
+  }
+
+  /**
+   * 重置策略状态
+   */
+  public resetStrategyState(): void {
+    this.lastAnalysisResults.clear();
+    this.strategyExecutionHistory = [];
+    logger.info("蔡森策略状态已重置");
+  }
+
+  /**
+   * 验证策略参数
+   * @param params 策略参数
+   * @returns 验证结果
+   */
+  public validateStrategyParams(params: StrategyParams): {
+    isValid: boolean;
+    errors: string[];
+  } {
+    const errors: string[] = [];
+
+    // 验证蔡森策略特定参数
+    if (!params.caiSen) {
+      errors.push("缺少蔡森策略特定参数");
+      return { isValid: false, errors };
+    }
+
+    // 验证时间框架分析参数
+    const { timeframeAnalysis } = params.caiSen;
+    if (!timeframeAnalysis) {
+      errors.push("缺少时间框架分析参数");
+    } else {
+      const totalWeight =
+        timeframeAnalysis.dailyWeight +
+        timeframeAnalysis.hourlyWeight +
+        (timeframeAnalysis.fifteenMinWeight || 0) +
+        timeframeAnalysis.fiveMinWeight;
+      if (Math.abs(totalWeight - 1) > 0.01) {
+        errors.push(`时间框架权重总和必须为1，当前为${totalWeight}`);
+      }
+    }
+
+    // 验证七分位策略参数
+    if (!params.caiSen.sevenSegmentStrategy) {
+      errors.push("缺少七分位策略参数");
+    }
+
+    // 验证动态点位交易参数
+    if (!params.caiSen.dynamicPointTrading) {
+      errors.push("缺少动态点位交易参数");
+    }
+
+    return { isValid: errors.length === 0, errors };
   }
 }
 

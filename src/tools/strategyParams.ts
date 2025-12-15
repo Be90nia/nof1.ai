@@ -110,6 +110,19 @@ export type DynamicStopLossCondition = {
 };
 
 /**
+ * 动态止损参数类型
+ */
+export type DynamicStopLossParams = {
+  enabled: boolean;
+  initialStopLoss: number; // 初始止损幅度（百分比）
+  trailingStopLoss: {
+    level1: { trigger: number; stopAt: number }; // 盈利达到trigger%时，止损线移至stopAt%盈利位
+    level2: { trigger: number; stopAt: number };
+    level3: { trigger: number; stopAt: number };
+  };
+};
+
+/**
  * 分批止盈参数类型
  */
 export type PartialTakeProfitParams = {
@@ -126,6 +139,17 @@ export type PeakDrawdownParams = {
   level2: { drawdownThreshold: number; closePercent: number };
   level3: { drawdownThreshold: number; closePercent: number };
   minHoldingTime: number;
+};
+
+/**
+ * 仓位退出策略参数类型
+ */
+export type PositionExitStrategyParams = {
+  strategyType: "partialTakeProfit" | "peakDrawdown" | "combination";
+  partialTakeProfit?: PartialTakeProfitParams;
+  dynamicStopLoss?: DynamicStopLossParams;
+  peakDrawdown?: PeakDrawdownParams;
+  enabled: boolean;
 };
 
 /**
@@ -277,44 +301,6 @@ export async function setPartialTakeProfitParams(
 /**
  * 导出为工具，供Agent使用
  */
-export const setPartialTakeProfitParamsTool = createTool({
-  name: "setPartialTakeProfitParams",
-  description: "设置策略的分批止盈参数",
-  parameters: z.object({
-    symbol: z
-      .enum(RISK_PARAMS.TRADING_SYMBOLS)
-      .describe("交易币种（如BTC、ETH）"),
-    stage1: z
-      .object({
-        trigger: z.number().describe("第一阶段止盈触发阈值（百分比）"),
-        closePercent: z.number().describe("第一阶段平仓百分比"),
-      })
-      .describe("第一阶段止盈参数"),
-    stage2: z
-      .object({
-        trigger: z.number().describe("第二阶段止盈触发阈值（百分比）"),
-        closePercent: z.number().describe("第二阶段平仓百分比"),
-      })
-      .describe("第二阶段止盈参数"),
-    stage3: z
-      .object({
-        trigger: z.number().describe("第三阶段止盈触发阈值（百分比）"),
-        closePercent: z.number().describe("第三阶段平仓百分比"),
-      })
-      .describe("第三阶段止盈参数"),
-  }),
-  execute: async ({ symbol, stage1, stage2, stage3 }) => {
-    // 使用默认策略，因为策略参数是Agent动态设置的
-    const strategy = "balanced" as TradingStrategy;
-    return await _setPartialTakeProfitParams(
-      strategy,
-      symbol,
-      stage1,
-      stage2,
-      stage3
-    );
-  },
-});
 
 /**
  * 内部核心函数：设置峰值回落平仓参数
@@ -505,46 +491,6 @@ export async function setPeakDrawdownParams(
 /**
  * 导出为工具，供Agent使用
  */
-export const setPeakDrawdownParamsTool = createTool({
-  name: "setPeakDrawdownParams",
-  description: "设置策略的峰值回落平仓参数",
-  parameters: z.object({
-    symbol: z
-      .enum(RISK_PARAMS.TRADING_SYMBOLS)
-      .describe("交易币种（如BTC、ETH）"),
-    level1: z
-      .object({
-        drawdownThreshold: z.number().describe("第一级回落触发阈值（百分比）"),
-        closePercent: z.number().describe("第一级平仓百分比"),
-      })
-      .describe("第一级回落参数"),
-    level2: z
-      .object({
-        drawdownThreshold: z.number().describe("第二级回落触发阈值（百分比）"),
-        closePercent: z.number().describe("第二级平仓百分比"),
-      })
-      .describe("第二级回落参数"),
-    level3: z
-      .object({
-        drawdownThreshold: z.number().describe("第三级回落触发阈值（百分比）"),
-        closePercent: z.number().describe("第三级平仓百分比"),
-      })
-      .describe("第三级回落参数"),
-    minHoldingTime: z.number().default(5).describe("最小持仓时间（分钟）"),
-  }),
-  execute: async ({ symbol, level1, level2, level3, minHoldingTime = 5 }) => {
-    // 使用默认策略，因为策略参数是Agent动态设置的
-    const strategy = "balanced" as TradingStrategy;
-    return await _setPeakDrawdownParams(
-      strategy,
-      symbol,
-      level1,
-      level2,
-      level3,
-      minHoldingTime
-    );
-  },
-});
 
 /**
  * 内部核心函数：获取当前策略参数
@@ -832,6 +778,36 @@ async function _setDynamicStopLossParams(
       throw new Error("评估间隔必须大于0");
     }
 
+    // 验证和转换 conditions 参数
+    let processedConditions: DynamicStopLossCondition[] = [];
+    if (conditions) {
+      // 确保 conditions 是数组
+      const conditionsArray = Array.isArray(conditions)
+        ? conditions
+        : [conditions];
+
+      // 处理每个条件
+      for (const condition of conditionsArray) {
+        // 确保条件是对象格式
+        if (typeof condition === "object" && condition !== null) {
+          // 验证条件类型
+          const validTypes = ["volatility", "trend", "volume", "price_change"];
+          const conditionType = String(condition.type || "").toLowerCase();
+
+          if (validTypes.includes(conditionType)) {
+            // 验证条件值
+            const value = Number(condition.value);
+            if (!isNaN(value) && value >= 0 && value <= 1) {
+              processedConditions.push({
+                type: conditionType as "volatility" | "trend" | "news",
+                value: value,
+              });
+            }
+          }
+        }
+      }
+    }
+
     logger.debug({
       action: "db_use_pool",
       function: "setDynamicStopLossParams",
@@ -844,7 +820,7 @@ async function _setDynamicStopLossParams(
     const params = {
       threshold,
       evaluationInterval: evaluationInterval * 60 * 1000, // 转换为毫秒
-      conditions: conditions || [],
+      conditions: processedConditions,
       enabled: true,
       lastEvaluated: new Date().toISOString(),
     };
@@ -1087,7 +1063,7 @@ async function _getAgentStrategyParams(
         // 尝试解析JSON值
         const value = JSON.parse(row.value);
 
-        // 检查key是否包含币种后缀（如：partialTakeProfit_BTC）
+        // 检查key是否包含币种后缀（如：partialTakeProfit_BTC 或 positionExitStrategy_BTC）
         const keyParts = row.key.split("_");
         if (keyParts.length === 2) {
           // 分币种参数，格式：paramType_symbol
@@ -1098,15 +1074,73 @@ async function _getAgentStrategyParams(
             paramsBySymbol[symbolPart] = { ...defaultParams };
           }
 
-          // 存储参数，覆盖默认值
-          paramsBySymbol[symbolPart][paramType] = value;
-          logger.debug({
-            action: "param_store",
-            function: "getAgentStrategyParams",
-            symbol: symbolPart,
-            paramType,
-            message: `成功解析并存储参数`,
-          });
+          // 特殊处理统一工具参数：positionExitStrategy
+          if (paramType === "positionExitStrategy") {
+            // 解析统一工具参数为各个组件参数
+            logger.debug({
+              action: "parse_unified_param",
+              function: "getAgentStrategyParams",
+              symbol: symbolPart,
+              paramType,
+              message: "解析统一工具参数为各个组件参数",
+            });
+
+            // 提取各个组件参数并存储
+            if (value.partialTakeProfit) {
+              paramsBySymbol[symbolPart]["partialTakeProfit"] =
+                value.partialTakeProfit;
+              logger.debug({
+                action: "store_unified_component",
+                function: "getAgentStrategyParams",
+                symbol: symbolPart,
+                component: "partialTakeProfit",
+                message: "存储统一工具参数中的分批止盈组件",
+              });
+            }
+            if (value.dynamicStopLoss) {
+              paramsBySymbol[symbolPart]["dynamicStopLoss"] =
+                value.dynamicStopLoss;
+              logger.debug({
+                action: "store_unified_component",
+                function: "getAgentStrategyParams",
+                symbol: symbolPart,
+                component: "dynamicStopLoss",
+                message: "存储统一工具参数中的动态止损组件",
+              });
+            }
+            if (value.peakDrawdown) {
+              // 将统一工具中的peakDrawdown转换为系统使用的peakDrawdownProtectionConfig格式
+              paramsBySymbol[symbolPart]["peakDrawdownProtectionConfig"] = {
+                enabled: true,
+                levels: [
+                  value.peakDrawdown.level1,
+                  value.peakDrawdown.level2,
+                  value.peakDrawdown.level3,
+                ],
+                minHoldingTime: value.peakDrawdown.minHoldingTime * 60 * 1000, // 转换为毫秒
+                maxClosePercent: 100,
+              };
+              logger.debug({
+                action: "store_unified_component",
+                function: "getAgentStrategyParams",
+                symbol: symbolPart,
+                component: "peakDrawdown",
+                message: "存储统一工具参数中的峰值回落组件",
+              });
+            }
+            // 同时存储完整的统一工具参数，便于后续查询
+            paramsBySymbol[symbolPart][paramType] = value;
+          } else {
+            // 存储普通参数，覆盖默认值
+            paramsBySymbol[symbolPart][paramType] = value;
+            logger.debug({
+              action: "param_store",
+              function: "getAgentStrategyParams",
+              symbol: symbolPart,
+              paramType,
+              message: `成功解析并存储参数`,
+            });
+          }
         } else {
           // 全局参数（不带币种后缀）
           paramsBySymbol["global"] = paramsBySymbol["global"] || {
@@ -1282,5 +1316,460 @@ export const getAgentStrategyParamsTool = createTool({
     // 使用默认策略，因为策略参数是Agent动态设置的
     const strategy = "balanced" as TradingStrategy;
     return await _getAgentStrategyParams(strategy, symbol, testMode);
+  },
+});
+
+/**
+ * 内部核心函数：设置仓位退出策略参数
+ */
+async function _setPositionExitStrategy(
+  strategy: TradingStrategy,
+  symbol: string,
+  strategyType: "partialTakeProfit" | "peakDrawdown" | "combination",
+  enabled: boolean,
+  partialTakeProfit?: PartialTakeProfitParams,
+  dynamicStopLoss?: DynamicStopLossParams,
+  peakDrawdown?: PeakDrawdownParams
+): Promise<string> {
+  logger.info({
+    action: "tool_call",
+    function: "setPositionExitStrategy",
+    strategy,
+    symbol,
+    params: {
+      strategyType,
+      enabled,
+      partialTakeProfit,
+      dynamicStopLoss,
+      peakDrawdown,
+    },
+    message: "调用设置仓位退出策略参数工具",
+  });
+
+  try {
+    // 统一工具调用系统检查
+    logger.debug({
+      action: "system_check",
+      function: "setPositionExitStrategy",
+      message: "开始统一工具调用系统检查",
+    });
+
+    // 1. 验证策略类型有效性
+    const validStrategyTypes: Array<
+      "partialTakeProfit" | "peakDrawdown" | "combination"
+    > = ["partialTakeProfit", "peakDrawdown", "combination"];
+    if (!validStrategyTypes.includes(strategyType)) {
+      throw new Error(
+        `无效的策略类型：${strategyType}，必须是 ${validStrategyTypes.join(
+          ", "
+        )} 之一`
+      );
+    }
+
+    // 2. 验证组件完整性（根据策略类型）
+    logger.debug({
+      action: "validate_components",
+      function: "setPositionExitStrategy",
+      strategyType,
+      hasPartialTakeProfit: !!partialTakeProfit,
+      hasDynamicStopLoss: !!dynamicStopLoss,
+      hasPeakDrawdown: !!peakDrawdown,
+      message: "开始验证组件完整性",
+    });
+
+    if (strategyType === "combination") {
+      // 组合策略必须包含所有三个组件
+      const missingComponents = [];
+      if (!partialTakeProfit) missingComponents.push("分批止盈");
+      if (!dynamicStopLoss) missingComponents.push("动态止损");
+      if (!peakDrawdown) missingComponents.push("峰值回落");
+
+      if (missingComponents.length > 0) {
+        logger.error({
+          action: "validate_components_error",
+          function: "setPositionExitStrategy",
+          strategyType,
+          missingComponents,
+          receivedParams: { partialTakeProfit, dynamicStopLoss, peakDrawdown },
+          message: `组合策略缺少必要组件: ${missingComponents.join("、")}`,
+        });
+        throw new Error(
+          `❌ 组合策略必须包含${missingComponents.join("、")}配置。\n` +
+            `📌 接收到的参数：\n` +
+            `- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n` +
+            `- 动态止损：${dynamicStopLoss ? "已配置" : "未配置"}\n` +
+            `- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n` +
+            `📌 请检查工具调用的JSON格式是否正确：\n` +
+            `- 确保所有组件都是顶层字段\n` +
+            `- 检查括号是否正确匹配\n` +
+            `- 确保组件名称拼写正确\n` +
+            `- 示例格式：{\"strategyType\":\"combination\",\"enabled\":true,\"partialTakeProfit\":{...},\"dynamicStopLoss\":{...},\"peakDrawdown\":{...}}`
+        );
+      }
+    } else if (strategyType === "partialTakeProfit") {
+      // 分批止盈策略至少需要分批止盈配置
+      if (!partialTakeProfit) {
+        logger.error({
+          action: "validate_components_error",
+          function: "setPositionExitStrategy",
+          strategyType,
+          receivedParams: { partialTakeProfit },
+          message: "分批止盈策略缺少partialTakeProfit组件",
+        });
+        throw new Error(
+          `❌ 分批止盈策略必须包含分批止盈配置。\n` +
+            `📌 接收到的参数：\n` +
+            `- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n` +
+            `📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n` +
+            `- 示例格式：{\"strategyType\":\"partialTakeProfit\",\"enabled\":true,\"partialTakeProfit\":{...}}`
+        );
+      }
+    } else if (strategyType === "peakDrawdown") {
+      // 峰值回落策略至少需要峰值回落配置
+      if (!peakDrawdown) {
+        logger.error({
+          action: "validate_components_error",
+          function: "setPositionExitStrategy",
+          strategyType,
+          receivedParams: { peakDrawdown },
+          message: "峰值回落策略缺少peakDrawdown组件",
+        });
+        throw new Error(
+          `❌ 峰值回落策略必须包含峰值回落配置。\n` +
+            `📌 接收到的参数：\n` +
+            `- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n` +
+            `📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n` +
+            `- 示例格式：{\"strategyType\":\"peakDrawdown\",\"enabled\":true,\"peakDrawdown\":{...}}`
+        );
+      }
+    }
+
+    logger.debug({
+      action: "validate_components_success",
+      function: "setPositionExitStrategy",
+      strategyType,
+      message: "组件完整性验证通过",
+    });
+
+    // 3. 验证参数有效性
+    if (partialTakeProfit) {
+      // 验证分批止盈参数
+      if (!partialTakeProfit.stage1 || !partialTakeProfit.stage2) {
+        throw new Error("分批止盈配置至少需要包含两个阶段");
+      }
+      // 验证触发阈值递增
+      if (
+        partialTakeProfit.stage2.trigger <= partialTakeProfit.stage1.trigger
+      ) {
+        throw new Error("第二阶段触发阈值必须大于第一阶段");
+      }
+      if (
+        partialTakeProfit.stage3 &&
+        partialTakeProfit.stage3.trigger <= partialTakeProfit.stage2.trigger
+      ) {
+        throw new Error("第三阶段触发阈值必须大于第二阶段");
+      }
+      // 验证平仓百分比合理
+      const totalClosePercent =
+        (partialTakeProfit.stage1.closePercent || 0) +
+        (partialTakeProfit.stage2.closePercent || 0) +
+        (partialTakeProfit.stage3?.closePercent || 0);
+      if (totalClosePercent > 100) {
+        throw new Error("分批止盈总平仓百分比不能超过100%");
+      }
+    }
+
+    if (dynamicStopLoss) {
+      // 验证动态止损参数
+      if (dynamicStopLoss.initialStopLoss <= 0) {
+        throw new Error("初始止损幅度必须大于0");
+      }
+      if (dynamicStopLoss.trailingStopLoss) {
+        const { trailingStopLoss } = dynamicStopLoss;
+        if (trailingStopLoss.level1 && trailingStopLoss.level1.trigger <= 0) {
+          throw new Error("移动止损触发阈值必须大于0");
+        }
+      }
+    }
+
+    if (peakDrawdown) {
+      // 验证峰值回落参数
+      if (!peakDrawdown.level1 || !peakDrawdown.level2) {
+        throw new Error("峰值回落配置至少需要包含两个级别");
+      }
+      // 验证回落阈值递增
+      if (
+        peakDrawdown.level2.drawdownThreshold <=
+        peakDrawdown.level1.drawdownThreshold
+      ) {
+        throw new Error("第二级回落阈值必须大于第一级");
+      }
+      if (
+        peakDrawdown.level3 &&
+        peakDrawdown.level3.drawdownThreshold <=
+          peakDrawdown.level2.drawdownThreshold
+      ) {
+        throw new Error("第三级回落阈值必须大于第二级");
+      }
+      // 验证最小持仓时间合理
+      if (
+        peakDrawdown.minHoldingTime < 1 ||
+        peakDrawdown.minHoldingTime > 1440
+      ) {
+        throw new Error("最小持仓时间必须在1-1440分钟之间");
+      }
+    }
+
+    // 4. 验证数据库连接和表状态
+    logger.debug({
+      action: "db_check",
+      function: "setPositionExitStrategy",
+      message: "检查数据库连接和表状态",
+    });
+    await verifyStrategyParamsTable();
+
+    // 5. 验证币种有效性
+    if (!RISK_PARAMS.TRADING_SYMBOLS.includes(symbol as any)) {
+      logger.warn({
+        action: "symbol_validation_warning",
+        function: "setPositionExitStrategy",
+        symbol,
+        message: "币种不在默认交易对列表中，但仍允许设置",
+      });
+    }
+
+    logger.debug({
+      action: "system_check_passed",
+      function: "setPositionExitStrategy",
+      message: "统一工具调用系统检查通过",
+    });
+
+    // 构建参数对象
+    const params: PositionExitStrategyParams & { lastUpdated: string } = {
+      strategyType,
+      enabled,
+      ...(partialTakeProfit && { partialTakeProfit }),
+      ...(dynamicStopLoss && { dynamicStopLoss }),
+      ...(peakDrawdown && { peakDrawdown }),
+      lastUpdated: new Date().toISOString(),
+    };
+
+    // 使用包含币种的key命名规则
+    const paramKey = `positionExitStrategy_${symbol}`;
+    logger.debug({
+      action: "db_execute",
+      function: "setPositionExitStrategy",
+      sql: "INSERT OR REPLACE INTO strategy_params",
+      params: { paramKey, strategy },
+      message: "执行SQL插入或替换操作",
+    });
+
+    const result = await dbClient.execute(
+      `INSERT OR REPLACE INTO strategy_params (key, value, strategy, updated_at, description) 
+            VALUES (?, ?, ?, ?, ?)`,
+      [
+        paramKey,
+        JSON.stringify(params),
+        strategy,
+        new Date().toISOString(),
+        `Agent为${symbol}设置的仓位退出策略`,
+      ]
+    );
+
+    logger.debug({
+      action: "db_execute_result",
+      function: "setPositionExitStrategy",
+      affectedRows: result.rowsAffected,
+      message: "SQL执行成功",
+    });
+
+    // 验证数据是否已正确存储
+    logger.debug({
+      action: "db_verify",
+      function: "setPositionExitStrategy",
+      params: { paramKey, strategy },
+      message: "验证数据是否已正确存储",
+    });
+    const verifyResult = await dbClient.execute(
+      "SELECT key, value FROM strategy_params WHERE strategy = ? AND key = ?",
+      [strategy, paramKey]
+    );
+    logger.debug({
+      action: "db_verify_result",
+      function: "setPositionExitStrategy",
+      rowCount: verifyResult.rows.length,
+      message: `数据验证结果：${verifyResult.rows.length}条记录`,
+    });
+
+    // 验证存储的数据结构完整性
+    if (verifyResult.rows.length > 0) {
+      const storedParams = JSON.parse(verifyResult.rows[0].value as string);
+      logger.debug({
+        action: "data_structure_verify",
+        function: "setPositionExitStrategy",
+        storedParams: storedParams,
+        message: "验证存储的数据结构完整性",
+      });
+    }
+
+    const returnMessage = `成功为${symbol}设置${strategy}策略的仓位退出策略：
+策略类型：${strategyType}
+启用状态：${enabled ? "启用" : "禁用"}
+分批止盈：${partialTakeProfit ? "已配置" : "未配置"}
+动态止损：${dynamicStopLoss ? "已配置" : "未配置"}
+峰值回落：${peakDrawdown ? "已配置" : "未配置"}`;
+
+    logger.info({
+      action: "tool_success",
+      function: "setPositionExitStrategy",
+      strategy,
+      symbol,
+      message: "工具执行成功",
+      result: returnMessage.replace(/\n/g, " "),
+    });
+
+    return returnMessage;
+  } catch (error) {
+    logger.error({
+      action: "tool_error",
+      function: "setPositionExitStrategy",
+      strategy,
+      symbol,
+      message: "工具执行失败",
+      error: (error as Error).message,
+      stack: (error as Error).stack,
+    });
+    return `设置仓位退出策略失败: ${(error as Error).message}`;
+  }
+}
+
+/**
+ * 导出为普通函数，供代码直接调用
+ */
+export async function setPositionExitStrategy(
+  strategy: TradingStrategy,
+  symbol: string,
+  strategyType: "partialTakeProfit" | "peakDrawdown" | "combination",
+  enabled: boolean,
+  partialTakeProfit?: PartialTakeProfitParams,
+  dynamicStopLoss?: DynamicStopLossParams,
+  peakDrawdown?: PeakDrawdownParams
+): Promise<string> {
+  return await _setPositionExitStrategy(
+    strategy,
+    symbol,
+    strategyType,
+    enabled,
+    partialTakeProfit,
+    dynamicStopLoss,
+    peakDrawdown
+  );
+}
+
+/**
+ * 导出为工具，供Agent使用
+ */
+export const setPositionExitStrategyTool = createTool({
+  name: "setPositionExitStrategy",
+  description:
+    "设置策略的仓位退出策略，完整包含分批止盈、动态止损和峰值回落三个核心组件",
+  parameters: z.object({
+    symbol: z
+      .enum(RISK_PARAMS.TRADING_SYMBOLS)
+      .describe("交易币种（如BTC、ETH）"),
+    strategyType: z
+      .enum(["partialTakeProfit", "peakDrawdown", "combination"])
+      .describe(
+        "策略类型：partialTakeProfit（分批止盈）、peakDrawdown（峰值回落）、combination（组合策略）"
+      ),
+    enabled: z.boolean().describe("是否启用该策略"),
+    partialTakeProfit: z
+      .object({
+        stage1: z.object({
+          trigger: z.number().describe("第一阶段止盈触发阈值（百分比）"),
+          closePercent: z.number().describe("第一阶段平仓百分比"),
+        }),
+        stage2: z.object({
+          trigger: z.number().describe("第二阶段止盈触发阈值（百分比）"),
+          closePercent: z.number().describe("第二阶段平仓百分比"),
+        }),
+        stage3: z.object({
+          trigger: z.number().describe("第三阶段止盈触发阈值（百分比）"),
+          closePercent: z.number().describe("第三阶段平仓百分比"),
+        }),
+      })
+      .optional()
+      .describe("可选，分批止盈配置"),
+    dynamicStopLoss: z
+      .object({
+        enabled: z.boolean().describe("是否启用动态止损"),
+        initialStopLoss: z.number().describe("初始止损幅度（百分比）"),
+        trailingStopLoss: z.object({
+          level1: z.object({
+            trigger: z
+              .number()
+              .describe("第一阶段移动止损触发阈值（百分比盈利）"),
+            stopAt: z.number().describe("第一阶段移动止损位置（百分比盈利）"),
+          }),
+          level2: z.object({
+            trigger: z
+              .number()
+              .describe("第二阶段移动止损触发阈值（百分比盈利）"),
+            stopAt: z.number().describe("第二阶段移动止损位置（百分比盈利）"),
+          }),
+          level3: z.object({
+            trigger: z
+              .number()
+              .describe("第三阶段移动止损触发阈值（百分比盈利）"),
+            stopAt: z.number().describe("第三阶段移动止损位置（百分比盈利）"),
+          }),
+        }),
+      })
+      .optional()
+      .describe("可选，动态止损配置"),
+    peakDrawdown: z
+      .object({
+        level1: z.object({
+          drawdownThreshold: z
+            .number()
+            .describe("第一级回落触发阈值（百分比）"),
+          closePercent: z.number().describe("第一级平仓百分比"),
+        }),
+        level2: z.object({
+          drawdownThreshold: z
+            .number()
+            .describe("第二级回落触发阈值（百分比）"),
+          closePercent: z.number().describe("第二级平仓百分比"),
+        }),
+        level3: z.object({
+          drawdownThreshold: z
+            .number()
+            .describe("第三级回落触发阈值（百分比）"),
+          closePercent: z.number().describe("第三级平仓百分比"),
+        }),
+        minHoldingTime: z.number().default(5).describe("最小持仓时间（分钟）"),
+      })
+      .optional()
+      .describe("可选，峰值回落配置"),
+  }),
+  execute: async ({
+    symbol,
+    strategyType,
+    enabled,
+    partialTakeProfit,
+    dynamicStopLoss,
+    peakDrawdown,
+  }) => {
+    // 使用默认策略，因为策略参数是Agent动态设置的
+    const strategy = "balanced" as TradingStrategy;
+    return await _setPositionExitStrategy(
+      strategy,
+      symbol,
+      strategyType,
+      enabled,
+      partialTakeProfit,
+      dynamicStopLoss,
+      peakDrawdown
+    );
   },
 });

@@ -77,65 +77,214 @@ const dbClient = createClient({
 });
 
 /**
- * 根据峰值盈利和当前盈利判断是否触发移动止盈
- * 使用策略的 trailingStop 配置
+ * 根据峰值盈利和当前盈利判断是否触发移动止盈或峰值回落保护
+ * 使用策略的 trailingStop 配置或持仓的 exitStrategy 配置
  *
- * @returns { shouldClose: boolean, level: string, description: string }
+ * @returns { shouldClose: boolean, level: string, description: string, type: string, closePercent?: number }
  */
-function checkTrailingStop(
+function checkExitConditions(
   peakPnlPercent: number,
-  currentPnlPercent: number
+  currentPnlPercent: number,
+  exitStrategy?: any,
+  partialClosePercentage: number = 0
 ): {
   shouldClose: boolean;
   level: string;
   description: string;
+  type: string;
+  closePercent?: number;
   stopAt?: number;
+  drawdownThreshold?: number;
 } {
+  // 参数验证
+  if (!peakPnlPercent || !currentPnlPercent) {
+    return {
+      shouldClose: false,
+      level: "无效参数",
+      description: "峰值盈利或当前盈利参数无效",
+      type: "error",
+    };
+  }
+
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
 
-  if (!params.trailingStop) {
-    throw new Error("移动止盈配置不存在");
+  // 1. 如果存在持仓的 exitStrategy 配置，优先使用它
+  if (exitStrategy) {
+    return checkPositionExitStrategy(
+      exitStrategy,
+      peakPnlPercent,
+      currentPnlPercent,
+      partialClosePercentage
+    );
   }
 
-  const { level1, level2, level3 } = params.trailingStop;
+  // 2. 检查策略参数中的 positionExitStrategy 配置
+  if (params.positionExitStrategy && params.positionExitStrategy.enabled) {
+    return checkPositionExitStrategy(
+      params.positionExitStrategy,
+      peakPnlPercent,
+      currentPnlPercent,
+      partialClosePercentage
+    );
+  }
 
-  // 按照从高到低的顺序检查（level3 -> level2 -> level1）
-  // 盈利达到 trigger% 时，如果当前盈利回落到 stopAt% 或以下，触发平仓
-  const levels = [
-    { name: "level3", trigger: level3.trigger, stopAt: level3.stopAt },
-    { name: "level2", trigger: level2.trigger, stopAt: level2.stopAt },
-    { name: "level1", trigger: level1.trigger, stopAt: level1.stopAt },
-  ];
+  // 3. 检查分批止盈条件（旧配置，向后兼容）
+  if (params.partialTakeProfit) {
+    const { stage1, stage2, stage3 } = params.partialTakeProfit;
 
-  for (const level of levels) {
-    if (peakPnlPercent >= level.trigger) {
-      // 峰值达到了触发点
-      if (currentPnlPercent <= level.stopAt) {
-        // 当前盈利回落到止损点或以下，触发平仓
+    // 按照从低到高的顺序检查（stage1 -> stage2 -> stage3）
+    const stages = [
+      {
+        name: "stage1",
+        trigger: stage1.trigger,
+        closePercent: stage1.closePercent,
+      },
+      {
+        name: "stage2",
+        trigger: stage2.trigger,
+        closePercent: stage2.closePercent,
+      },
+      {
+        name: "stage3",
+        trigger: stage3.trigger,
+        closePercent: stage3.closePercent,
+      },
+    ];
+
+    // 计算累计已平仓百分比
+    let cumulativeClosePercent = 0;
+    for (const stage of stages) {
+      // 参数验证
+      if (!stage.trigger || !stage.closePercent) {
+        continue;
+      }
+
+      // 计算当前阶段的累计平仓百分比
+      cumulativeClosePercent += stage.closePercent;
+
+      // 如果当前累计平仓百分比 <= 已平仓百分比，说明该阶段已经执行过，跳过
+      if (cumulativeClosePercent <= partialClosePercentage) {
+        continue;
+      }
+
+      // 检查是否达到触发阈值
+      if (currentPnlPercent >= stage.trigger) {
+        // 获取对应的drawdownThreshold
+        let drawdownThreshold = 0;
+        if (
+          params.partialTakeProfit &&
+          params.partialTakeProfit.dynamicStopLoss &&
+          params.partialTakeProfit.dynamicStopLoss.peakDrawdown
+        ) {
+          const peakDrawdown =
+            params.partialTakeProfit.dynamicStopLoss.peakDrawdown;
+          if (stage.name === "stage1" && peakDrawdown.level1) {
+            drawdownThreshold = peakDrawdown.level1.drawdownThreshold;
+          } else if (stage.name === "stage2" && peakDrawdown.level2) {
+            drawdownThreshold = peakDrawdown.level2.drawdownThreshold;
+          } else if (stage.name === "stage3" && peakDrawdown.level3) {
+            drawdownThreshold = peakDrawdown.level3.drawdownThreshold;
+          }
+        }
+
         return {
           shouldClose: true,
-          level: level.name,
-          description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
-            level.trigger
-          }%移动止盈，当前${currentPnlPercent.toFixed(2)}%已回落至${
-            level.stopAt
-          }%止损线`,
-          stopAt: level.stopAt,
-        };
-      } else {
-        // 还在止损线之上，继续持有
-        return {
-          shouldClose: false,
-          level: level.name,
-          description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
-            level.trigger
-          }%移动止盈，止损线${level.stopAt}%，当前${currentPnlPercent.toFixed(
+          level: stage.name,
+          description: `当前盈利${currentPnlPercent.toFixed(
             2
-          )}%`,
-          stopAt: level.stopAt,
+          )}%达到分批止盈触发阈值${stage.trigger}%，将平仓${
+            stage.closePercent
+          }%`,
+          type: "partial_take_profit",
+          closePercent: stage.closePercent,
+          drawdownThreshold: drawdownThreshold,
         };
       }
+    }
+  }
+
+  // 4. 使用策略的 trailingStop 配置（旧配置，向后兼容）
+  if (params.trailingStop) {
+    const { level1, level2, level3 } = params.trailingStop;
+
+    // 按照从高到低的顺序检查（level3 -> level2 -> level1）
+    // 盈利达到 trigger% 时，如果当前盈利回落到 stopAt% 或以下，触发平仓
+    const levels = [
+      {
+        name: "level3",
+        trigger: level3.trigger,
+        stopAt: level3.stopAt,
+      },
+      {
+        name: "level2",
+        trigger: level2.trigger,
+        stopAt: level2.stopAt,
+      },
+      {
+        name: "level1",
+        trigger: level1.trigger,
+        stopAt: level1.stopAt,
+      },
+    ];
+
+    for (const level of levels) {
+      // 参数验证
+      if (!level.trigger || !level.stopAt) {
+        continue;
+      }
+
+      if (peakPnlPercent >= level.trigger) {
+        // 峰值达到了触发点
+        if (currentPnlPercent <= level.stopAt) {
+          // 当前盈利回落到止损点或以下，触发平仓
+          return {
+            shouldClose: true,
+            level: level.name,
+            description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
+              level.trigger
+            }%移动止盈，当前${currentPnlPercent.toFixed(2)}%已回落至${
+              level.stopAt
+            }%止损线`,
+            type: "trailing_stop",
+            stopAt: level.stopAt,
+            closePercent: 100, // 默认全部平仓
+          };
+        } else {
+          // 还在止损线之上，继续持有
+          return {
+            shouldClose: false,
+            level: level.name,
+            description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
+              level.trigger
+            }%移动止盈，止损线${level.stopAt}%，当前${currentPnlPercent.toFixed(
+              2
+            )}%`,
+            type: "trailing_stop_monitoring",
+            stopAt: level.stopAt,
+          };
+        }
+      }
+    }
+  }
+
+  // 5. 检查峰值回落保护（旧配置，向后兼容）
+  if (params.peakDrawdownProtection) {
+    const drawdownPercent = peakPnlPercent - currentPnlPercent;
+    if (drawdownPercent >= params.peakDrawdownProtection) {
+      return {
+        shouldClose: true,
+        level: "peak_drawdown",
+        description: `峰值${peakPnlPercent.toFixed(
+          2
+        )}%，当前${currentPnlPercent.toFixed(
+          2
+        )}%，回落${drawdownPercent.toFixed(2)}%，达到峰值回落保护阈值${
+          params.peakDrawdownProtection
+        }%`,
+        type: "peak_drawdown",
+        closePercent: 100, // 默认全部平仓
+      };
     }
   }
 
@@ -143,19 +292,293 @@ function checkTrailingStop(
   return {
     shouldClose: false,
     level: "未触发",
-    description: `峰值${peakPnlPercent.toFixed(2)}%，未达到${
-      level1.trigger
-    }%触发点`,
+    description: `峰值${peakPnlPercent.toFixed(2)}%，未达到任何触发点`,
+    type: "no_trigger",
   };
 }
 
-// 持仓盈利记录：symbol -> { peakPnlPercent, lastCheckTime, priceHistory }
+/**
+ * 根据持仓的 exitStrategy 配置检查是否触发平仓条件
+ * 支持分批止盈和峰值回落机制
+ */
+function checkPositionExitStrategy(
+  exitStrategy: any,
+  peakPnlPercent: number,
+  currentPnlPercent: number,
+  partialClosePercentage: number = 0
+): {
+  shouldClose: boolean;
+  level: string;
+  description: string;
+  type: string;
+  closePercent?: number;
+  stopAt?: number;
+  drawdownThreshold?: number;
+} {
+  // 参数验证
+  if (!exitStrategy || !exitStrategy.strategyType) {
+    return {
+      shouldClose: false,
+      level: "无效配置",
+      description: "exitStrategy配置无效",
+      type: "error",
+    };
+  }
+
+  const { strategyType, partialTakeProfit, peakDrawdown } = exitStrategy;
+
+  // 计算回落幅度
+  const drawdownPercent = peakPnlPercent - currentPnlPercent;
+
+  // 1. 检查分批止盈策略（支持 partialTakeProfit 和 combination 类型）
+  if (
+    (strategyType === "partialTakeProfit" || strategyType === "combination") &&
+    partialTakeProfit
+  ) {
+    // 分批止盈的三个阶段（从低到高排序，方便计算累计平仓百分比）
+    const stages = [
+      {
+        name: "stage1",
+        trigger: partialTakeProfit.stage1.trigger,
+        closePercent: partialTakeProfit.stage1.closePercent,
+      },
+      {
+        name: "stage2",
+        trigger: partialTakeProfit.stage2.trigger,
+        closePercent: partialTakeProfit.stage2.closePercent,
+      },
+      {
+        name: "stage3",
+        trigger: partialTakeProfit.stage3.trigger,
+        closePercent: partialTakeProfit.stage3.closePercent,
+      },
+    ];
+
+    // 计算累计已平仓百分比
+    let cumulativeClosePercent = 0;
+    for (const stage of stages) {
+      // 参数验证
+      if (!stage.trigger || !stage.closePercent) {
+        continue;
+      }
+
+      // 计算当前阶段的累计平仓百分比
+      cumulativeClosePercent += stage.closePercent;
+
+      // 如果当前累计平仓百分比 <= 已平仓百分比，说明该阶段已经执行过，跳过
+      if (cumulativeClosePercent <= partialClosePercentage) {
+        continue;
+      }
+
+      // 检查是否达到触发阈值
+      if (currentPnlPercent >= stage.trigger) {
+        // 获取对应的drawdownThreshold
+        let drawdownThreshold = 0;
+        if (
+          exitStrategy &&
+          exitStrategy.partialTakeProfit &&
+          exitStrategy.partialTakeProfit.dynamicStopLoss &&
+          exitStrategy.partialTakeProfit.dynamicStopLoss.peakDrawdown
+        ) {
+          const peakDrawdown =
+            exitStrategy.partialTakeProfit.dynamicStopLoss.peakDrawdown;
+          if (stage.name === "stage1" && peakDrawdown.level1) {
+            drawdownThreshold = peakDrawdown.level1.drawdownThreshold;
+          } else if (stage.name === "stage2" && peakDrawdown.level2) {
+            drawdownThreshold = peakDrawdown.level2.drawdownThreshold;
+          } else if (stage.name === "stage3" && peakDrawdown.level3) {
+            drawdownThreshold = peakDrawdown.level3.drawdownThreshold;
+          }
+        }
+
+        return {
+          shouldClose: true,
+          level: stage.name,
+          description: `当前盈利${currentPnlPercent.toFixed(
+            2
+          )}%达到分批止盈触发阈值${stage.trigger}%，将平仓${
+            stage.closePercent
+          }%`,
+          type: "partial_take_profit",
+          closePercent: stage.closePercent,
+          drawdownThreshold: drawdownThreshold,
+        };
+      }
+    }
+  }
+
+  // 2. 检查峰值回落策略（支持 peakDrawdown 和 combination 类型）
+  if (
+    (strategyType === "peakDrawdown" || strategyType === "combination") &&
+    peakDrawdown
+  ) {
+    // 峰值回落的三个阶段
+    const levels = [
+      {
+        name: "level3",
+        trigger: peakDrawdown.level3.drawdownThreshold,
+        closePercent: peakDrawdown.level3.closePercent,
+      },
+      {
+        name: "level2",
+        trigger: peakDrawdown.level2.drawdownThreshold,
+        closePercent: peakDrawdown.level2.closePercent,
+      },
+      {
+        name: "level1",
+        trigger: peakDrawdown.level1.drawdownThreshold,
+        closePercent: peakDrawdown.level1.closePercent,
+      },
+    ];
+
+    // 按照触发阈值从高到低检查
+    for (const level of levels) {
+      // 参数验证
+      if (!level.trigger) {
+        continue;
+      }
+
+      // 检查是否达到峰值回落触发阈值
+      if (drawdownPercent >= level.trigger) {
+        return {
+          shouldClose: true,
+          level: level.name,
+          description: `峰值${peakPnlPercent.toFixed(
+            2
+          )}%，当前${currentPnlPercent.toFixed(
+            2
+          )}%，回落${drawdownPercent.toFixed(2)}%，超过峰值回落保护阈值${
+            level.trigger
+          }%`,
+          type: "peak_drawdown_protection",
+          closePercent: level.closePercent || 100,
+          drawdownThreshold: level.trigger,
+        };
+      }
+    }
+  }
+
+  // 3. 传统的batch策略支持（向后兼容）
+  const { batchParams, peakDrawdownParams } = exitStrategy;
+  if (strategyType === "batch" && batchParams && batchParams.stages) {
+    // 按照触发阈值从高到低排序
+    const sortedStages = [...batchParams.stages].sort(
+      (a, b) => b.trigger - a.trigger
+    );
+
+    for (const stage of sortedStages) {
+      // 参数验证
+      if (!stage.trigger || !stage.closePercent) {
+        continue;
+      }
+
+      // 检查是否达到触发阈值
+      if (currentPnlPercent >= stage.trigger) {
+        return {
+          shouldClose: true,
+          level: `batch_stage_${stage.trigger}%`,
+          description: `当前盈利${currentPnlPercent.toFixed(
+            2
+          )}%达到分批止盈触发阈值${stage.trigger}%，将平仓${
+            stage.closePercent
+          }%`,
+          type: "batch_take_profit",
+          closePercent: stage.closePercent,
+        };
+      }
+    }
+
+    // 检查分批止盈配置中的峰值回落保护
+    if (
+      batchParams.peakDrawdownProtection &&
+      drawdownPercent >= batchParams.peakDrawdownProtection
+    ) {
+      return {
+        shouldClose: true,
+        level: "batch_peak_drawdown",
+        description: `分批止盈策略下，峰值${peakPnlPercent.toFixed(
+          2
+        )}%，当前${currentPnlPercent.toFixed(
+          2
+        )}%，回落${drawdownPercent.toFixed(2)}%，超过峰值回落保护阈值${
+          batchParams.peakDrawdownProtection
+        }%`,
+        type: "batch_peak_drawdown",
+        closePercent: 100, // 分批止盈的峰值回落保护默认全部平仓
+      };
+    }
+  }
+
+  // 4. 检查简单止盈止损策略（向后兼容）
+  if (strategyType === "simple") {
+    const { stopLoss, takeProfit } = exitStrategy;
+
+    if (stopLoss && currentPnlPercent <= -stopLoss) {
+      return {
+        shouldClose: true,
+        level: "simple_stop_loss",
+        description: `当前亏损${Math.abs(currentPnlPercent).toFixed(
+          2
+        )}%，达到止损阈值${stopLoss}%`,
+        type: "simple_stop_loss",
+        closePercent: 100,
+      };
+    }
+
+    if (takeProfit && currentPnlPercent >= takeProfit) {
+      return {
+        shouldClose: true,
+        level: "simple_take_profit",
+        description: `当前盈利${currentPnlPercent.toFixed(
+          2
+        )}%，达到止盈阈值${takeProfit}%`,
+        type: "simple_take_profit",
+        closePercent: 100,
+      };
+    }
+  }
+
+  // 5. 传统的峰值回落策略支持（向后兼容）
+  if (strategyType === "peakDrawdown" && peakDrawdownParams) {
+    if (
+      peakDrawdownParams.protectionThreshold &&
+      peakDrawdownParams.trigger &&
+      peakPnlPercent >= peakDrawdownParams.trigger &&
+      drawdownPercent >= peakDrawdownParams.protectionThreshold
+    ) {
+      return {
+        shouldClose: true,
+        level: "peak_drawdown_strategy",
+        description: `峰值回落策略下，峰值${peakPnlPercent.toFixed(
+          2
+        )}%达到触发值${
+          peakDrawdownParams.trigger
+        }%，当前回落${drawdownPercent.toFixed(2)}%，超过保护阈值${
+          peakDrawdownParams.protectionThreshold
+        }%`,
+        type: "peak_drawdown_strategy",
+        closePercent: 100,
+      };
+    }
+  }
+
+  // 未触发任何平仓条件
+  return {
+    shouldClose: false,
+    level: "未触发",
+    description: `当前盈利${currentPnlPercent.toFixed(2)}%，未达到任何平仓条件`,
+    type: "no_trigger",
+  };
+}
+
+// 持仓盈利记录：symbol -> { peakPnlPercent, lastCheckTime, priceHistory, initialQuantity }
 const positionPnlHistory = new Map<
   string,
   {
     peakPnlPercent: number;
     lastCheckTime: number;
     checkCount: number; // 检查次数，用于日志
+    initialQuantity: number; // 初始开仓数量，用于计算已平仓百分比
   }
 >();
 
@@ -177,44 +600,57 @@ function isTrailingStopEnabled(): boolean {
 }
 
 /**
- * 获取移动止盈配置（用于日志输出）
+ * 获取移动止盈和分批止盈配置（用于日志输出）
  */
 function getTrailingStopConfig() {
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
 
-  if (!params.trailingStop) {
-    return null;
+  const config: any = {};
+
+  // 添加移动止盈配置
+  if (params.trailingStop) {
+    config.trailingStop = {
+      level1: {
+        description: `峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓`,
+        trigger: params.trailingStop.level1.trigger,
+        stopAt: params.trailingStop.level1.stopAt,
+      },
+      level2: {
+        description: `峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓`,
+        trigger: params.trailingStop.level2.trigger,
+        stopAt: params.trailingStop.level2.stopAt,
+      },
+      level3: {
+        description: `峰值达到 ${params.trailingStop.level3.trigger}% 时，回落至 ${params.trailingStop.level3.stopAt}% 平仓`,
+        trigger: params.trailingStop.level3.trigger,
+        stopAt: params.trailingStop.level3.stopAt,
+      },
+    };
   }
 
-  return {
-    stage1: {
-      description: `峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓`,
-      trigger: params.trailingStop.level1.trigger,
-      stopAt: params.trailingStop.level1.stopAt,
-    },
-    stage2: {
-      description: `峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓`,
-      trigger: params.trailingStop.level2.trigger,
-      stopAt: params.trailingStop.level2.stopAt,
-    },
-    stage3: {
-      description: `峰值达到 ${params.trailingStop.level3.trigger}% 时，回落至 ${params.trailingStop.level3.stopAt}% 平仓`,
-      trigger: params.trailingStop.level3.trigger,
-      stopAt: params.trailingStop.level3.stopAt,
-    },
-    // 为了兼容旧代码，添加 stage4 和 stage5（实际不使用）
-    stage4: {
-      description: `未使用（仅3级规则）`,
-      trigger: 0,
-      stopAt: 0,
-    },
-    stage5: {
-      description: `未使用（仅3级规则）`,
-      trigger: 0,
-      stopAt: 0,
-    },
-  };
+  // 添加分批止盈配置
+  if (params.partialTakeProfit) {
+    config.partialTakeProfit = {
+      stage1: {
+        description: `盈利达到 ${params.partialTakeProfit.stage1.trigger}% 时，平仓 ${params.partialTakeProfit.stage1.closePercent}%`,
+        trigger: params.partialTakeProfit.stage1.trigger,
+        closePercent: params.partialTakeProfit.stage1.closePercent,
+      },
+      stage2: {
+        description: `盈利达到 ${params.partialTakeProfit.stage2.trigger}% 时，平仓 ${params.partialTakeProfit.stage2.closePercent}%`,
+        trigger: params.partialTakeProfit.stage2.trigger,
+        closePercent: params.partialTakeProfit.stage2.closePercent,
+      },
+      stage3: {
+        description: `盈利达到 ${params.partialTakeProfit.stage3.trigger}% 时，平仓 ${params.partialTakeProfit.stage3.closePercent}%`,
+        trigger: params.partialTakeProfit.stage3.trigger,
+        closePercent: params.partialTakeProfit.stage3.closePercent,
+      },
+    };
+  }
+
+  return config;
 }
 
 /**
@@ -367,15 +803,19 @@ async function executeTrailingStopClose(
   peakPnlPercent: number,
   drawdownPercent: number,
   drawdownThreshold: number,
-  stage: string
+  stage: string,
+  closePercent: number = 100
 ): Promise<boolean> {
   const exchangeClient = createExchangeClient();
   const contract = `${symbol}_USDT`;
 
   try {
-    const size = side === "long" ? -quantity : quantity;
+    // 计算实际平仓数量
+    const actualCloseQuantity = (quantity * closePercent) / 100;
+    const size = side === "long" ? -actualCloseQuantity : actualCloseQuantity;
+    const isFullClose = closePercent === 100;
 
-    logger.warn(`【触发移动止盈 ${stage}】${symbol} ${side}`);
+    logger.warn(`【触发平仓 ${stage}】${symbol} ${side}`);
     logger.warn(`  峰值盈利: ${peakPnlPercent.toFixed(2)}%`);
     logger.warn(`  当前盈利: ${pnlPercent.toFixed(2)}%`);
     logger.warn(
@@ -383,20 +823,19 @@ async function executeTrailingStopClose(
         2
       )}% (阈值: ${drawdownThreshold.toFixed(2)}%)`
     );
+    logger.warn(`  平仓百分比: ${closePercent}%`);
+    logger.warn(`  平仓数量: ${actualCloseQuantity} (总数量: ${quantity})`);
 
-    // 1. 执行平仓订单 - 使用优化后的closePosition方法，确保精确平仓和结果验证
+    // 1. 执行平仓订单 - 使用优化后的closePosition方法，支持部分平仓
     const order = await exchangeClient.closePosition({
       contract,
-      // 不指定size则平掉全部持仓，确保单次完整平仓
+      size: actualCloseQuantity, // 指定平仓数量，实现分批平仓
     });
 
-    logger.info(
-      `已下达移动止盈平仓订单 ${symbol}，订单ID: ${order?.id || "N/A"}`
-    );
+    logger.info(`已下达平仓订单 ${symbol}，订单ID: ${order?.id || "N/A"}`);
 
     // 2. 计算盈亏
     const actualExitPrice = currentPrice; // 使用当前价格作为默认值
-    const actualQuantity = quantity;
     let pnl = 0;
     let totalFee = 0;
     const orderFilled = true; // 假设平仓成功
@@ -411,21 +850,22 @@ async function executeTrailingStopClose(
           ? actualExitPrice - entryPrice
           : entryPrice - actualExitPrice;
 
-      const grossPnl = priceChange * actualQuantity * quantoMultiplier;
+      const grossPnl = priceChange * actualCloseQuantity * quantoMultiplier;
 
       // 计算手续费（开仓 + 平仓）
-      const openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
+      const openFee =
+        entryPrice * actualCloseQuantity * quantoMultiplier * 0.0005;
       const closeFee =
-        actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
+        actualExitPrice * actualCloseQuantity * quantoMultiplier * 0.0005;
       totalFee = openFee + closeFee;
 
       // 净盈亏
       pnl = grossPnl - totalFee;
 
       logger.info(
-        `移动止盈平仓成交: 价格=${actualExitPrice.toFixed(
+        `平仓成交: 价格=${actualExitPrice.toFixed(
           2
-        )}, 数量=${actualQuantity}, 盈亏=${pnl.toFixed(2)} USDT`
+        )}, 数量=${actualCloseQuantity}, 盈亏=${pnl.toFixed(2)} USDT`
       );
     } catch (calcError: any) {
       logger.error(`计算盈亏失败: ${calcError.message}`);
@@ -441,7 +881,7 @@ async function executeTrailingStopClose(
         side,
         "close",
         actualExitPrice,
-        actualQuantity,
+        actualCloseQuantity,
         leverage,
         pnl,
         totalFee,
@@ -461,7 +901,7 @@ async function executeTrailingStopClose(
     }
 
     // 4. 记录决策信息到agent_decisions表
-    const decisionText = `【移动止盈触发 - ${stage}】${symbol} ${
+    const decisionText = `【平仓触发 - ${stage}】${symbol} ${
       side === "long" ? "做多" : "做空"
     }
 触发阶段: ${stage}
@@ -470,6 +910,7 @@ async function executeTrailingStopClose(
 回撤幅度: ${drawdownPercent.toFixed(2)}% (阈值: ${drawdownThreshold.toFixed(
       2
     )}%)
+平仓百分比: ${closePercent}%
 平仓价格: ${actualExitPrice.toFixed(2)}
 平仓盈亏: ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} USDT
 
@@ -485,39 +926,64 @@ async function executeTrailingStopClose(
         getChinaTimeISO(),
         iterationCount, // 使用当前AI策略回合数
         JSON.stringify({
-          trigger: "trailing_stop",
+          trigger: isFullClose ? "full_close" : "partial_close",
           symbol,
           pnlPercent,
           peakPnlPercent,
           drawdownPercent,
+          closePercent,
         }),
         decisionText,
         JSON.stringify([
-          { action: "close_position", symbol, reason: "trailing_stop" },
+          {
+            action: isFullClose ? "close_position" : "partial_close_position",
+            symbol,
+            reason: "trailing_stop",
+            closePercent,
+          },
         ]),
         0, // 稍后更新
         0, // 稍后更新
       ],
     });
 
-    // 5. 从数据库删除持仓记录
-    await dbClient.execute({
-      sql: "DELETE FROM positions WHERE symbol = ?",
-      args: [symbol],
-    });
+    // 5. 更新或删除数据库中的持仓记录
+    if (isFullClose) {
+      // 全部平仓，删除持仓记录
+      await dbClient.execute({
+        sql: "DELETE FROM positions WHERE symbol = ?",
+        args: [symbol],
+      });
+      // 从内存中清除记录
+      positionPnlHistory.delete(symbol);
+    } else {
+      // 部分平仓，更新持仓数量
+      const remainingQuantity = quantity - actualCloseQuantity;
+      await dbClient.execute({
+        sql: "UPDATE positions SET quantity = ? WHERE symbol = ?",
+        args: [remainingQuantity, symbol],
+      });
+      // 更新内存中的持仓记录，保留峰值盈利信息
+      const history = positionPnlHistory.get(symbol);
+      if (history) {
+        // 保留峰值盈利，不重置
+        logger.info(
+          `${symbol} 部分平仓后，保留峰值盈利: ${history.peakPnlPercent.toFixed(
+            2
+          )}%`
+        );
+      }
+    }
 
     logger.info(
-      `移动止盈平仓完成 ${symbol}，盈亏：${pnl >= 0 ? "+" : ""}${pnl.toFixed(
-        2
-      )} USDT`
+      `${isFullClose ? "全部平仓" : "部分平仓"}完成 ${symbol}，盈亏：${
+        pnl >= 0 ? "+" : ""
+      }${pnl.toFixed(2)} USDT`
     );
-
-    // 6. 从内存中清除记录
-    positionPnlHistory.delete(symbol);
 
     return true;
   } catch (error: any) {
-    logger.error(`移动止盈平仓失败 ${symbol}: ${error.message}`);
+    logger.error(`平仓失败 ${symbol}: ${error.message}`);
     return false;
   }
 }
@@ -606,12 +1072,22 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       return;
     }
 
-    // 3. 从数据库获取持仓信息（获取开仓时间）
+    // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利和初始数量）
     const dbResult = await dbClient.execute(
-      "SELECT symbol, opened_at FROM positions"
+      "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity FROM positions"
     );
-    const dbOpenedAtMap = new Map(
-      dbResult.rows.map((row: any) => [row.symbol, row.opened_at])
+    const dbInfoMap = new Map(
+      dbResult.rows.map((row: any) => [
+        row.symbol,
+        {
+          openedAt: row.opened_at,
+          exitStrategy: row.exit_strategy
+            ? JSON.parse(row.exit_strategy)
+            : null,
+          peakPnlPercent: row.peak_pnl_percent || 0,
+          initialQuantity: row.quantity || 0,
+        },
+      ])
     );
 
     // 4. 检查每个持仓
@@ -625,8 +1101,15 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       const leverage = Number.parseInt(pos.leverage || "1");
 
       // 验证数据有效性
-      if (entryPrice === 0 || currentPrice === 0 || leverage === 0) {
-        logger.warn(`${symbol} 数据无效，跳过峰值监控`);
+      if (
+        entryPrice === 0 ||
+        currentPrice === 0 ||
+        leverage === 0 ||
+        quantity === 0
+      ) {
+        logger.warn(
+          `${symbol} 数据无效（entryPrice: ${entryPrice}, currentPrice: ${currentPrice}, leverage: ${leverage}, quantity: ${quantity}），跳过峰值监控`
+        );
         continue;
       }
 
@@ -641,16 +1124,27 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       // 获取或初始化盈利历史记录
       let history = positionPnlHistory.get(symbol);
       if (!history) {
+        // 初始化峰值盈利，优先使用数据库中的值，否则使用当前盈利
+        const dbInfo = dbInfoMap.get(symbol);
+        const initialPeak = dbInfo?.peakPnlPercent || pnlPercent;
+        // 使用当前持仓数量作为初始数量，只在首次创建时设置，后续不再更新
+        const initialQuantity = quantity;
+
         history = {
-          peakPnlPercent: pnlPercent,
+          peakPnlPercent: initialPeak,
           lastCheckTime: now,
           checkCount: 0,
+          initialQuantity: initialQuantity,
         };
         positionPnlHistory.set(symbol, history);
         logger.info(
           `${symbol} 开始跟踪峰值盈利${
             autoCloseEnabled ? "和移动止盈" : "（仅更新峰值）"
-          }，初始盈利: ${pnlPercent.toFixed(2)}%`
+          }，初始盈利: ${pnlPercent.toFixed(
+            2
+          )}%，初始峰值: ${initialPeak.toFixed(
+            2
+          )}%，初始数量: ${initialQuantity}`
         );
       }
 
@@ -678,70 +1172,102 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       // 更新最后检查时间
       history.lastCheckTime = now;
 
-      // ===== 可选功能：移动止盈自动平仓（仅波段策略）=====
-      if (!autoCloseEnabled) {
-        // 非波段策略：仅更新峰值，不执行自动平仓
-        continue;
-      }
+      // 获取持仓的 exitStrategy 配置
+      const dbInfo = dbInfoMap.get(symbol);
+      const exitStrategy = dbInfo?.exitStrategy || null;
 
-      // 5. 检查移动止盈条件（3级规则）- 仅波段策略
-      // 使用 trailingStop 配置判断是否触发平仓
-      const trailingStopResult = checkTrailingStop(
-        history.peakPnlPercent,
-        pnlPercent
-      );
+      // 使用内存中保存的初始数量计算已平仓百分比
+      const initialQuantity = history.initialQuantity;
+      const closedQuantity = initialQuantity - quantity;
+      const partialClosePercentage =
+        initialQuantity > 0 ? (closedQuantity / initialQuantity) * 100 : 0;
 
-      // 调试日志：每10次检查输出一次
-      if (history.checkCount % 10 === 0) {
-        logger.debug(
-          `${symbol} 移动止盈监控: ${trailingStopResult.description}`
-        );
-      }
-
-      // 计算回退百分比（绝对值）
-      const drawdownPercent = history.peakPnlPercent - pnlPercent;
-
-      // 检查是否应该平仓
-      if (trailingStopResult.shouldClose) {
-        logger.warn(`${symbol} 触发移动止盈平仓:`);
-        logger.warn(`  触发级别: ${trailingStopResult.level}`);
-        logger.warn(`  ${trailingStopResult.description}`);
-        logger.warn(`  峰值盈利: ${history.peakPnlPercent.toFixed(2)}%`);
-        logger.warn(`  当前盈利: ${pnlPercent.toFixed(2)}%`);
-        logger.warn(`  回退幅度: ${drawdownPercent.toFixed(2)}%`);
-        logger.warn(`  止损线: ${trailingStopResult.stopAt}%`);
-
-        // 执行平仓
-        const success = await executeTrailingStopClose(
-          symbol,
-          side,
-          quantity,
-          entryPrice,
-          currentPrice,
-          leverage,
-          pnlPercent,
+      // ===== 检查平仓条件（适用于所有启用自动平仓的策略）=====
+      if (autoCloseEnabled || (exitStrategy && exitStrategy.strategyType)) {
+        // 使用新的检查函数，支持多种平仓策略，传递已平仓百分比
+        const exitResult = checkExitConditions(
           history.peakPnlPercent,
-          drawdownPercent,
-          trailingStopResult.stopAt || 0,
-          `${trailingStopResult.level} - ${trailingStopResult.description}`
+          pnlPercent,
+          exitStrategy,
+          partialClosePercentage
         );
 
-        if (success) {
-          logger.info(`${symbol} 移动止盈平仓成功`);
-        }
-      } else {
-        // 每10次检查输出一次调试日志（修复：使用 trailingStopResult 而不是未定义的 thresholdInfo）
+        // 调试日志：每10次检查输出一次
         if (history.checkCount % 10 === 0) {
-          logger.debug(
-            `${symbol} ${
-              trailingStopResult.level
-            } 监控中: 峰值${history.peakPnlPercent.toFixed(
-              2
-            )}%, 当前${pnlPercent.toFixed(2)}%, 回退${drawdownPercent.toFixed(
-              2
-            )}%`
-          );
+          logger.debug(`${symbol} 平仓策略监控: ${exitResult.description}`);
         }
+
+        // 计算回退百分比（绝对值）
+        const drawdownPercent = history.peakPnlPercent - pnlPercent;
+
+        // 检查是否应该平仓
+        if (exitResult.shouldClose) {
+          logger.warn(`${symbol} 触发平仓:`);
+          logger.warn(`  触发类型: ${exitResult.type}`);
+          logger.warn(`  触发级别: ${exitResult.level}`);
+          logger.warn(`  ${exitResult.description}`);
+          logger.warn(`  峰值盈利: ${history.peakPnlPercent.toFixed(2)}%`);
+          logger.warn(`  当前盈利: ${pnlPercent.toFixed(2)}%`);
+          logger.warn(`  回退幅度: ${drawdownPercent.toFixed(2)}%`);
+          if (exitResult.stopAt) {
+            logger.warn(`  止损线: ${exitResult.stopAt}%`);
+          }
+          if (exitResult.closePercent) {
+            logger.warn(`  平仓百分比: ${exitResult.closePercent}%`);
+          }
+
+          // 执行平仓，支持分批平仓
+          const closePercent = exitResult.closePercent || 100;
+          const success = await executeTrailingStopClose(
+            symbol,
+            side,
+            quantity,
+            entryPrice,
+            currentPrice,
+            leverage,
+            pnlPercent,
+            history.peakPnlPercent,
+            drawdownPercent,
+            exitResult.drawdownThreshold || exitResult.stopAt || 0,
+            exitResult.level,
+            closePercent
+          );
+
+          if (success) {
+            logger.info(`${symbol} 平仓成功`);
+
+            // 如果是分批平仓，更新峰值盈利
+            if (closePercent < 100) {
+              // 分批平仓后，重置峰值盈利为当前盈利，因为剩余仓位的峰值将重新计算
+              history.peakPnlPercent = pnlPercent;
+              await dbClient.execute({
+                sql: "UPDATE positions SET peak_pnl_percent = ? WHERE symbol = ?",
+                args: [pnlPercent, symbol],
+              });
+              logger.info(
+                `${symbol} 分批平仓后，重置峰值盈利为当前盈利: ${pnlPercent.toFixed(
+                  2
+                )}%`
+              );
+            }
+          }
+        } else {
+          // 每10次检查输出一次调试日志
+          if (history.checkCount % 10 === 0) {
+            logger.debug(
+              `${symbol} ${
+                exitResult.type
+              } 监控中: 峰值${history.peakPnlPercent.toFixed(
+                2
+              )}%, 当前${pnlPercent.toFixed(2)}%, 回退${drawdownPercent.toFixed(
+                2
+              )}%`
+            );
+          }
+        }
+      } else if (!autoCloseEnabled) {
+        // 非自动平仓策略：仅更新峰值，不执行自动平仓
+        continue;
       }
     }
 
@@ -799,13 +1325,29 @@ export function startTrailingStopMonitor() {
   if (autoCloseEnabled) {
     const config = getTrailingStopConfig();
     if (config) {
-      logger.info(``);
-      logger.info(`  【移动止盈规则】（仅波段策略）`);
-      logger.info(`    阶段1: ${config.stage1.description}`);
-      logger.info(`    阶段2: ${config.stage2.description}`);
-      logger.info(`    阶段3: ${config.stage3.description}`);
-      logger.info(`    阶段4: ${config.stage4.description}`);
-      logger.info(`    阶段5: ${config.stage5.description}`);
+      // 显示移动止盈规则
+      if (config.trailingStop) {
+        logger.info(``);
+        logger.info(`  【移动止盈规则】`);
+        logger.info(`    Level1: ${config.trailingStop.level1.description}`);
+        logger.info(`    Level2: ${config.trailingStop.level2.description}`);
+        logger.info(`    Level3: ${config.trailingStop.level3.description}`);
+      }
+
+      // 显示分批止盈规则
+      if (config.partialTakeProfit) {
+        logger.info(``);
+        logger.info(`  【分批止盈规则】`);
+        logger.info(
+          `    Stage1: ${config.partialTakeProfit.stage1.description}`
+        );
+        logger.info(
+          `    Stage2: ${config.partialTakeProfit.stage2.description}`
+        );
+        logger.info(
+          `    Stage3: ${config.partialTakeProfit.stage3.description}`
+        );
+      }
     }
   } else {
     logger.info(``);

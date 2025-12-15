@@ -416,6 +416,12 @@ export interface StrategyParams {
   allowAiOverrideProtection?: boolean;
 
   /**
+   * 仓位退出策略配置
+   * Position exit strategy configuration
+   */
+  positionExitStrategy?: PositionExitStrategy;
+
+  /**
    * 蔡森策略特定参数
    * Cai Sen strategy specific parameters
    */
@@ -512,18 +518,50 @@ export interface StrategyParams {
   /**
    * 动态止损阈值配置
    * Dynamic stop loss threshold configuration
-   * 
+   *
    * 用于存储蔡森Agent动态设置的止损阈值
    * 按货币对进行配置，支持不同货币对设置不同的止损阈值
    */
-  dynamicStopLoss?: Record<string, {
-    /** 止损阈值（百分比），如-2.5表示亏损2.5%止损 */
-    threshold: number;
-    /** 评估周期（分钟），如30表示每30分钟评估一次 */
-    evaluationInterval: number;
-    /** 触发条件数组，用于控制止损阈值的调整 */
-    conditions?: Array<{ type: 'volatility' | 'trend' | 'news'; value: number }>;
-    /** 最后更新时间，ISO格式字符串 */
-    lastUpdated: string;
-  }>;
+  dynamicStopLoss?: Record<
+    string,
+    {
+      /** 止损阈值（百分比），如-2.5表示亏损2.5%止损 */
+      threshold: number;
+      /** 评估周期（分钟），如30表示每30分钟评估一次 */
+      evaluationInterval: number;
+      /** 触发条件数组，用于控制止损阈值的调整 */
+      conditions?: Array<{
+        type: "volatility" | "trend" | "news";
+        value: number;
+      }>;
+      /** 最后更新时间，ISO格式字符串 */
+      lastUpdated: string;
+    }
+  >;
+}
+
+/**
+ * 仓位退出策略配置
+ * Position exit strategy configuration
+ */
+export interface PositionExitStrategy {
+  /** 策略类型 */
+  strategyType: "partialTakeProfit" | "peakDrawdown" | "combination";
+  /** 分批止盈配置 */
+  partialTakeProfit?: {
+    stage1: { trigger: number; closePercent: number };
+    stage2: { trigger: number; closePercent: number };
+    stage3: { trigger: number; closePercent: number };
+  };
+  /** 峰值回落配置 */
+  peakDrawdown?: {
+    level1: { drawdownThreshold: number; closePercent: number };
+    level2: { drawdownThreshold: number; closePercent: number };
+    level3: { drawdownThreshold: number; closePercent: number };
+    minHoldingTime: number;
+  };
+  /** 启用状态 */
+  enabled: boolean;
+  /** 最后更新时间 */
+  lastUpdated: string;
 }

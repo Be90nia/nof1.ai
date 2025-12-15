@@ -493,6 +493,74 @@ body {
     transition: all 0.2s ease;
 }
 
+/* 工具调用美化样式 */
+.tool-calls-container {
+    margin: 6px 0;
+    padding: 6px;
+    background: rgba(59, 130, 246, 0.1);
+    border-radius: 4px;
+    border-left: 2px solid #3b82f6;
+}
+
+.tool-calls-header {
+    font-size: 0.8em;
+    font-weight: 600;
+    color: #3b82f6;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tool-calls-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tool-call {
+    background: rgba(45, 55, 72, 0.8);
+    border-radius: 4px;
+    padding: 6px;
+    border: 1px solid #3f4b5f;
+}
+
+.tool-name {
+    font-size: 0.8em;
+    font-weight: 700;
+    color: #60a5fa;
+    margin-bottom: 2px;
+}
+
+.tool-params {
+    font-size: 0.75em;
+    color: #cbd5e1;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.tool-call .tool-params br {
+    margin-bottom: 2px;
+}
+
+.tool-call .tool-params .property {
+    color: #fbbf24;
+}
+
+.tool-call .tool-params .string {
+    color: #10b981;
+}
+
+.tool-call .tool-params .number {
+    color: #ef4444;
+}
+
+.tool-call .tool-params .boolean {
+    color: #8b5cf6;
+}
+
 .log-item:hover {
     transform: translateX(2px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);

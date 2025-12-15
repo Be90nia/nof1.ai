@@ -172,13 +172,11 @@ export function getCaiSenStrategy(
     allowAiOverrideProtection: true,
 
     // ==================== 峰值回落检测配置 ====================
+    // 注意：峰值回落的具体参数（levels）将由AI根据市场数据动态生成
+    // 以下仅为基础配置，具体阈值将通过setPositionExitStrategy工具由AI设置
     peakDrawdownProtectionConfig: {
       enabled: true,
-      levels: [
-        { peakThreshold: 3, drawdownThreshold: 1, closePercent: 30 }, // 峰值达到3%，回落1%，平仓30%
-        { peakThreshold: 5, drawdownThreshold: 2, closePercent: 50 }, // 峰值达到5%，回落2%，平仓50%
-        { peakThreshold: 8, drawdownThreshold: 3, closePercent: 100 }, // 峰值达到8%，回落3%，平仓100%
-      ],
+      levels: [], // 由AI动态生成，初始为空
       minHoldingTime: 5 * 60 * 1000, // 5分钟
       maxClosePercent: 100, // 单次最大平仓100%
     },
@@ -187,10 +185,15 @@ export function getCaiSenStrategy(
     caiSen: {
       // 多时间框架分析参数
       timeframeAnalysis: {
-        dailyWeight: 0.5, // 日线权重
-        hourlyWeight: 0.3, // 小时线权重
-        fiveMinWeight: 0.2, // 5分钟线权重
+        dailyWeight: 0.2, // 日线基础权重
+        hourlyWeight: 0.25, // 小时线基础权重
+        fifteenMinWeight: 0.3, // 15分钟线基础权重
+        fiveMinWeight: 0.25, // 5分钟线基础权重
         trendConfirmationThreshold: 0.7, // 趋势确认阈值
+        dynamicWeightEnabled: true, // 启用动态时间框架权重分配
+        volatilitySensitivity: 0.5, // 波动率敏感度 (0-1)
+        trendSensitivity: 0.3, // 趋势敏感度 (0-1)
+        marketStateSensitivity: 0.2, // 市场状态敏感度 (0-1)
       },
 
       // 七分位策略参数
@@ -202,6 +205,9 @@ export function getCaiSenStrategy(
           zone1_2: 0.6, // 1/2区域置信度
           zone6_7: 0.65, // 6/7区域置信度
         },
+        optimizedCalculationEnabled: true, // 启用优化的七分位计算
+        volumeWeightFactor: 0.5, // 成交量权重因子
+        historicalDataPeriod: 100, // 历史数据周期（用于优化计算）
       },
 
       // 动态点位交易参数

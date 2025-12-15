@@ -50,7 +50,7 @@ import { getStrategyParams } from "../strategies";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
-import { iterationCount } from "./tradingLoop";
+import { iterationCount, executeTradingDecision } from "./tradingLoop";
 
 const logger = createLogger({
   name: "stop-loss-monitor",
@@ -656,6 +656,7 @@ async function checkStopLoss() {
     }
 
     const now = Date.now();
+    let shouldWakeAgent = false; // 标志位：是否需要唤醒Agent
 
     // 2. 检查每个持仓
     for (const pos of activePositions) {
@@ -722,6 +723,9 @@ async function checkStopLoss() {
         logger.error(`  杠杆倍数: ${leverage}x`);
         logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
         logger.error(`  止损线: ${thresholdInfo.threshold.toFixed(2)}%`);
+
+        // 设置标志位，需要唤醒Agent
+        shouldWakeAgent = true;
 
         // 使用AI判断是否为偶发性波动
         let shouldStopLoss = true;
@@ -809,6 +813,18 @@ async function checkStopLoss() {
       if (!activeSymbols.has(symbol)) {
         positionMonitorHistory.delete(symbol);
         logger.debug(`清理已平仓的记录: ${symbol}`);
+      }
+    }
+
+    // 5. 根据标志位决定是否唤醒Agent
+    // 无论有多少个货币触发止损，都只会唤醒一次Agent
+    if (shouldWakeAgent && getTradingStrategy() === "cai-sen") {
+      logger.error(`有持仓触发动态止损阈值，立即唤醒蔡森Agent进行决策`);
+      try {
+        await executeTradingDecision();
+        logger.info(`已成功唤醒蔡森Agent进行决策`);
+      } catch (error: any) {
+        logger.error(`唤醒蔡森Agent失败: ${error.message}`);
       }
     }
   } catch (error: any) {

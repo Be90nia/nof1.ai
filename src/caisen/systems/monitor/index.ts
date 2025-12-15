@@ -48,7 +48,11 @@ import { createExchangeClient } from "../../../services/exchangeClient";
 import { getQuantoMultiplier } from "../../../utils/contractUtils";
 import { createLogger } from "../../../utils/loggerUtils";
 import { getChinaTimeISO } from "../../../utils/timeUtils";
-import { CaiSenBatchClosingSystem, ClosingType } from "../batch-closing";
+import {
+  CaiSenBatchClosingSystem,
+  ClosingType,
+  BatchConfig,
+} from "../batch-closing";
 import { executeTradingDecision } from "../../../scheduler/tradingLoop";
 
 const logger = createLogger({
@@ -83,6 +87,9 @@ const caiSenMonitorState = {
     }
   >(),
 };
+
+// 分批平仓系统实例
+let batchClosingSystem: CaiSenBatchClosingSystem | null = null;
 
 let monitorInterval: NodeJS.Timeout | null = null;
 let isRunning = false;
@@ -760,7 +767,18 @@ async function executeCaiSenMonitor(): Promise<void> {
       // 3. 主动检测止盈条件
       const strategy = getTradingStrategy();
       const strategyParams = getStrategyParams(strategy);
-      const takeProfitConfig = strategyParams.partialTakeProfit;
+      const exitStrategy = strategyParams.positionExitStrategy;
+
+      // 检查是否启用了止盈策略
+      const isTakeProfitEnabled =
+        exitStrategy?.enabled &&
+        (exitStrategy.strategyType === "partialTakeProfit" ||
+          exitStrategy.strategyType === "combination") &&
+        exitStrategy.partialTakeProfit;
+
+      const takeProfitConfig = isTakeProfitEnabled
+        ? exitStrategy.partialTakeProfit
+        : null;
 
       if (takeProfitConfig) {
         // 计算当前盈亏百分比
@@ -786,7 +804,7 @@ async function executeCaiSenMonitor(): Promise<void> {
           );
 
           // 检查是否达到止盈条件（只在盈利时检查）
-          if (pnlPercent > 0) {
+          if (pnlPercent > 0 && batchClosingSystem) {
             if (pnlPercent >= takeProfitConfig.stage3.trigger) {
               // 达到第三阶段止盈，全部平仓
               logger.info(
@@ -795,6 +813,30 @@ async function executeCaiSenMonitor(): Promise<void> {
                 }%`
               );
               logger.info("准备执行全部平仓操作");
+
+              // 创建全平仓配置
+              const batchConfig: BatchConfig = {
+                batchId: `take_profit_${symbol}_stage3_${Date.now()}`,
+                positionId: contract,
+                closingType: ClosingType.TAKE_PROFIT,
+                closingRatio: 1.0, // 全部平仓
+                closingQuantity: size,
+                triggerCondition: {
+                  triggerType: "manual",
+                  triggerValue: 0,
+                  operator: ">",
+                },
+                priority: 1,
+                createdAt: Date.now(),
+              };
+
+              // 设置并执行分批平仓
+              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+              if (batchId) {
+                batchClosingSystem.activateBatchClosing(batchId);
+                await batchClosingSystem.executeBatch(batchId);
+                logger.info(`${symbol} 第三阶段止盈已执行，全部平仓`);
+              }
             } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
               // 达到第二阶段止盈，平仓部分仓位
               logger.info(
@@ -805,6 +847,36 @@ async function executeCaiSenMonitor(): Promise<void> {
               logger.info(
                 `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
               );
+
+              // 创建分批平仓配置
+              const closePercent = takeProfitConfig.stage2.closePercent / 100;
+              const closeQuantity = Math.floor(size * closePercent);
+              const batchConfig: BatchConfig = {
+                batchId: `take_profit_${symbol}_stage2_${Date.now()}`,
+                positionId: contract,
+                closingType: ClosingType.TAKE_PROFIT,
+                closingRatio: closePercent,
+                closingQuantity: closeQuantity,
+                triggerCondition: {
+                  triggerType: "manual",
+                  triggerValue: 0,
+                  operator: ">",
+                },
+                priority: 2,
+                createdAt: Date.now(),
+              };
+
+              // 设置并执行分批平仓
+              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+              if (batchId) {
+                batchClosingSystem.activateBatchClosing(batchId);
+                await batchClosingSystem.executeBatch(batchId);
+                logger.info(
+                  `${symbol} 第二阶段止盈已执行，平仓${(
+                    closePercent * 100
+                  ).toFixed(0)}%`
+                );
+              }
             } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
               // 达到第一阶段止盈，平仓部分仓位
               logger.info(
@@ -815,6 +887,36 @@ async function executeCaiSenMonitor(): Promise<void> {
               logger.info(
                 `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
               );
+
+              // 创建分批平仓配置
+              const closePercent = takeProfitConfig.stage1.closePercent / 100;
+              const closeQuantity = Math.floor(size * closePercent);
+              const batchConfig: BatchConfig = {
+                batchId: `take_profit_${symbol}_stage1_${Date.now()}`,
+                positionId: contract,
+                closingType: ClosingType.TAKE_PROFIT,
+                closingRatio: closePercent,
+                closingQuantity: closeQuantity,
+                triggerCondition: {
+                  triggerType: "manual",
+                  triggerValue: 0,
+                  operator: ">",
+                },
+                priority: 3,
+                createdAt: Date.now(),
+              };
+
+              // 设置并执行分批平仓
+              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+              if (batchId) {
+                batchClosingSystem.activateBatchClosing(batchId);
+                await batchClosingSystem.executeBatch(batchId);
+                logger.info(
+                  `${symbol} 第一阶段止盈已执行，平仓${(
+                    closePercent * 100
+                  ).toFixed(0)}%`
+                );
+              }
             }
           } else {
             logger.debug(
@@ -847,6 +949,20 @@ export function startCaiSenMonitor(): void {
     return;
   }
 
+  // 初始化分批平仓系统
+  const strategy = getTradingStrategy();
+  const strategyParams = getStrategyParams(strategy);
+  batchClosingSystem = new CaiSenBatchClosingSystem(
+    {
+      maxConcurrentBatches: 3,
+      batchExecutionInterval: 1000,
+      maxRetryCount: 3,
+      enableAutoExecution: true,
+      priceDeviationTolerance: 0.5,
+    },
+    strategyParams
+  );
+
   logger.info("启动蔡森策略监控器，每10秒执行一次");
 
   // 立即执行一次
@@ -864,6 +980,12 @@ export function stopCaiSenMonitor(): void {
     clearInterval(monitorInterval);
     monitorInterval = null;
     logger.info("蔡森策略监控器已停止");
+  }
+
+  // 销毁分批平仓系统
+  if (batchClosingSystem) {
+    batchClosingSystem.destroy();
+    batchClosingSystem = null;
   }
 }
 

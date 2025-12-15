@@ -1878,43 +1878,99 @@ export async function executeTradingDecision() {
             );
 
             // 按币种分组工具调用
-            const toolCallsBySymbol: Record<string, Set<string>> = {};
+            const toolCallsBySymbol: Record<
+              string,
+              Array<{ name: string; parameters: any }>
+            > = {};
 
-            // 初始化每个币种的工具调用集合
+            // 初始化每个币种的工具调用数组
             allSymbols.forEach((symbol) => {
-              toolCallsBySymbol[symbol] = new Set<string>();
+              toolCallsBySymbol[symbol] = [];
             });
 
             // 遍历工具调用，按币种分组
             toolCalls.forEach((toolCall) => {
               if (toolCall.parameters?.symbol) {
                 const symbol = toolCall.parameters.symbol;
-                toolCallsBySymbol[symbol] =
-                  toolCallsBySymbol[symbol] || new Set<string>();
-                toolCallsBySymbol[symbol].add(toolCall.name);
+                toolCallsBySymbol[symbol] = toolCallsBySymbol[symbol] || [];
+                toolCallsBySymbol[symbol].push(toolCall);
               }
             });
-
-            // 需要调用的三个工具
-            const requiredTools = [
-              "setPartialTakeProfitParams",
-              "setPeakDrawdownParams",
-              "setDynamicStopLossParams",
-            ];
 
             // 检查每个币种是否调用了所有必需的工具
             let missingToolCalls = false;
 
-            for (const [symbol, calledTools] of Object.entries(
+            for (const [symbol, symbolToolCalls] of Object.entries(
               toolCallsBySymbol
             )) {
-              const missingTools = requiredTools.filter(
-                (tool) => !calledTools.has(tool)
+              let missingTools: string[] = [];
+
+              // 检查是否调用了统一退出策略工具
+              const unifiedToolCall = symbolToolCalls.find(
+                (toolCall) => toolCall.name === "setPositionExitStrategy"
               );
+              const hasUnifiedTool = !!unifiedToolCall;
+
+              // 检查是否调用了旧的分离工具
+              const hasPartialTakeProfitTool = symbolToolCalls.some(
+                (toolCall) => toolCall.name === "setPartialTakeProfitParams"
+              );
+              const hasPeakDrawdownTool = symbolToolCalls.some(
+                (toolCall) => toolCall.name === "setPeakDrawdownParams"
+              );
+              const hasDynamicStopLossTool = symbolToolCalls.some(
+                (toolCall) => toolCall.name === "setDynamicStopLossParams"
+              );
+
+              // 如果调用了统一工具，检查其组件完整性
+              if (hasUnifiedTool) {
+                logger.debug(
+                  `🔍 检查币种 ${symbol} 的统一退出策略组件完整性...`
+                );
+
+                const params = unifiedToolCall.parameters;
+                const strategyType = params.strategyType || "combination";
+
+                // 根据策略类型检查组件完整性
+                if (strategyType === "combination") {
+                  // 组合策略需要所有三个组件
+                  if (!params.partialTakeProfit) {
+                    missingTools.push("partialTakeProfit组件");
+                  }
+                  if (!params.dynamicStopLoss) {
+                    missingTools.push("dynamicStopLoss组件");
+                  }
+                  if (!params.peakDrawdown) {
+                    missingTools.push("peakDrawdown组件");
+                  }
+                } else if (strategyType === "partialTakeProfit") {
+                  // 分批止盈策略需要partialTakeProfit组件
+                  if (!params.partialTakeProfit) {
+                    missingTools.push("partialTakeProfit组件");
+                  }
+                } else if (strategyType === "peakDrawdown") {
+                  // 峰值回落策略需要peakDrawdown组件
+                  if (!params.peakDrawdown) {
+                    missingTools.push("peakDrawdown组件");
+                  }
+                }
+              } else {
+                // 如果没有调用统一工具，检查是否调用了旧的分离工具
+                // 蔡森策略要求必须设置退出策略，所以这里至少需要调用其中一个工具
+                if (
+                  !hasPartialTakeProfitTool &&
+                  !hasPeakDrawdownTool &&
+                  !hasDynamicStopLossTool
+                ) {
+                  missingTools = [
+                    "setPartialTakeProfitParams/setPeakDrawdownParams/setDynamicStopLossParams",
+                  ];
+                }
+              }
 
               if (missingTools.length > 0) {
                 logger.warn(
-                  `⚠️ 币种 ${symbol} 缺少以下工具调用: ${missingTools.join(
+                  `⚠️ 币种 ${symbol} 缺少以下工具或组件: ${missingTools.join(
                     ", "
                   )}`
                 );
@@ -1985,6 +2041,7 @@ export async function executeTradingDecision() {
                 setPartialTakeProfitParams,
                 setPeakDrawdownParams,
                 setDynamicStopLossParams,
+                setPositionExitStrategy,
                 resetStrategyParams,
                 getCurrentStrategyParams,
               } = await import("../tools/strategyParams");
@@ -2020,6 +2077,18 @@ export async function executeTradingDecision() {
                     toolCall.parameters.conditions
                   );
                   break;
+                case "setPositionExitStrategy":
+                  result = await setPositionExitStrategy(
+                    strategy,
+                    toolCall.parameters.symbol,
+                    toolCall.parameters.strategyType,
+                    toolCall.parameters.enabled,
+                    toolCall.parameters.partialTakeProfit,
+                    toolCall.parameters.dynamicStopLoss,
+                    toolCall.parameters.peakDrawdown
+                  );
+                  break;
+
                 case "resetStrategyParams":
                   result = await resetStrategyParams(
                     strategy,

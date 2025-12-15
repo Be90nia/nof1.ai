@@ -19,8 +19,6 @@ import {
 } from "../interface/types";
 import type { TradingStrategy } from "../../strategies";
 import {
-  setPartialTakeProfitParams,
-  setPeakDrawdownParams,
   setDynamicStopLossParams,
   getCurrentStrategyParams,
   resetStrategyParams,
@@ -369,113 +367,6 @@ export function createCaiSenTradingTools(
   }
 
   /**
-   * 设置分批止盈参数
-   * Set partial take profit parameters
-   *
-   * 该工具允许蔡森Agent设置分批止盈策略参数
-   * This tool allows CaiSen Agent to set partial take profit strategy parameters
-   *
-   * @param symbol - 交易币种（如BTC、ETH）
-   * @param stage1 - 第一阶段止盈参数
-   * @param stage2 - 第二阶段止盈参数
-   * @param stage3 - 第三阶段止盈参数
-   * @returns Promise<string> - 设置结果
-   *
-   * 示例 Example (做多场景):
-   * setPartialTakeProfitParams(
-   *   "BTC",
-   *   { trigger: 1, closePercent: 20 },
-   *   { trigger: 2, closePercent: 40 },
-   *   { trigger: 3, closePercent: 40 }
-   * )
-   *
-   * 示例 Example (做空场景):
-   * setPartialTakeProfitParams(
-   *   "ETH",
-   *   { trigger: 2, closePercent: 30 },
-   *   { trigger: 4, closePercent: 50 },
-   *   { trigger: 6, closePercent: 20 }
-   * )
-   */
-  async function setPartialTakeProfitParamsTool(
-    symbol: string,
-    stage1: { trigger: number; closePercent: number },
-    stage2: { trigger: number; closePercent: number },
-    stage3: { trigger: number; closePercent: number }
-  ): Promise<string> {
-    try {
-      return await setPartialTakeProfitParams(
-        "cai-sen",
-        symbol,
-        stage1,
-        stage2,
-        stage3
-      );
-    } catch (error) {
-      logger.error("蔡森Agent设置分批止盈参数失败", { error });
-      return `设置分批止盈参数失败: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-    }
-  }
-
-  /**
-   * 设置峰值回落平仓参数
-   * Set peak drawdown closing parameters
-   *
-   * 该工具允许蔡森Agent设置峰值回落平仓策略参数
-   * This tool allows CaiSen Agent to set peak drawdown closing strategy parameters
-   *
-   * @param symbol - 交易币种（如BTC、ETH）
-   * @param level1 - 第一级回落参数
-   * @param level2 - 第二级回落参数
-   * @param level3 - 第三级回落参数
-   * @param minHoldingTime - 最小持仓时间（分钟）
-   * @returns Promise<string> - 设置结果
-   *
-   * 示例 Example (做多场景):
-   * setPeakDrawdownParams(
-   *   "BTC",
-   *   { drawdownThreshold: 0.5, closePercent: 30 },
-   *   { drawdownThreshold: 1, closePercent: 60 },
-   *   { drawdownThreshold: 1.5, closePercent: 100 },
-   *   5
-   * )
-   *
-   * 示例 Example (做空场景):
-   * setPeakDrawdownParams(
-   *   "ETH",
-   *   { drawdownThreshold: 0.8, closePercent: 30 },
-   *   { drawdownThreshold: 1.5, closePercent: 50 },
-   *   { drawdownThreshold: 2.5, closePercent: 100 },
-   *   5
-   * )
-   */
-  async function setPeakDrawdownParamsTool(
-    symbol: string,
-    level1: { drawdownThreshold: number; closePercent: number },
-    level2: { drawdownThreshold: number; closePercent: number },
-    level3: { drawdownThreshold: number; closePercent: number },
-    minHoldingTime: number = 5
-  ): Promise<string> {
-    try {
-      return await setPeakDrawdownParams(
-        "cai-sen",
-        symbol,
-        level1,
-        level2,
-        level3,
-        minHoldingTime
-      );
-    } catch (error) {
-      logger.error("蔡森Agent设置峰值回落参数失败", { error });
-      return `设置峰值回落参数失败: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-    }
-  }
-
-  /**
    * 设置动态止损参数
    * Set dynamic stop loss parameters
    *
@@ -520,6 +411,8 @@ export function createCaiSenTradingTools(
       }`;
     }
   }
+
+
 
   /**
    * 设置止损阈值
@@ -653,8 +546,6 @@ export function createCaiSenTradingTools(
     setStopProfitLoss,
     getBatchClosingStatus,
     getStopProfitLossStatus,
-    setPartialTakeProfitParams: setPartialTakeProfitParamsTool,
-    setPeakDrawdownParams: setPeakDrawdownParamsTool,
     setDynamicStopLossParams: setDynamicStopLossParamsTool,
     getCurrentStrategyParams: getCurrentStrategyParamsTool,
     resetStrategyParams: resetStrategyParamsTool,
