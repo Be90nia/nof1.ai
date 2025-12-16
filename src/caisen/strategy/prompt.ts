@@ -210,13 +210,14 @@ export function generateCaiSenPrompt(
   // 添加分币种参数（如果有）
   if (data?.agentParamsBySymbol) {
     prompt += "\n【分币种参数】\n";
-    for (const [symbol, params] of Object.entries(data.agentParamsBySymbol)) {
-      prompt += symbol + "：\n";
-      prompt +=
-        "  - 分批止盈：AI根据实时市场数据动态生成，基于波动率、趋势强度和市场状态自适应调整\n";
-      prompt +=
-        "  - 峰值回落：AI根据实时市场数据动态生成，基于波动率、趋势强度和市场状态自适应调整\n";
-    }
+    const symbols = Object.keys(data.agentParamsBySymbol);
+    prompt += "币种:" + symbols.join("、") + "：\n";
+    prompt +=
+      "  - 分批止盈：AI根据实时市场数据动态生成，基于波动率、趋势强度和市场状态以及指标数据自适应调整\n";
+    prompt +=
+      "  - 峰值回落：AI根据实时市场数据动态生成，基于波动率、趋势强度和市场状态以及指标数据自适应调整\n";
+    prompt +=
+      "  - 动态止损：AI根据实时市场数据动态生成，基于波动率、趋势强度和市场状态以及指标数据自适应调整\n";
   }
 
   // 交易周期和基本信息
