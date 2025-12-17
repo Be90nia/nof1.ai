@@ -201,10 +201,9 @@ export async function fixStageCorrespondence() {
         await setDynamicStopLossParams(
           strategy,
           symbol,
-          { drawdownThreshold: 1.0, closePercent: 30 },
-          { drawdownThreshold: 2.0, closePercent: 50 },
-          { drawdownThreshold: 3.0, closePercent: 100 },
-          3
+          3, // 动态止损阈值
+          30, // 评估间隔（分钟）,
+          [] // 触发条件数组
         );
       }
     }
