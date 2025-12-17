@@ -102,660 +102,1132 @@ async function loadAllData() {
     loadPositionsData(),
     loadLogsData(),
     loadTradesData(),
+    loadSystemStatusData(),
   ]);
-
   updateLastUpdateTime();
 }
 
-// 加载账户数据
-async function loadAccountData() {
-  try {
-    const response = await fetch("/api/account");
-    const data = await response.json();
-
-    // 更新可用余额
-    updateValueWithAnimation(
-      "availableBalance",
-      data.availableBalance.toFixed(2)
-    );
-
-    // 更新未实现盈亏（带符号和颜色）
-    // 这个值会根据持仓的实时价格变化而实时更新
-    const unrealisedPnlEl = document.getElementById("unrealisedPnl");
-    const pnlValue = 
-      (data.unrealisedPnl >= 0 ? "+" : "") + data.unrealisedPnl.toFixed(2);
-    updateValueWithAnimation("unrealisedPnl", pnlValue);
-    unrealisedPnlEl.className = 
-      "value " + (data.unrealisedPnl >= 0 ? "positive" : "negative");
-
-    // 更新总资产
-    // API 返回的 totalBalance 不包含未实现盈亏
-    // 显示的总资产需要加上未实现盈亏，以便实时反映持仓盈亏
-    const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl;
-    updateValueWithAnimation("totalBalance", totalBalanceWithPnl.toFixed(2));
-
-    // 更新收益率（带符号和颜色）
-    // 收益率 = (总资产 - 初始资金) / 初始资金 * 100
-    // 使用包含未实现盈亏的总资产计算，会实时变化
-    const returnPercentEl = document.getElementById("returnPercent");
-    const returnPercent = 
-      ((totalBalanceWithPnl - data.initialBalance) / data.initialBalance) * 100;
-    const returnValue = 
-      (returnPercent >= 0 ? "+" : "") + returnPercent.toFixed(2) + "%";
-    updateValueWithAnimation("returnPercent", returnValue);
-    returnPercentEl.className = 
-      "value " + (returnPercent >= 0 ? "positive" : "negative");
-  } catch (error) {
-    console.error("加载账户数据失败:", error);
-  }
-}
-
-// 带动画效果的数值更新
-function updateValueWithAnimation(elementId, newValue) {
-  const element = document.getElementById(elementId);
-  if (!element) return;
-
-  const oldValue = element.textContent;
-
-  // 如果值没有变化，不更新
-  if (oldValue === newValue) return;
-
-  // 添加闪烁效果表示数据更新
-  element.style.transition = "background-color 0.3s ease";
-  element.style.backgroundColor = "rgba(59, 130, 246, 0.2)";
-
-  // 更新数值
-  element.textContent = newValue;
-
-  // 恢复背景色
-  setTimeout(() => {
-    element.style.backgroundColor = "";
-  }, 300);
-}
-
-// 加载持仓数据
-async function loadPositionsData() {
-  try {
-    const response = await fetch("/api/positions");
-    const data = await response.json();
-
-    const container = document.getElementById("positionsContainer");
-    const countEl = document.getElementById("positionsCount");
-
-    if (!data.positions || data.positions.length === 0) {
-      container.innerHTML = '<p class="no-data">当前无持仓</p>';
-      countEl.textContent = "";
-      return;
-    }
-
-    countEl.textContent = `(${data.positions.length})`;
-
-    container.innerHTML = data.positions
-      .map(
-        (pos) => `
-            <div class="position-item ${pos.side}">
-                <div class="position-header">
-                    <div class="position-symbol">${pos.symbol}</div>
-                    <div class="position-side ${pos.side}">${
-          pos.side === "long" ? "多" : "空"
-        }</div>
-                </div>
-                <div class="position-grid">
-                    <div class="position-field">
-                        <div class="label">数量</div>
-                        <div class="value">${pos.quantity}</div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">开仓价</div>
-                        <div class="value">${pos.entryPrice.toFixed(4)}</div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">开仓价值</div>
-                        <div class="value">${pos.openValue.toFixed(
-                          2
-                        )} USDT</div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">当前价</div>
-                        <div class="value">${pos.currentPrice.toFixed(4)}</div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">杠杆</div>
-                        <div class="value">${pos.leverage}x</div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">盈亏</div>
-                        <div class="value ${
-                          pos.unrealizedPnl >= 0 ? "positive" : "negative"
-                        }">
-                            ${
-                              pos.unrealizedPnl >= 0 ? "+" : ""
-                            }${pos.unrealizedPnl.toFixed(2)}
-                        </div>
-                    </div>
-                    <div class="position-field">
-                        <div class="label">强平价</div>
-                        <div class="value">${pos.liquidationPrice.toFixed(
-                          4
-                        )}</div>
-                    </div>
-                    ${
-                      pos.stopLoss
-                        ? `
-                    <div class="position-field">
-                        <div class="label">止损</div>
-                        <div class="value">${pos.stopLoss.toFixed(4)}</div>
-                    </div>
-                    `
-                        : ""
-                    }
-                    ${
-                      pos.profitTarget
-                        ? `
-                    <div class="position-field">
-                        <div class="label">止盈</div>
-                        <div class="value">${pos.profitTarget.toFixed(4)}</div>
-                    </div>
-                    `
-                        : ""
-                    }
-                </div>
-            </div>
-        `
-      )
-      .join("");
-  } catch (error) {
-    console.error("加载持仓数据失败:", error);
-  }
-}
-
-// 加载决策日志
-async function loadLogsData() {
-  try {
-    const response = await fetch("/api/logs?limit=1");
-    const data = await response.json();
-
-    const container = document.getElementById("logsContainer");
-
-    if (!data.logs || data.logs.length === 0) {
-      container.innerHTML = '<p class="no-data">暂无决策日志</p>';
-      return;
-    }
-
-    container.innerHTML = data.logs
-      .map((log, index) => {
-        const date = new Date(log.timestamp);
-        const timeStr = date.toLocaleString("zh-CN", {
-          timeZone: "Asia/Shanghai",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-
-        // 处理log.decision，美化工具调用标记
-        const formattedDecision = formatToolCallsDisplay(log.decision);
-
-        return `
-                <div class="log-item">
-                    <div class="log-header">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div class="log-time">${timeStr}</div>
-                            <div class="log-iteration">#${log.iteration}</div>
-                        </div>
-                        <button class="copy-btn" onclick="copyLog(${index})" title="复制决策内容">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="log-decision" id="log-decision-${index}">${formattedDecision}</div>
-                </div>
-            `;
-      })
-      .join("");
-
-    // 保存日志数据供复制功能使用
-    window.logsData = data.logs;
-  } catch (error) {
-    console.error("加载日志失败:", error);
-  }
-}
-
-// 加载交易历史
-async function loadTradesData() {
-  try {
-    // 不传 contract 参数，获取所有合约的成交记录
-    const response = await fetch("/api/trades?limit=100");
-    const data = await response.json();
-
-    const container = document.getElementById("tradesContainer");
-    const countEl = document.getElementById("tradesCount");
-
-    if (!data.trades || data.trades.length === 0) {
-      container.innerHTML = '<p class="no-data">暂无交易记录</p>';
-      countEl.textContent = "";
-      return;
-    }
-
-    countEl.textContent = `(${data.trades.length})`;
-
-    container.innerHTML = data.trades
-      .map((trade) => {
-        const date = new Date(trade.timestamp);
-        const timeStr = date.toLocaleString("zh-CN", {
-          timeZone: "Asia/Shanghai",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-
-        // 对于平仓交易，显示盈亏
-        const pnlHtml = 
-          trade.type === "close" && 
-          trade.pnl !== null && 
-          trade.pnl !== undefined
-            ? `<div class="trade-field">
-                    <span class="label">盈亏</span>
-                    <span class="value ${trade.pnl >= 0 ? "profit" : "loss"}">${
-                trade.pnl >= 0 ? "+" : ""
-              }${trade.pnl.toFixed(2)} USDT</span>
-                   </div>`
-            : "";
-
-        return `
-                <div class="trade-item">
-                    <div class="trade-header">
-                        <div class="trade-symbol">${trade.symbol}</div>
-                        <div class="trade-time">${timeStr}</div>
-                    </div>
-                    <div class="trade-info">
-                        <div class="trade-field">
-                            <span class="label">方向</span>
-                            <span class="value ${trade.side}">${
-          trade.side === "long" ? "做多" : trade.side === "short" ? "做空" : "-"
-        }</span>
-                        </div>
-                        <div class="trade-field">
-                            <span class="label">类型</span>
-                            <span class="value">${
-                              trade.type === "open" ? "开仓" : "平仓"
-                            }</span>
-                        </div>
-                        <div class="trade-field">
-                            <span class="label">数量</span>
-                            <span class="value">${trade.quantity.toFixed(
-                              4
-                            )}</span>
-                        </div>
-                        <div class="trade-field">
-                            <span class="label">价格</span>
-                            <span class="value">${trade.price.toFixed(4)}</span>
-                        </div>
-                        <div class="trade-field">
-                            <span class="label">杠杆</span>
-                            <span class="value">${trade.leverage}x</span>
-                        </div>
-                        <div class="trade-field">
-                            <span class="label">手续费</span>
-                            <span class="value">${trade.fee.toFixed(4)}</span>
-                        </div>
-                        ${pnlHtml}
-                    </div>
-                </div>
-            `;
-      })
-      .join("");
-  } catch (error) {
-    console.error("加载交易历史失败:", error);
-  }
-}
-
-// 更新最后更新时间
-function updateLastUpdateTime() {
-  const now = new Date();
-  document.getElementById("lastUpdate").textContent = now.toLocaleTimeString(
-    "zh-CN",
-    {
-      timeZone: "Asia/Shanghai",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }
+// 获取终端宽度
+function getTerminalWidth() {
+  return (
+    window.innerWidth ||
+    document.documentElement.clientWidth ||
+    document.body.clientWidth ||
+    120
   );
 }
 
-// 解析和美化AI决策数据中的工具调用标记
+// 换行处理
+function wrapLine(line, maxWidth) {
+  if (!line || line.length <= maxWidth) {
+    return [line];
+  }
+
+  const lines = [];
+  let currentLine = "";
+  const words = line.split(" ");
+
+  for (const word of words) {
+    if ((currentLine + word).length <= maxWidth) {
+      currentLine += (currentLine ? " " : "") + word;
+    } else {
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      currentLine = word;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.length > 0 ? lines : [line];
+}
+
+// 修复setPositionExitStrategy工具调用中的组件嵌套问题
+function fixComponentNesting(parameters) {
+  console.log("开始修复组件嵌套问题");
+  console.log(`原始参数结构: ${JSON.stringify(parameters, null, 2)}`);
+
+  // 创建新的参数对象
+  const newParams = {
+    symbol: parameters.symbol,
+    strategyType: parameters.strategyType || "combination",
+    enabled: parameters.enabled !== undefined ? parameters.enabled : true,
+  };
+
+  // 递归查找组件的辅助函数
+  const findComponent = (obj, componentName) => {
+    if (!obj || typeof obj !== "object") {
+      return null;
+    }
+
+    if (obj[componentName]) {
+      return obj[componentName];
+    }
+
+    for (const value of Object.values(obj)) {
+      if (typeof value === "object" && value !== null) {
+        const found = findComponent(value, componentName);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // 提取partialTakeProfit组件，支持从任何位置递归提取
+  let partialTakeProfit = findComponent(parameters, "partialTakeProfit");
+  if (partialTakeProfit) {
+    // 清理可能存在的嵌套组件
+    const cleanPartialTakeProfit = { ...partialTakeProfit };
+    delete cleanPartialTakeProfit.dynamicStopLoss;
+    delete cleanPartialTakeProfit.peakDrawdown;
+    newParams.partialTakeProfit = cleanPartialTakeProfit;
+    console.log(`成功提取partialTakeProfit组件`);
+  }
+
+  // 提取dynamicStopLoss组件，支持从任何位置递归提取
+  let dynamicStopLoss = findComponent(parameters, "dynamicStopLoss");
+  if (dynamicStopLoss) {
+    // 清理可能存在的嵌套组件
+    const cleanDynamicStopLoss = { ...dynamicStopLoss };
+    delete cleanDynamicStopLoss.partialTakeProfit;
+    delete cleanDynamicStopLoss.peakDrawdown;
+    newParams.dynamicStopLoss = cleanDynamicStopLoss;
+    console.log(`成功提取dynamicStopLoss组件`);
+  }
+
+  // 提取peakDrawdown组件，支持从任何位置递归提取
+  let peakDrawdown = findComponent(parameters, "peakDrawdown");
+  if (peakDrawdown) {
+    // 清理可能存在的嵌套组件
+    const cleanPeakDrawdown = { ...peakDrawdown };
+    delete cleanPeakDrawdown.partialTakeProfit;
+    delete cleanPeakDrawdown.dynamicStopLoss;
+    newParams.peakDrawdown = cleanPeakDrawdown;
+    console.log(`成功提取peakDrawdown组件`);
+  }
+
+  // 添加其他顶层属性
+  for (const [key, value] of Object.entries(parameters)) {
+    if (
+      ![
+        "symbol",
+        "strategyType",
+        "enabled",
+        "partialTakeProfit",
+        "dynamicStopLoss",
+        "peakDrawdown",
+      ].includes(key)
+    ) {
+      newParams[key] = value;
+      console.log(`添加顶层属性: ${key} = ${JSON.stringify(value)}`);
+    }
+  }
+
+  console.log(`修复后的参数结构: ${JSON.stringify(newParams, null, 2)}`);
+  return newParams;
+}
+
+// 修复常见的JSON格式错误
+function fixJsonFormat(jsonString) {
+  try {
+    // 先尝试直接解析
+    JSON.parse(jsonString);
+    return jsonString;
+  } catch (error) {
+    // 预处理：移除可能的注释
+    let fixedJson = jsonString
+      .replace(/\/\*[\s\S]*?\*\//g, "") // 多行注释
+      .replace(/\/\/.*$/gm, ""); // 单行注释
+
+    // 修复1: 处理无引号的属性名
+    fixedJson = fixedJson.replace(
+      /([a-zA-Z_$][a-zA-Z0-9_$-]*)(\s*:)/g,
+      '"$1"$2'
+    );
+
+    // 修复2: 处理单引号为双引号
+    fixedJson = fixedJson.replace(/'([^']*?)'(\s*[:},\]])/g, '"$1"$2');
+
+    // 修复3: 处理尾部逗号
+    fixedJson = fixedJson.replace(/,\s*([}\[\]])/g, "$1");
+
+    // 修复4: 处理数字属性名
+    fixedJson = fixedJson.replace(/([0-9]+)(\s*:)/g, '"$1"$2');
+
+    // 修复5: 处理布尔值和null，确保它们是小写的
+    fixedJson = fixedJson
+      .replace(/\bTRUE\b/g, "true")
+      .replace(/\bFALSE\b/g, "false")
+      .replace(/\bNULL\b/g, "null");
+
+    // 修复6: 处理JSON字符串中的换行符和制表符
+    fixedJson = fixedJson.replace(/"([^"]*?)"/g, (match) => {
+      return match
+        .replace(/\n/g, "\\n")
+        .replace(/\t/g, "\\t")
+        .replace(/\r/g, "\\r");
+    });
+
+    // 修复7: 处理缺少引号的字符串值
+    fixedJson = fixedJson.replace(
+      /"([^"]*?)"\s*:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*[,}\[\]])/g,
+      '"$1": "$2"$3'
+    );
+
+    // 修复8: 处理多余的空格
+    fixedJson = fixedJson.replace(/([{}[\],:])(\s+)/g, "$1");
+    fixedJson = fixedJson.replace(/(\s+)([{}[\],:])/g, "$2");
+    fixedJson = fixedJson.trim();
+
+    // 修复9: 确保JSON字符串以{或[开头，并以相应的}或]结尾
+    if (!fixedJson.startsWith("{") && !fixedJson.startsWith("[")) {
+      const startIndex = Math.min(
+        fixedJson.indexOf("{") >= 0 ? fixedJson.indexOf("{") : Infinity,
+        fixedJson.indexOf("[") >= 0 ? fixedJson.indexOf("[") : Infinity
+      );
+      if (startIndex !== Infinity) {
+        fixedJson = fixedJson.substring(startIndex);
+      }
+    }
+
+    // 修复10: 确保JSON字符串正确结束
+    if (fixedJson.startsWith("{") && !fixedJson.endsWith("}")) {
+      const openBraces = (fixedJson.match(/{/g) || []).length;
+      const closeBraces = (fixedJson.match(/}/g) || []).length;
+      if (openBraces > closeBraces) {
+        fixedJson += "}".repeat(openBraces - closeBraces);
+      }
+    } else if (fixedJson.startsWith("[") && !fixedJson.endsWith("]")) {
+      const openBrackets = (fixedJson.match(/\[/g) || []).length;
+      const closeBrackets = (fixedJson.match(/\]/g) || []).length;
+      if (openBrackets > closeBrackets) {
+        fixedJson += "]".repeat(openBrackets - closeBrackets);
+      }
+    }
+
+    // 修复11: 处理setPositionExitStrategy工具调用的特殊结构问题
+    // 检测并修复组件被错误嵌套的情况
+    if (
+      fixedJson.includes("partialTakeProfit") ||
+      fixedJson.includes("dynamicStopLoss") ||
+      fixedJson.includes("peakDrawdown")
+    ) {
+      console.log(
+        "检测到setPositionExitStrategy工具调用，开始处理组件嵌套问题"
+      );
+
+      // 提取所有组件的正则表达式 - 支持从任何位置提取组件，包括嵌套结构
+      const componentRegexes = {
+        partialTakeProfit:
+          /"partialTakeProfit"\s*:\s*\{([^{}]*)|\{[^{}]*\}\}\}/g,
+        dynamicStopLoss: /"dynamicStopLoss"\s*:\s*\{([^{}]*)|\{[^{}]*\}\}\}/g,
+        peakDrawdown: /"peakDrawdown"\s*:\s*\{([^{}]*)|\{[^{}]*\}\}\}/g,
+      };
+
+      // 提取各个组件
+      const components = [];
+      const extractedComponents = new Set();
+
+      // 提取组件的辅助函数
+      const extractComponent = (name, regex) => {
+        const matches = Array.from(fixedJson.matchAll(regex));
+        if (matches.length > 0) {
+          // 只取最后一个匹配结果，避免重复提取
+          const component = matches[matches.length - 1][0];
+          components.push(component);
+          extractedComponents.add(name);
+          console.log(`成功提取${name}组件`);
+        }
+      };
+
+      // 按顺序提取组件
+      extractComponent("peakDrawdown", componentRegexes.peakDrawdown);
+      extractComponent("dynamicStopLoss", componentRegexes.dynamicStopLoss);
+      extractComponent("partialTakeProfit", componentRegexes.partialTakeProfit);
+
+      // 如果成功提取了组件，重新构建JSON
+      if (components.length > 0) {
+        console.log(`开始重构JSON结构，共提取了${components.length}个组件`);
+
+        // 提取顶层属性（非组件属性）
+        let baseProps = {};
+        try {
+          // 尝试解析原始JSON，提取顶层属性
+          const parsedJson = JSON.parse(fixedJson);
+
+          // 提取非组件的顶层属性
+          for (const [key, value] of Object.entries(parsedJson)) {
+            if (
+              ![
+                "partialTakeProfit",
+                "dynamicStopLoss",
+                "peakDrawdown",
+              ].includes(key)
+            ) {
+              baseProps[key] = value;
+            }
+          }
+          console.log(`成功解析并提取顶层属性: ${JSON.stringify(baseProps)}`);
+        } catch (e) {
+          // 如果解析失败，尝试使用正则表达式提取基础属性
+          console.log("JSON解析失败，尝试使用正则表达式提取基础属性");
+
+          // 提取symbol
+          const symbolMatch = fixedJson.match(/"symbol"\s*:\s*"([^"]+)"/);
+          if (symbolMatch) {
+            baseProps.symbol = symbolMatch[1];
+          }
+
+          // 提取strategyType
+          const strategyTypeMatch = fixedJson.match(
+            /"strategyType"\s*:\s*"([^"]+)"/
+          );
+          if (strategyTypeMatch) {
+            baseProps.strategyType = strategyTypeMatch[1];
+          }
+
+          // 提取enabled
+          const enabledMatch = fixedJson.match(/"enabled"\s*:\s*(true|false)/);
+          if (enabledMatch) {
+            baseProps.enabled = enabledMatch[1] === "true";
+          }
+
+          console.log(
+            `使用正则表达式提取到基础属性: ${JSON.stringify(baseProps)}`
+          );
+        }
+
+        // 构建正确的JSON结构
+        let correctedJson = "{";
+
+        // 添加基础属性
+        if (Object.keys(baseProps).length > 0) {
+          correctedJson += JSON.stringify(baseProps).slice(1, -1);
+          correctedJson += ",";
+        }
+
+        // 添加所有组件，按标准顺序排列：partialTakeProfit, dynamicStopLoss, peakDrawdown
+        const componentOrder = [
+          "partialTakeProfit",
+          "dynamicStopLoss",
+          "peakDrawdown",
+        ];
+        const componentMap = new Map();
+
+        // 构建组件映射
+        components.forEach((component) => {
+          if (component.includes("partialTakeProfit")) {
+            componentMap.set("partialTakeProfit", component);
+          } else if (component.includes("dynamicStopLoss")) {
+            componentMap.set("dynamicStopLoss", component);
+          } else if (component.includes("peakDrawdown")) {
+            componentMap.set("peakDrawdown", component);
+          }
+        });
+
+        // 按顺序添加组件
+        const orderedComponents = componentOrder
+          .filter((name) => componentMap.has(name))
+          .map((name) => componentMap.get(name));
+
+        correctedJson += orderedComponents.join(",");
+
+        // 关闭JSON对象
+        correctedJson += "}";
+
+        // 清理多余的逗号
+        correctedJson = correctedJson.replace(/,\s*}/g, "}");
+        correctedJson = correctedJson.replace(/,\s*,/g, ",");
+
+        fixedJson = correctedJson;
+        console.log(
+          `修复了组件嵌套问题，提取了${components.length}个组件: ${Array.from(
+            extractedComponents
+          ).join(", ")}`
+        );
+        console.log(
+          `修复后的JSON: ${fixedJson.substring(0, 150)}${
+            fixedJson.length > 150 ? "..." : ""
+          }`
+        );
+      }
+    }
+
+    return fixedJson;
+  }
+}
+
+// 解析工具调用
+function parseToolCalls(text) {
+  const toolCalls = [];
+  const processedToolCalls = new Set();
+  const processedBlockIndices = new Set();
+  const processedBlocks = [];
+  const cleanedText = text.replace(/[\u0000-\u001F]/g, "");
+
+  // 1. 处理单个工具调用标签（没有外层包装）
+  const standaloneSingleToolRegex =
+    /<｜tool▁call▁begin｜>([\s\S]*?)<\s*｜tool▁sep｜\s*>([\s\S]*?)<｜tool▁call▁end｜>/gs;
+
+  let standaloneSingleToolMatch;
+  while (
+    (standaloneSingleToolMatch =
+      standaloneSingleToolRegex.exec(cleanedText)) !== null
+  ) {
+    const blockStartIndex = standaloneSingleToolMatch.index;
+    const toolName = standaloneSingleToolMatch[1].trim();
+    const paramsJson = standaloneSingleToolMatch[2].trim();
+
+    if (!processedBlockIndices.has(blockStartIndex)) {
+      processedBlockIndices.add(blockStartIndex);
+      processedBlocks.push(standaloneSingleToolMatch[0]);
+
+      try {
+        let parameters = JSON.parse(paramsJson);
+        if (toolName === "setPositionExitStrategy") {
+          parameters = fixComponentNesting(parameters);
+        }
+        const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+        if (!processedToolCalls.has(uniqueKey)) {
+          toolCalls.push({ name: toolName, parameters });
+          processedToolCalls.add(uniqueKey);
+        }
+      } catch (error) {
+        console.error("解析工具调用参数失败:", error);
+        // 即使解析失败，也保存原始参数
+        const parameters = {
+          error: "解析失败",
+          originalParams: paramsJson,
+        };
+        const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+        if (!processedToolCalls.has(uniqueKey)) {
+          toolCalls.push({ name: toolName, parameters });
+          processedToolCalls.add(uniqueKey);
+        }
+      }
+    }
+  }
+
+  // 2. 处理带外层包装的工具调用块
+  const toolCallBlockRegex =
+    /<｜tool▁calls▁begin｜>([\s\S]*?)<｜tool▁calls▁end｜>/gs;
+  let toolCallBlockMatch;
+
+  while ((toolCallBlockMatch = toolCallBlockRegex.exec(cleanedText)) !== null) {
+    const blockStartIndex = toolCallBlockMatch.index;
+    const toolCallBlock = toolCallBlockMatch[1];
+
+    if (!processedBlockIndices.has(blockStartIndex)) {
+      processedBlockIndices.add(blockStartIndex);
+      processedBlocks.push(toolCallBlockMatch[0]);
+
+      if (toolCallBlock.includes("<｜tool▁call▁begin｜>")) {
+        const singleToolRegex =
+          /([\s\S]*?)<｜tool▁call▁begin｜>([\s\S]*?)<｜tool▁sep｜>([\s\S]*?)<｜tool▁call▁end｜>/gs;
+
+        let singleToolMatch;
+        while (
+          (singleToolMatch = singleToolRegex.exec(toolCallBlock)) !== null
+        ) {
+          const toolName = singleToolMatch[2].trim();
+          const paramsJson = singleToolMatch[3].trim();
+
+          try {
+            let parameters = JSON.parse(paramsJson);
+            if (toolName === "setPositionExitStrategy") {
+              parameters = fixComponentNesting(parameters);
+            }
+            const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+            if (!processedToolCalls.has(uniqueKey)) {
+              toolCalls.push({ name: toolName, parameters });
+              processedToolCalls.add(uniqueKey);
+            }
+          } catch (error) {
+            console.error("解析工具调用参数失败:", error);
+            const parameters = {
+              error: "解析失败",
+              originalParams: paramsJson,
+            };
+            const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+            if (!processedToolCalls.has(uniqueKey)) {
+              toolCalls.push({ name: toolName, parameters });
+              processedToolCalls.add(uniqueKey);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. 处理剩余的单个工具调用（没有外层包装） - 匹配格式：<｜tool▁call▁begin｜>工具名｜tool▁sep｜参数｜tool▁call▁end｜>
+  const remainingSingleToolRegex =
+    /<｜tool▁call▁begin｜>([\s\S]*?)<｜tool▁sep｜>([\s\S]*?)<｜tool▁call▁end｜>/gs;
+  let remainingSingleToolMatch;
+
+  while (
+    (remainingSingleToolMatch = remainingSingleToolRegex.exec(cleanedText)) !==
+    null
+  ) {
+    const blockStartIndex = remainingSingleToolMatch.index;
+    const toolName = remainingSingleToolMatch[1].trim();
+    const paramsJson = remainingSingleToolMatch[2].trim();
+
+    if (!processedBlockIndices.has(blockStartIndex)) {
+      processedBlockIndices.add(blockStartIndex);
+      processedBlocks.push(remainingSingleToolMatch[0]);
+
+      try {
+        let parameters = JSON.parse(paramsJson);
+        if (toolName === "setPositionExitStrategy") {
+          parameters = fixComponentNesting(parameters);
+        }
+        const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+        if (!processedToolCalls.has(uniqueKey)) {
+          toolCalls.push({ name: toolName, parameters });
+          processedToolCalls.add(uniqueKey);
+        }
+      } catch (error) {
+        try {
+          // 增强修复：检查并修复缺少右括号的问题
+          let enhancedFixedJson = paramsJson;
+          const openBraces = (enhancedFixedJson.match(/{/g) || []).length;
+          const closeBraces = (enhancedFixedJson.match(/}/g) || []).length;
+          if (openBraces > closeBraces) {
+            enhancedFixedJson += "}".repeat(openBraces - closeBraces);
+          }
+          let parameters = JSON.parse(enhancedFixedJson);
+          if (toolName === "setPositionExitStrategy") {
+            parameters = fixComponentNesting(parameters);
+          }
+          const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+          if (!processedToolCalls.has(uniqueKey)) {
+            toolCalls.push({ name: toolName, parameters });
+            processedToolCalls.add(uniqueKey);
+          }
+        } catch (fixError1) {
+          try {
+            const fixedJson = fixJsonFormat(paramsJson);
+            let parameters = JSON.parse(fixedJson);
+            if (toolName === "setPositionExitStrategy") {
+              parameters = fixComponentNesting(parameters);
+            }
+            const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+            if (!processedToolCalls.has(uniqueKey)) {
+              toolCalls.push({ name: toolName, parameters });
+              processedToolCalls.add(uniqueKey);
+            }
+          } catch (fixError2) {
+            // 如果修复失败，保存原始参数
+            const parameters = {
+              error: "解析失败",
+              originalParams: paramsJson,
+            };
+            const uniqueKey = `${toolName}_${JSON.stringify(parameters)}`;
+            if (!processedToolCalls.has(uniqueKey)) {
+              toolCalls.push({ name: toolName, parameters });
+              processedToolCalls.add(uniqueKey);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 4. 如果没有找到标准格式的工具调用，尝试从自然语言中提取setPositionExitStrategy调用
+  if (toolCalls.length === 0) {
+    console.log("未找到标准格式工具调用，尝试从自然语言中提取");
+
+    // 检查是否包含持仓管理或设置退出策略的关键词
+    if (
+      (cleanedText.includes("持仓管理决策") ||
+        cleanedText.includes("退出策略") ||
+        cleanedText.includes("设置完整的退出策略") ||
+        cleanedText.includes("设置退出策略")) &&
+      !cleanedText.includes("工具：")
+    ) {
+      console.log(
+        "检测到自然语言中的退出策略设置，尝试提取setPositionExitStrategy调用"
+      );
+
+      // 提取币种信息，支持多个币种
+      const symbolRegex = /(BTC|ETH|BNB|DOGE|ADA|XRP|SOL|DOT|MATIC|AVAX)/gi;
+      const symbolMatches = [...cleanedText.matchAll(symbolRegex)];
+
+      if (symbolMatches.length > 0) {
+        // 去重并转换为大写
+        const uniqueSymbols = Array.from(
+          new Set(symbolMatches.map((match) => match[0].toUpperCase()))
+        );
+        console.log(`从自然语言中提取到币种: ${uniqueSymbols.join(", ")}`);
+
+        // 为每个币种生成一个工具调用
+        for (const symbol of uniqueSymbols) {
+          // 构建默认的setPositionExitStrategy参数
+          const defaultParams = {
+            symbol: symbol,
+            strategyType: "combination",
+            enabled: true,
+            // 添加默认的分批止盈设置
+            partialTakeProfit: {
+              stage1: { trigger: 5, closePercent: 30 },
+              stage2: { trigger: 10, closePercent: 40 },
+              stage3: { trigger: 15, closePercent: 30 },
+            },
+            // 添加默认的动态止损设置
+            dynamicStopLoss: {
+              initialStopLoss: 2,
+              trailingStopLoss: {
+                level1: { trigger: 3, stopAt: 1 },
+                level2: { trigger: 6, stopAt: 3 },
+                level3: { trigger: 10, stopAt: 5 },
+              },
+            },
+            // 添加默认的峰值回落设置
+            peakDrawdown: {
+              level1: { drawdownThreshold: 2, closePercent: 30 },
+              level2: { drawdownThreshold: 4, closePercent: 40 },
+              level3: { drawdownThreshold: 6, closePercent: 30 },
+              minHoldingTime: 5,
+            },
+          };
+
+          // 检查是否已经存在相同的工具调用，避免重复添加
+          const uniqueKey = `setPositionExitStrategy_${JSON.stringify(
+            defaultParams
+          )}`;
+          if (!processedToolCalls.has(uniqueKey)) {
+            toolCalls.push({
+              name: "setPositionExitStrategy",
+              parameters: defaultParams,
+            });
+            processedToolCalls.add(uniqueKey);
+            console.log(
+              `从自然语言中成功提取setPositionExitStrategy调用，币种: ${symbol}`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return toolCalls;
+}
+
+// 格式化工具调用显示
 function formatToolCallsDisplay(decision) {
   if (!decision || typeof decision !== "string") {
     return decision;
   }
 
-  let result = decision;
-  
-  // 定义工具调用块的正则表达式，兼容全角和半角字符
-  const toolCallBlocksRegex = /<[|｜]tool[-_▁]calls[-_▁]begin[|｜]>([\s\S]*?)<[|｜]tool[-_▁]calls[-_▁]end[|｜]>/gs;
-  // 单个工具调用正则表达式，兼容全角和半角字符，处理可能的重复标记和灵活分隔
-  const singleToolRegex = /<[|｜]tool[-_▁]call[-_▁]begin[|｜]>([\s\S]*?)<[|｜]tool[-_▁]call[-_▁]end[|｜]>/gs;
-  
-  // 修复组件嵌套问题，与后端逻辑保持一致
-  function fixComponentNesting(parameters) {
-    const newParams = {
-      symbol: parameters.symbol,
-      strategyType: parameters.strategyType || "combination",
-      enabled: parameters.enabled !== undefined ? parameters.enabled : true,
-    };
+  let finalResult = decision;
 
-    // 提取partialTakeProfit组件，支持从任何位置提取
-    if (parameters.partialTakeProfit) {
-      newParams.partialTakeProfit = parameters.partialTakeProfit;
-    } else if (parameters.dynamicStopLoss?.partialTakeProfit) {
-      newParams.partialTakeProfit = parameters.dynamicStopLoss.partialTakeProfit;
-    } else if (parameters.peakDrawdown?.partialTakeProfit) {
-      newParams.partialTakeProfit = parameters.peakDrawdown.partialTakeProfit;
-    }
+  // 获取终端宽度，留10个字符的边距
+  const terminalWidth = getTerminalWidth();
+  const maxLineWidth = terminalWidth - 10;
 
-    // 提取dynamicStopLoss组件，并移除可能存在的嵌套组件
-    if (parameters.dynamicStopLoss) {
-      const cleanDynamicStopLoss = { ...parameters.dynamicStopLoss };
-      delete cleanDynamicStopLoss.peakDrawdown;
-      delete cleanDynamicStopLoss.partialTakeProfit;
-      newParams.dynamicStopLoss = cleanDynamicStopLoss;
-    }
+  // 使用正则表达式匹配所有工具调用块
+  const toolCallRegex =
+    /<｜tool▁calls▁begin｜>([\s\S]*?)<｜tool▁calls▁end｜>/gs;
+  // 匹配单个工具调用标记
+  const singleToolRegex =
+    /<｜tool▁call▁begin｜>([\s\S]*?)<｜tool▁sep｜>([\s\S]*?)<｜tool▁call▁end｜>/gs;
 
-    // 提取peakDrawdown组件，支持从嵌套结构中提取
-    if (parameters.peakDrawdown) {
-      newParams.peakDrawdown = parameters.peakDrawdown;
-    } else if (parameters.dynamicStopLoss?.peakDrawdown) {
-      newParams.peakDrawdown = parameters.dynamicStopLoss.peakDrawdown;
-    } else if (parameters.partialTakeProfit?.peakDrawdown) {
-      newParams.peakDrawdown = parameters.partialTakeProfit.peakDrawdown;
-    }
+  // 1. 处理带外层包装的工具调用块
+  // 检查是否有工具调用块
+  const hasToolCalls = toolCallRegex.test(decision);
 
-    // 添加其他顶层属性
-    for (const [key, value] of Object.entries(parameters)) {
-      if (!["symbol", "strategyType", "enabled", "partialTakeProfit", "dynamicStopLoss", "peakDrawdown"].includes(key)) {
-        newParams[key] = value;
-      }
-    }
+  if (hasToolCalls) {
+    // 重置正则表达式的lastIndex，以便重新匹配
+    toolCallRegex.lastIndex = 0;
 
-    return newParams;
-  }
+    // 匹配所有工具调用块，并逐个处理
+    let toolCallMatch;
+    while ((toolCallMatch = toolCallRegex.exec(decision)) !== null) {
+      const entireBlock = toolCallMatch[0];
 
-  // 格式化单个setPositionExitStrategy工具调用
-  function formatSetPositionExitStrategy(toolName, paramsJson) {
-    try {
-      // 修复JSON解析问题
-      let fixedArgs = paramsJson;
+      // 解析当前工具调用块中的工具调用
+      const blockToolCalls = parseToolCalls(entireBlock);
 
-      // 1. 移除多余的括号和字符
-      // 处理 {(` 开头和 `)` 结尾的特殊格式
-      if (fixedArgs.startsWith("{(")) {
-        // 移除开头的 {( 和结尾的 )
-        // 例如：{(`symbol":"BCH", ...)} -> {"symbol":"BCH", ...}
-        fixedArgs = fixedArgs.substring(1); // 移除开头的 {
-        fixedArgs = fixedArgs.substring(1, fixedArgs.length - 1); // 移除开头的 ( 和结尾的 )
-        fixedArgs = "{" + fixedArgs + "}"; // 添加正确的 {} 包裹
-      }
-      // 处理普通括号包裹的情况
-      else if (fixedArgs.startsWith("(") && fixedArgs.endsWith(")")) {
-        fixedArgs = fixedArgs.substring(1, fixedArgs.length - 1);
-        fixedArgs = "{" + fixedArgs + "}";
-      }
+      // 生成美化后的工具调用文本
+      let formattedToolCalls = "\n**执行参数设置：**\n";
 
-      // 2. 修复可能存在的引号问题
-      // 将单引号替换为双引号
-      fixedArgs = fixedArgs.replace(
-        /'([^']*?)'(\s*[:},\]])/g,
-        '"$1"$2'
-      );
+      for (const toolCall of blockToolCalls) {
+        let line = `- 工具：${toolCall.name}`;
+        formattedToolCalls += wrapLine(line, maxLineWidth).join("\n") + "\n";
 
-      // 3. 修复尾部逗号
-      fixedArgs = fixedArgs.replace(/,\s*([}\[\]])/g, "$1");
+        // 根据不同的工具类型，使用不同的格式化方式
+        const params = toolCall.parameters;
 
-      // 4. 确保JSON的完整性
-      // 统计括号数量，确保平衡
-      const openBraces = (fixedArgs.match(/{/g) || []).length;
-      const closeBraces = (fixedArgs.match(/}/g) || []).length;
-      const openBrackets = (fixedArgs.match(/\[/g) || []).length;
-      const closeBrackets = (fixedArgs.match(/\]/g) || []).length;
+        if (toolCall.name === "setPartialTakeProfitParams") {
+          // 分批止盈参数格式化
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 补全缺失的括号
-      if (openBraces > closeBraces) {
-        fixedArgs += "}".repeat(openBraces - closeBraces);
-      }
-      if (openBrackets > closeBrackets) {
-        fixedArgs += "]".repeat(openBrackets - closeBrackets);
-      }
+          line = `- 币种：${params.symbol || "N/A"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 尝试解析JSON参数
-      let parameters = JSON.parse(fixedArgs);
-      if (toolName.trim() === "setPositionExitStrategy") {
-        parameters = fixComponentNesting(parameters);
-      }
+          line = `- 第一阶段：触发条件 +${
+            params.stage1?.trigger || 0
+          }%，平仓比例 ${params.stage1?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      const params = parameters;
+          line = `- 第二阶段：触发条件 +${
+            params.stage2?.trigger || 0
+          }%，平仓比例 ${params.stage2?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 生成美化后的HTML
-      let formattedHtml = `<div class="tool-calls-container">
-                          <div class="tool-calls-header">执行参数设置：</div>
-                          <div class="tool-calls-content">
-                            <div class="tool-call">`;
+          line = `- 第三阶段：触发条件 +${
+            params.stage3?.trigger || 0
+          }%，平仓比例 ${params.stage3?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+        } else if (toolCall.name === "setPeakDrawdownParams") {
+          // 峰值回落参数格式化
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 显示基本信息
-      formattedHtml += `<div class="tool-name">工具: ${toolName}</div>`;
-      formattedHtml += `<div class="tool-params">
-                        - 币种：${params.symbol || "N/A"}<br>
-                        - 策略：${params.strategy || "默认"}<br>
-                        - 策略类型：${params.strategyType || "默认"}<br>
-                        - 启用状态：${params.enabled ? "启用" : "禁用"}<br>
-                        - 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）<br>`;
+          line = `- 币种：${params.symbol || "N/A"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 显示分批止盈设置
-      if (params.partialTakeProfit) {
-        formattedHtml += `<br>- 分批止盈设置：<br>`;
-        
-        const stage1 = params.partialTakeProfit.stage1;
-        if (stage1) {
-          formattedHtml += `  - 第一阶段：触发条件 +${stage1.trigger || 0}%，平仓比例 ${stage1.closePercent || 0}%<br>`;
-        }
-        
-        const stage2 = params.partialTakeProfit.stage2;
-        if (stage2) {
-          formattedHtml += `  - 第二阶段：触发条件 +${stage2.trigger || 0}%，平仓比例 ${stage2.closePercent || 0}%<br>`;
-        }
-        
-        const stage3 = params.partialTakeProfit.stage3;
-        if (stage3) {
-          formattedHtml += `  - 第三阶段：触发条件 +${stage3.trigger || 0}%，平仓比例 ${stage3.closePercent || 0}%<br>`;
-        }
-      } else {
-        formattedHtml += `<br>- 分批止盈设置：未配置<br>`;
-      }
+          line = `- 第一阶段：回撤阈值 ${
+            params.level1?.drawdownThreshold || 0
+          }%，平仓比例 ${params.level1?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 显示峰值回落设置
-      if (params.peakDrawdown) {
-        formattedHtml += `<br>- 峰值回落设置：<br>`;
-        
-        const level1 = params.peakDrawdown.level1;
-        if (level1) {
-          formattedHtml += `  - 第一级：回落${level1.drawdownThreshold || 0}%，平仓比例 ${level1.closePercent || 0}%<br>`;
-        }
-        
-        const level2 = params.peakDrawdown.level2;
-        if (level2) {
-          formattedHtml += `  - 第二级：回落${level2.drawdownThreshold || 0}%，平仓比例 ${level2.closePercent || 0}%<br>`;
-        }
-        
-        const level3 = params.peakDrawdown.level3;
-        if (level3) {
-          formattedHtml += `  - 第三级：回落${level3.drawdownThreshold || 0}%，平仓比例 ${level3.closePercent || 0}%<br>`;
-        }
-        
-        if (params.peakDrawdown.minHoldingTime) {
-          formattedHtml += `  - 最小持仓时间：${params.peakDrawdown.minHoldingTime} 分钟<br>`;
-        }
-      } else {
-        formattedHtml += `<br>- 峰值回落设置：未配置<br>`;
-      }
+          line = `- 第二阶段：回撤阈值 ${
+            params.level2?.drawdownThreshold || 0
+          }%，平仓比例 ${params.level2?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
-      // 显示动态止损设置
-      if (params.dynamicStopLoss) {
-        formattedHtml += `<br>- 动态止损设置：<br>`;
-        
-        formattedHtml += `  - 初始止损幅度：${params.dynamicStopLoss.initialStopLoss || 0}%<br>`;
-        
-        if (params.dynamicStopLoss.trailingStopLoss) {
-          const trailingStop = params.dynamicStopLoss.trailingStopLoss;
-          
-          if (trailingStop.level1) {
-            formattedHtml += `  - 第一级移动止损：盈利达到 +${trailingStop.level1.trigger}%时，止损移至 +${trailingStop.level1.stopAt}%<br>`;
+          line = `- 第三阶段：回撤阈值 ${
+            params.level3?.drawdownThreshold || 0
+          }%，平仓比例 ${params.level3?.closePercent || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 最小持仓时间：${params.minHoldingTime || 0} 分钟`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+        } else if (toolCall.name === "setDynamicStopLossParams") {
+          // 动态止损参数格式化
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 币种：${params.symbol || "N/A"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 阈值：${params.threshold || 0}%`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 评估间隔：${params.evaluationInterval || 0} 分钟`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          if (params.conditions && params.conditions.length > 0) {
+            // 将触发条件转换为易读文本格式，过滤掉无效条件
+            const conditionsStr = params.conditions
+              .filter(
+                (condition) =>
+                  condition &&
+                  typeof condition === "object" &&
+                  condition.type &&
+                  condition.value !== undefined
+              )
+              .map((condition) => {
+                // 将条件类型转换为中文描述
+                const typeMap = {
+                  volatility: "波动率",
+                  trend: "趋势",
+                  volume: "成交量",
+                  price: "价格",
+                  rsi: "RSI",
+                  macd: "MACD",
+                  news: "新闻",
+                };
+                const typeName = typeMap[condition.type] || condition.type;
+                return `${typeName}: ${condition.value}`;
+              })
+              .join(", ");
+
+            line = `- 触发条件：${conditionsStr}`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
           }
-          
-          if (trailingStop.level2) {
-            formattedHtml += `  - 第二级移动止损：盈利达到 +${trailingStop.level2.trigger}%时，止损移至 +${trailingStop.level2.stopAt}%<br>`;
+        } else if (toolCall.name === "resetStrategyParams") {
+          // 重置策略参数格式化
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 币种：${params.symbol || "所有币种"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+        } else if (toolCall.name === "setPositionExitStrategy") {
+          // 显示策略基本信息
+          line = `- 币种：${params.symbol || "N/A"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略类型：${params.strategyType || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 启用状态：${params.enabled ? "启用" : "禁用"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          // 显示分批止盈参数
+          if (params.partialTakeProfit) {
+            line = `- 分批止盈设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第一阶段：触发条件 +${
+              params.partialTakeProfit.stage1?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage1?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第二阶段：触发条件 +${
+              params.partialTakeProfit.stage2?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage2?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第三阶段：触发条件 +${
+              params.partialTakeProfit.stage3?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage3?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          } else {
+            line = `- 分批止盈设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
           }
-          
-          if (trailingStop.level3) {
-            formattedHtml += `  - 第三级移动止损：盈利达到 +${trailingStop.level3.trigger}%时，止损移至 +${trailingStop.level3.stopAt}%<br>`;
+
+          // 显示峰值回落参数
+          if (params.peakDrawdown) {
+            line = `- 峰值回落设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第一级：回落${
+              params.peakDrawdown.level1?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level1?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第二级：回落${
+              params.peakDrawdown.level2?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level2?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第三级：回落${
+              params.peakDrawdown.level3?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level3?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            if (params.peakDrawdown.minHoldingTime) {
+              line = `  - 最小持仓时间：${params.peakDrawdown.minHoldingTime} 分钟`;
+              formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+                "\n"
+              )}\n`;
+            }
+          } else {
+            line = `- 峰值回落设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
+
+          // 显示完整的动态止损参数
+          if (params.dynamicStopLoss) {
+            line = `- 动态止损设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 初始止损幅度：${
+              params.dynamicStopLoss.initialStopLoss || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            // 显示移动止损配置
+            if (params.dynamicStopLoss.trailingStopLoss) {
+              const trailingStop = params.dynamicStopLoss.trailingStopLoss;
+
+              if (trailingStop.level1) {
+                line = `  - 第一级移动止损：盈利达到 +${trailingStop.level1.trigger}%时，止损移至 +${trailingStop.level1.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+
+              if (trailingStop.level2) {
+                line = `  - 第二级移动止损：盈利达到 +${trailingStop.level2.trigger}%时，止损移至 +${trailingStop.level2.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+
+              if (trailingStop.level3) {
+                line = `  - 第三级移动止损：盈利达到 +${trailingStop.level3.trigger}%时，止损移至 +${trailingStop.level3.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+            }
+          } else {
+            line = `- 动态止损设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
+        } else if (
+          toolCall.name === "getCurrentStrategyParams" ||
+          toolCall.name === "getAgentStrategyParams"
+        ) {
+          // 获取策略参数格式化
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 币种：${params.symbol || "所有币种"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+        } else {
+          // 其他工具，显示基本参数
+          for (const [key, value] of Object.entries(params)) {
+            let valueStr;
+            if (typeof value === "object" && value !== null) {
+              // 对象类型参数，完整显示，不简化
+              valueStr = JSON.stringify(value, null, 2)
+                .replace(/^\s*/gm, "") // 移除每行前的空格
+                .replace(/\n/g, "; "); // 将换行替换为分号
+            } else {
+              valueStr = String(value);
+            }
+
+            line = `- ${key}：${valueStr}`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
           }
         }
-      } else {
-        formattedHtml += `<br>- 动态止损设置：未配置<br>`;
       }
 
-      formattedHtml += `</div>
-                      </div>
-                    </div>
-                  </div>`;
-
-      return formattedHtml;
-    } catch (e) {
-      console.error("解析失败:", e, "参数:", paramsJson);
-      // 如果解析失败，使用简化显示
-      return `<div class="tool-calls-container">
-              <div class="tool-calls-header">执行工具调用:</div>
-              <div class="tool-calls-content">
-                <div class="tool-call">
-                  <div class="tool-name">工具: ${toolName}</div>
-                  <div class="tool-params">参数: 解析失败，显示原始参数</div>
-                </div>
-              </div>
-            </div>`;
+      // 替换当前工具调用块，只保留美化后的文本
+      finalResult = finalResult.replace(entireBlock, formattedToolCalls);
     }
   }
 
-  // 处理带外层包装的工具调用块
-  let match;
-  while ((match = toolCallBlocksRegex.exec(result)) !== null) {
-    const entireBlock = match[0];
-    const innerContent = match[1];
-    
-    // 查找工具名称 - 直接查找setPositionExitStrategy字符串
-    const toolNameRegex = /setPositionExitStrategy/;
-    const toolNameMatch = innerContent.match(toolNameRegex);
-    
-    if (toolNameMatch) {
-      // 提取工具名称
-      const toolName = toolNameMatch[0];
-      
-      // 查找参数部分 - 从工具名称后的竖线开始，提取JSON部分
-      // 查找第一个{，然后匹配对应的}
-      const jsonStartRegex = /{/;
-      const jsonStartMatch = innerContent.match(jsonStartRegex);
-      
-      if (jsonStartMatch) {
-        // 提取从第一个{到最后一个}的内容作为JSON参数
-        let jsonContent = innerContent.substring(jsonStartMatch.index);
-        
-        // 查找最后一个}
-        const lastBraceIndex = jsonContent.lastIndexOf('}');
-        if (lastBraceIndex !== -1) {
-          jsonContent = jsonContent.substring(0, lastBraceIndex + 1);
-          
-          // 格式化工具调用
-          const formattedContent = formatSetPositionExitStrategy(toolName, jsonContent);
-          result = result.replace(entireBlock, formattedContent);
+  // 2. 处理单个工具调用标记（没有外层包装）
+  finalResult = finalResult.replace(
+    singleToolRegex,
+    (match, toolName, paramsJson) => {
+      try {
+        // 解析参数并生成美化文本
+        let parameters = JSON.parse(paramsJson);
+        if (toolName.trim() === "setPositionExitStrategy") {
+          parameters = fixComponentNesting(parameters);
         }
-      }
-    }
-  }
 
-  // 重置正则表达式的lastIndex，处理单个工具调用
-  singleToolRegex.lastIndex = 0;
-  
-  // 处理单个工具调用标记（没有外层包装）
-  while ((match = singleToolRegex.exec(result)) !== null) {
-    const entireMatch = match[0];
-    const callContent = match[1];
-    
-    // 查找工具名称 - 直接查找setPositionExitStrategy字符串
-    const toolNameRegex = /setPositionExitStrategy/;
-    const toolNameMatch = callContent.match(toolNameRegex);
-    
-    if (toolNameMatch) {
-      // 提取工具名称
-      const toolName = toolNameMatch[0];
-      
-      // 查找参数部分 - 提取JSON部分
-      // 查找第一个{，然后匹配对应的}
-      const jsonStartRegex = /{/;
-      const jsonStartMatch = callContent.match(jsonStartRegex);
-      
-      if (jsonStartMatch) {
-        // 提取从第一个{到最后一个}的内容作为JSON参数
-        let jsonContent = callContent.substring(jsonStartMatch.index);
-        
-        // 查找最后一个}
-        const lastBraceIndex = jsonContent.lastIndexOf('}');
-        if (lastBraceIndex !== -1) {
-          jsonContent = jsonContent.substring(0, lastBraceIndex + 1);
-          
-          // 格式化工具调用
-          const formattedContent = formatSetPositionExitStrategy(toolName, jsonContent);
-          result = result.replace(entireMatch, formattedContent);
+        const toolCall = { name: toolName.trim(), parameters };
+
+        // 生成美化后的工具调用文本
+        let formattedToolCalls = "\n**执行参数设置：**\n";
+
+        let line = `- 工具：${toolCall.name}`;
+        formattedToolCalls += wrapLine(line, maxLineWidth).join("\n") + "\n";
+
+        const params = toolCall.parameters;
+
+        // 只处理setPositionExitStrategy工具的美化，其他工具显示基本参数
+        if (toolCall.name === "setPositionExitStrategy") {
+          // 显示策略基本信息
+          line = `- 币种：${params.symbol || "N/A"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略：${params.strategy || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略类型：${params.strategyType || "默认"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 启用状态：${params.enabled ? "启用" : "禁用"}`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          line = `- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）`;
+          formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
+
+          // 显示分批止盈参数
+          if (params.partialTakeProfit) {
+            line = `- 分批止盈设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第一阶段：触发条件 +${
+              params.partialTakeProfit.stage1?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage1?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第二阶段：触发条件 +${
+              params.partialTakeProfit.stage2?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage2?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第三阶段：触发条件 +${
+              params.partialTakeProfit.stage3?.trigger || 0
+            }%，平仓比例 ${
+              params.partialTakeProfit.stage3?.closePercent || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          } else {
+            line = `- 分批止盈设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
+
+          // 显示峰值回落参数
+          if (params.peakDrawdown) {
+            line = `- 峰值回落设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第一级：回落${
+              params.peakDrawdown.level1?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level1?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第二级：回落${
+              params.peakDrawdown.level2?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level2?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 第三级：回落${
+              params.peakDrawdown.level3?.drawdownThreshold || 0
+            }%，平仓比例 ${params.peakDrawdown.level3?.closePercent || 0}%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            if (params.peakDrawdown.minHoldingTime) {
+              line = `  - 最小持仓时间：${params.peakDrawdown.minHoldingTime} 分钟`;
+              formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+                "\n"
+              )}\n`;
+            }
+          } else {
+            line = `- 峰值回落设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
+
+          // 显示完整的动态止损参数
+          if (params.dynamicStopLoss) {
+            line = `- 动态止损设置：`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            line = `  - 初始止损幅度：${
+              params.dynamicStopLoss.initialStopLoss || 0
+            }%`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+
+            // 显示移动止损配置
+            if (params.dynamicStopLoss.trailingStopLoss) {
+              const trailingStop = params.dynamicStopLoss.trailingStopLoss;
+
+              if (trailingStop.level1) {
+                line = `  - 第一级移动止损：盈利达到 +${trailingStop.level1.trigger}%时，止损移至 +${trailingStop.level1.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+
+              if (trailingStop.level2) {
+                line = `  - 第二级移动止损：盈利达到 +${trailingStop.level2.trigger}%时，止损移至 +${trailingStop.level2.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+
+              if (trailingStop.level3) {
+                line = `  - 第三级移动止损：盈利达到 +${trailingStop.level3.trigger}%时，止损移至 +${trailingStop.level3.stopAt}%`;
+                formattedToolCalls +=
+                  wrapLine(line, maxLineWidth).join("\n") + "\n";
+              }
+            }
+          } else {
+            line = `- 动态止损设置：未配置`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
+        } else {
+          // 其他工具，显示基本参数
+          for (const [key, value] of Object.entries(params)) {
+            let valueStr;
+            if (typeof value === "object" && value !== null) {
+              // 对象类型参数，完整显示，不简化
+              valueStr = JSON.stringify(value, null, 2)
+                .replace(/^\s*/gm, "") // 移除每行前的空格
+                .replace(/\n/g, "; "); // 将换行替换为分号
+            } else {
+              valueStr = String(value);
+            }
+
+            line = `- ${key}：${valueStr}`;
+            formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
+              "\n"
+            )}\n`;
+          }
         }
+
+        return formattedToolCalls;
+      } catch (error) {
+        console.error("解析工具调用失败:", error);
+        return match; // 如果解析失败，返回原始匹配
       }
     }
-  }
+  );
 
-  return result;
-}
-
-// 复制日志决策内容
-function copyLog(index) {
-  if (!window.logsData || !window.logsData[index]) {
-    console.error("日志数据不存在");
-    return;
-  }
-
-  const log = window.logsData[index];
-  const logText = `时间: ${new Date(log.timestamp).toLocaleString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-  })}\n迭代: #${log.iteration}\n\n决策:\n${log.decision}`;
-
-  navigator.clipboard
-    .writeText(logText)
-    .then(() => {
-      // 显示复制成功提示
-      const btn = event.target.closest(".copy-btn");
-      if (btn) {
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = 
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-        btn.style.color = "#10b981";
-
-        setTimeout(() => {
-          btn.innerHTML = originalHTML;
-          btn.style.color = "";
-        }, 2000);
-      }
-    })
-    .catch((err) => {
-      console.error("复制失败:", err);
-      alert("复制失败，请手动复制");
-    });
+  return finalResult;
 }

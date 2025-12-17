@@ -43,6 +43,7 @@
     "db:check-consistency": "tsx --env-file=.env ./scripts/check-consistency.ts",
     "db:migrate:peak-pnl": "tsx --env-file=.env ./src/database/add-peak-pnl-column.ts",
     "db:migrate:partial-close": "tsx --env-file=.env ./src/database/migrate-add-partial-close.ts",
+    "db:migrate:executed-levels": "tsx --env-file=.env ./src/database/add-executed-levels-column.ts",
     "analyze:trades": "tsx --env-file=.env ./scripts/analyze-trades-by-symbol.ts",
     "demo:calculate-pnl": "tsx ./scripts/calculate-pnl-demo.ts",
     "test:websocket": "tsx --env-file=.env ./scripts/test-okx-websocket.ts",

@@ -137,23 +137,59 @@ function checkExitConditions(
     const { stage1, stage2, stage3 } = params.partialTakeProfit;
 
     // 按照从低到高的顺序检查（stage1 -> stage2 -> stage3）
-    const stages = [
-      {
+    const stages = [];
+
+    // 检查并添加stage1
+    if (
+      stage1 &&
+      stage1.trigger !== undefined &&
+      stage1.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage1",
         trigger: stage1.trigger,
         closePercent: stage1.closePercent,
-      },
-      {
+      });
+    }
+
+    // 检查并添加stage2
+    if (
+      stage2 &&
+      stage2.trigger !== undefined &&
+      stage2.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage2",
         trigger: stage2.trigger,
         closePercent: stage2.closePercent,
-      },
-      {
+      });
+    }
+
+    // 检查并添加stage3
+    if (
+      stage3 &&
+      stage3.trigger !== undefined &&
+      stage3.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage3",
         trigger: stage3.trigger,
         closePercent: stage3.closePercent,
-      },
-    ];
+      });
+    }
+
+    // 如果没有有效的阶段，直接返回
+    if (stages.length === 0) {
+      return {
+        shouldClose: false,
+        level: "无效配置",
+        description: "分批止盈配置无效，没有有效的阶段",
+        type: "error",
+      };
+    }
+
+    // 按照触发阈值从低到高排序，确保正确的检查顺序
+    stages.sort((a, b) => a.trigger - b.trigger);
 
     // 计算累计已平仓百分比
     let cumulativeClosePercent = 0;
@@ -163,11 +199,19 @@ function checkExitConditions(
         continue;
       }
 
+      // 检查该阶段是否已执行，避免重复执行
+      if (executedLevels.has(stage.name)) {
+        logger.debug(`${stage.name} 已执行，跳过`);
+        continue;
+      }
+
       // 计算当前阶段的累计平仓百分比
       cumulativeClosePercent += stage.closePercent;
 
       // 如果当前累计平仓百分比 <= 已平仓百分比，说明该阶段已经执行过，跳过
       if (cumulativeClosePercent <= partialClosePercentage) {
+        // 标记为已执行，避免后续重复检查
+        executedLevels.add(stage.name);
         continue;
       }
 
@@ -346,53 +390,117 @@ function checkPositionExitStrategy(
     (strategyType === "partialTakeProfit" || strategyType === "combination") &&
     partialTakeProfit
   ) {
+    logger.debug(`检查分批止盈策略，strategyType: ${strategyType}`);
+    logger.debug(`partialTakeProfit: ${JSON.stringify(partialTakeProfit)}`);
+    logger.debug(`currentPnlPercent: ${currentPnlPercent.toFixed(2)}%`);
+
     // 分批止盈的三个阶段（从低到高排序，方便计算累计平仓百分比）
-    const stages = [
-      {
+    const stages = [];
+
+    // 检查并添加stage1
+    if (
+      partialTakeProfit.stage1 &&
+      partialTakeProfit.stage1.trigger !== undefined &&
+      partialTakeProfit.stage1.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage1",
         trigger: partialTakeProfit.stage1.trigger,
         closePercent: partialTakeProfit.stage1.closePercent,
-      },
-      {
+      });
+    }
+
+    // 检查并添加stage2
+    if (
+      partialTakeProfit.stage2 &&
+      partialTakeProfit.stage2.trigger !== undefined &&
+      partialTakeProfit.stage2.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage2",
         trigger: partialTakeProfit.stage2.trigger,
         closePercent: partialTakeProfit.stage2.closePercent,
-      },
-      {
+      });
+    }
+
+    // 检查并添加stage3
+    if (
+      partialTakeProfit.stage3 &&
+      partialTakeProfit.stage3.trigger !== undefined &&
+      partialTakeProfit.stage3.closePercent !== undefined
+    ) {
+      stages.push({
         name: "stage3",
         trigger: partialTakeProfit.stage3.trigger,
         closePercent: partialTakeProfit.stage3.closePercent,
-      },
-    ];
+      });
+    }
+
+    logger.debug(`stages数组: ${JSON.stringify(stages)}`);
+
+    // 如果没有有效的阶段，直接返回
+    if (stages.length === 0) {
+      logger.debug("stages数组为空，返回无效配置");
+      return {
+        shouldClose: false,
+        level: "无效配置",
+        description: "分批止盈配置无效，没有有效的阶段",
+        type: "error",
+      };
+    }
+
+    // 按照触发阈值从低到高排序，确保正确的检查顺序
+    stages.sort((a, b) => a.trigger - b.trigger);
+    logger.debug(`排序后的stages数组: ${JSON.stringify(stages)}`);
 
     // 计算累计已平仓百分比
     let cumulativeClosePercent = 0;
     for (const stage of stages) {
       // 参数验证
       if (!stage.trigger || !stage.closePercent) {
+        logger.debug(`跳过无效阶段: ${JSON.stringify(stage)}`);
+        continue;
+      }
+
+      // 检查该阶段是否已执行，避免重复执行
+      if (executedLevels.has(stage.name)) {
+        logger.debug(`${stage.name} 已执行，跳过`);
         continue;
       }
 
       // 计算当前阶段的累计平仓百分比
       cumulativeClosePercent += stage.closePercent;
+      logger.debug(
+        `检查阶段 ${stage.name}: trigger=${stage.trigger}, closePercent=${stage.closePercent}, cumulativeClosePercent=${cumulativeClosePercent}, partialClosePercentage=${partialClosePercentage}`
+      );
 
       // 如果当前累计平仓百分比 <= 已平仓百分比，说明该阶段已经执行过，跳过
       if (cumulativeClosePercent <= partialClosePercentage) {
+        // 标记为已执行，避免后续重复检查
+        executedLevels.add(stage.name);
+        logger.debug(
+          `${stage.name} 已执行（累计平仓百分比 <= 已平仓百分比），跳过`
+        );
         continue;
       }
 
       // 检查是否达到触发阈值
+      logger.debug(
+        `检查 ${
+          stage.name
+        } 是否达到触发阈值: currentPnlPercent=${currentPnlPercent.toFixed(
+          2
+        )}% >= trigger=${stage.trigger}%: ${currentPnlPercent >= stage.trigger}`
+      );
       if (currentPnlPercent >= stage.trigger) {
         // 获取对应的drawdownThreshold
         let drawdownThreshold = 0;
         if (
           exitStrategy &&
-          exitStrategy.partialTakeProfit &&
-          exitStrategy.partialTakeProfit.dynamicStopLoss &&
-          exitStrategy.partialTakeProfit.dynamicStopLoss.peakDrawdown
+          exitStrategy.dynamicStopLoss &&
+          exitStrategy.dynamicStopLoss.peakDrawdown
         ) {
-          const peakDrawdown =
-            exitStrategy.partialTakeProfit.dynamicStopLoss.peakDrawdown;
+          const peakDrawdown = exitStrategy.dynamicStopLoss.peakDrawdown;
           if (stage.name === "stage1" && peakDrawdown.level1) {
             drawdownThreshold = peakDrawdown.level1.drawdownThreshold;
           } else if (stage.name === "stage2" && peakDrawdown.level2) {
@@ -402,6 +510,7 @@ function checkPositionExitStrategy(
           }
         }
 
+        logger.debug(`触发 ${stage.name} 分批止盈`);
         return {
           shouldClose: true,
           level: stage.name,
@@ -416,29 +525,36 @@ function checkPositionExitStrategy(
         };
       }
     }
+
+    logger.debug("没有达到任何分批止盈触发阈值");
   }
 
   // 2. 检查峰值回落策略（支持 peakDrawdown 和 combination 类型）
+  const dynamicStopLoss = exitStrategy.dynamicStopLoss;
+  const actualPeakDrawdown = dynamicStopLoss
+    ? dynamicStopLoss.peakDrawdown
+    : peakDrawdown;
+
   if (
     (strategyType === "peakDrawdown" || strategyType === "combination") &&
-    peakDrawdown
+    actualPeakDrawdown
   ) {
-    // 峰值回落的三个阶段
+    // 峰值回落的三个阶段，使用更清晰的命名避免与移动止盈混淆
     const levels = [
       {
-        name: "level3",
-        trigger: peakDrawdown.level3.drawdownThreshold,
-        closePercent: peakDrawdown.level3.closePercent,
+        name: "peak_level3",
+        trigger: actualPeakDrawdown.level3.drawdownThreshold,
+        closePercent: actualPeakDrawdown.level3.closePercent,
       },
       {
-        name: "level2",
-        trigger: peakDrawdown.level2.drawdownThreshold,
-        closePercent: peakDrawdown.level2.closePercent,
+        name: "peak_level2",
+        trigger: actualPeakDrawdown.level2.drawdownThreshold,
+        closePercent: actualPeakDrawdown.level2.closePercent,
       },
       {
-        name: "level1",
-        trigger: peakDrawdown.level1.drawdownThreshold,
-        closePercent: peakDrawdown.level1.closePercent,
+        name: "peak_level1",
+        trigger: actualPeakDrawdown.level1.drawdownThreshold,
+        closePercent: actualPeakDrawdown.level1.closePercent,
       },
     ];
 
@@ -1090,9 +1206,9 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       return;
     }
 
-    // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利和初始数量）
+    // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利、初始数量和已执行级别）
     const dbResult = await dbClient.execute(
-      "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity FROM positions"
+      "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity, executed_levels FROM positions"
     );
     const dbInfoMap = new Map(
       dbResult.rows.map((row: any) => [
@@ -1104,6 +1220,9 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
             : null,
           peakPnlPercent: row.peak_pnl_percent || 0,
           initialQuantity: row.quantity || 0,
+          executedLevels: row.executed_levels
+            ? new Set(JSON.parse(row.executed_levels))
+            : new Set<string>(),
         },
       ])
     );
@@ -1147,13 +1266,21 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
         const initialPeak = dbInfo?.peakPnlPercent || pnlPercent;
         // 使用当前持仓数量作为初始数量，只在首次创建时设置，后续不再更新
         const initialQuantity = quantity;
+        // 使用从数据库加载的已执行级别集合，确保类型为Set<string>
+        const dbExecutedLevels = dbInfo?.executedLevels || new Set<string>();
+        // 确保类型安全，将Set<unknown>转换为Set<string>
+        const initialExecutedLevels = new Set<string>(
+          Array.from(dbExecutedLevels).filter(
+            (item) => typeof item === "string"
+          )
+        );
 
         history = {
           peakPnlPercent: initialPeak,
           lastCheckTime: now,
           checkCount: 0,
           initialQuantity: initialQuantity,
-          executedLevels: new Set<string>(), // 初始化已执行级别集合
+          executedLevels: initialExecutedLevels, // 使用从数据库加载的已执行级别集合
         };
         positionPnlHistory.set(symbol, history);
         logger.info(
@@ -1163,8 +1290,16 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
             2
           )}%，初始峰值: ${initialPeak.toFixed(
             2
-          )}%，初始数量: ${initialQuantity}`
+          )}%，初始数量: ${initialQuantity}，已执行级别: ${
+            Array.from(initialExecutedLevels).join(", ") || "无"
+          }`
         );
+      }
+
+      // 确保history已初始化
+      if (!history) {
+        logger.error(`${symbol} 历史记录初始化失败，跳过`);
+        continue;
       }
 
       // 增加检查次数
@@ -1260,16 +1395,24 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
             history.executedLevels.add(exitResult.level);
             logger.info(`${symbol} 记录已执行平仓级别: ${exitResult.level}`);
 
-            // 如果是分批平仓，更新峰值盈利
+            // 将已执行级别保存到数据库
+            const executedLevelsArray = Array.from(history.executedLevels);
+            await dbClient.execute({
+              sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
+              args: [JSON.stringify(executedLevelsArray), symbol],
+            });
+            logger.info(
+              `${symbol} 已执行级别已保存到数据库: ${executedLevelsArray.join(
+                ", "
+              )}`
+            );
+
+            // 如果是分批平仓，更新持仓相关信息
             if (closePercent < 100) {
-              // 分批平仓后，重置峰值盈利为当前盈利，因为剩余仓位的峰值将重新计算
-              history.peakPnlPercent = pnlPercent;
-              await dbClient.execute({
-                sql: "UPDATE positions SET peak_pnl_percent = ? WHERE symbol = ?",
-                args: [pnlPercent, symbol],
-              });
+              // 部分平仓后，继续跟踪新的峰值，不重置为当前盈利
+              // 这样可以让剩余仓位继续享受潜在的上涨空间
               logger.info(
-                `${symbol} 分批平仓后，重置峰值盈利为当前盈利: ${pnlPercent.toFixed(
+                `${symbol} 部分平仓后，继续跟踪当前峰值: ${history.peakPnlPercent.toFixed(
                   2
                 )}%`
               );

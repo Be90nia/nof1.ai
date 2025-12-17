@@ -47,30 +47,56 @@ function fixComponentNesting(parameters: any): any {
     enabled: parameters.enabled !== undefined ? parameters.enabled : true,
   };
 
-  // 提取partialTakeProfit组件，支持从任何位置提取
-  if (parameters.partialTakeProfit) {
-    newParams.partialTakeProfit = parameters.partialTakeProfit;
-  } else if (parameters.dynamicStopLoss?.partialTakeProfit) {
-    newParams.partialTakeProfit = parameters.dynamicStopLoss.partialTakeProfit;
-  } else if (parameters.peakDrawdown?.partialTakeProfit) {
-    newParams.partialTakeProfit = parameters.peakDrawdown.partialTakeProfit;
+  // 递归查找组件的辅助函数
+  const findComponent = (obj: any, componentName: string): any | null => {
+    if (!obj || typeof obj !== "object") {
+      return null;
+    }
+
+    if (obj[componentName]) {
+      return obj[componentName];
+    }
+
+    for (const value of Object.values(obj)) {
+      if (typeof value === "object" && value !== null) {
+        const found = findComponent(value, componentName);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // 提取partialTakeProfit组件，支持从任何位置递归提取
+  let partialTakeProfit = findComponent(parameters, "partialTakeProfit");
+  if (partialTakeProfit) {
+    // 清理可能存在的嵌套组件
+    const cleanPartialTakeProfit: any = { ...partialTakeProfit };
+    delete cleanPartialTakeProfit.dynamicStopLoss;
+    delete cleanPartialTakeProfit.peakDrawdown;
+    newParams.partialTakeProfit = cleanPartialTakeProfit;
   }
 
-  // 提取dynamicStopLoss组件，并移除可能存在的嵌套组件
-  if (parameters.dynamicStopLoss) {
-    const cleanDynamicStopLoss: any = { ...parameters.dynamicStopLoss };
-    delete cleanDynamicStopLoss.peakDrawdown;
+  // 提取dynamicStopLoss组件，支持从任何位置递归提取
+  let dynamicStopLoss = findComponent(parameters, "dynamicStopLoss");
+  if (dynamicStopLoss) {
+    // 清理可能存在的嵌套组件
+    const cleanDynamicStopLoss: any = { ...dynamicStopLoss };
     delete cleanDynamicStopLoss.partialTakeProfit;
+    delete cleanDynamicStopLoss.peakDrawdown;
     newParams.dynamicStopLoss = cleanDynamicStopLoss;
   }
 
-  // 提取peakDrawdown组件，支持从嵌套结构中提取
-  if (parameters.peakDrawdown) {
-    newParams.peakDrawdown = parameters.peakDrawdown;
-  } else if (parameters.dynamicStopLoss?.peakDrawdown) {
-    newParams.peakDrawdown = parameters.dynamicStopLoss.peakDrawdown;
-  } else if (parameters.partialTakeProfit?.peakDrawdown) {
-    newParams.peakDrawdown = parameters.partialTakeProfit.peakDrawdown;
+  // 提取peakDrawdown组件，支持从任何位置递归提取
+  let peakDrawdown = findComponent(parameters, "peakDrawdown");
+  if (peakDrawdown) {
+    // 清理可能存在的嵌套组件
+    const cleanPeakDrawdown: any = { ...peakDrawdown };
+    delete cleanPeakDrawdown.partialTakeProfit;
+    delete cleanPeakDrawdown.dynamicStopLoss;
+    newParams.peakDrawdown = cleanPeakDrawdown;
   }
 
   // 添加其他顶层属性
@@ -305,27 +331,65 @@ export function fixJsonFormat(jsonString: string): string {
         if (components.length > 0) {
           logger.debug(`开始重构JSON结构，共提取了${components.length}个组件`);
 
-          // 找到原始JSON的基本结构
-          // 提取symbol, strategyType, enabled等顶层属性
-          const basePropsRegex = /\{\s*(["\w+":\s*["\w]+,\s*]*)/;
-          const basePropsMatch = fixedJson.match(basePropsRegex);
+          // 提取顶层属性（非组件属性）
+          let baseProps: any = {};
+          try {
+            // 尝试解析原始JSON，提取顶层属性
+            const parsedJson = JSON.parse(fixedJson);
 
-          let baseProps = "";
-          if (basePropsMatch) {
-            baseProps = basePropsMatch[1];
-            logger.debug(`提取到基础属性: ${baseProps}`);
+            // 提取非组件的顶层属性
+            for (const [key, value] of Object.entries(parsedJson)) {
+              if (
+                ![
+                  "partialTakeProfit",
+                  "dynamicStopLoss",
+                  "peakDrawdown",
+                ].includes(key)
+              ) {
+                baseProps[key] = value;
+              }
+            }
+            logger.debug(
+              `成功解析并提取顶层属性: ${JSON.stringify(baseProps)}`
+            );
+          } catch (e) {
+            // 如果解析失败，尝试使用正则表达式提取基础属性
+            logger.debug("JSON解析失败，尝试使用正则表达式提取基础属性");
+
+            // 提取symbol
+            const symbolMatch = fixedJson.match(/"symbol"\s*:\s*"([^"]+)"/);
+            if (symbolMatch) {
+              baseProps.symbol = symbolMatch[1];
+            }
+
+            // 提取strategyType
+            const strategyTypeMatch = fixedJson.match(
+              /"strategyType"\s*:\s*"([^"]+)"/
+            );
+            if (strategyTypeMatch) {
+              baseProps.strategyType = strategyTypeMatch[1];
+            }
+
+            // 提取enabled
+            const enabledMatch = fixedJson.match(
+              /"enabled"\s*:\s*(true|false)/
+            );
+            if (enabledMatch) {
+              baseProps.enabled = enabledMatch[1] === "true";
+            }
+
+            logger.debug(
+              `使用正则表达式提取到基础属性: ${JSON.stringify(baseProps)}`
+            );
           }
 
           // 构建正确的JSON结构
           let correctedJson = "{";
 
           // 添加基础属性
-          if (baseProps) {
-            correctedJson += baseProps;
-            // 如果基础属性不以逗号结尾，添加逗号
-            if (!baseProps.endsWith(",")) {
-              correctedJson += ",";
-            }
+          if (Object.keys(baseProps).length > 0) {
+            correctedJson += JSON.stringify(baseProps).slice(1, -1);
+            correctedJson += ",";
           }
 
           // 添加所有组件，按标准顺序排列：partialTakeProfit, dynamicStopLoss, peakDrawdown
@@ -435,13 +499,15 @@ function extractToolCallFromText(
   toolCalls: ToolCall[],
   processedToolCalls: Set<string>
 ): void {
-  // 使用正则表达式匹配每个工具调用块
+  // 1. 先尝试匹配标准格式的工具调用块
   const toolCallBlocksRegex =
     /(-\s*工具：\s*\w+)([\s\S]*?)(?=(?:\n-\s*工具：|$))/gs;
   let toolCallBlockMatch;
+  let hasStandardCalls = false;
 
-  // 使用循环匹配所有工具调用块
+  // 使用循环匹配所有标准格式的工具调用块
   while ((toolCallBlockMatch = toolCallBlocksRegex.exec(text)) !== null) {
+    hasStandardCalls = true;
     const toolCallBlock = toolCallBlockMatch[0];
 
     // 匹配工具名称
@@ -882,6 +948,83 @@ function extractToolCallFromText(
       if (!processedToolCalls.has(uniqueKey)) {
         toolCalls.push({ name: toolName, parameters: params });
         processedToolCalls.add(uniqueKey);
+      }
+    }
+  }
+
+  // 2. 如果没有找到标准格式的工具调用，尝试从自然语言中提取setPositionExitStrategy调用
+  if (!hasStandardCalls) {
+    logger.debug("未找到标准格式工具调用，尝试从自然语言中提取");
+
+    // 检查是否包含持仓管理或设置退出策略的关键词
+    if (
+      (text.includes("持仓管理决策") ||
+        text.includes("退出策略") ||
+        text.includes("设置完整的退出策略") ||
+        text.includes("设置退出策略")) &&
+      !text.includes("工具：")
+    ) {
+      logger.debug(
+        "检测到自然语言中的退出策略设置，尝试提取setPositionExitStrategy调用"
+      );
+
+      // 提取币种信息，支持多个币种
+      const symbolRegex = /(BTC|ETH|BNB|DOGE|ADA|XRP|SOL|DOT|MATIC|AVAX)/gi;
+      const symbolMatches = [...text.matchAll(symbolRegex)];
+
+      if (symbolMatches.length > 0) {
+        // 去重并转换为大写
+        const uniqueSymbols = Array.from(
+          new Set(symbolMatches.map((match) => match[0].toUpperCase()))
+        );
+        logger.debug(`从自然语言中提取到币种: ${uniqueSymbols.join(", ")}`);
+
+        // 为每个币种生成一个工具调用
+        for (const symbol of uniqueSymbols) {
+          // 构建默认的setPositionExitStrategy参数
+          const defaultParams = {
+            symbol: symbol,
+            strategyType: "combination",
+            enabled: true,
+            // 添加默认的分批止盈设置
+            partialTakeProfit: {
+              stage1: { trigger: 5, closePercent: 30 },
+              stage2: { trigger: 10, closePercent: 40 },
+              stage3: { trigger: 15, closePercent: 30 },
+            },
+            // 添加默认的动态止损设置
+            dynamicStopLoss: {
+              initialStopLoss: 2,
+              trailingStopLoss: {
+                level1: { trigger: 3, stopAt: 1 },
+                level2: { trigger: 6, stopAt: 3 },
+                level3: { trigger: 10, stopAt: 5 },
+              },
+            },
+            // 添加默认的峰值回落设置
+            peakDrawdown: {
+              level1: { drawdownThreshold: 2, closePercent: 30 },
+              level2: { drawdownThreshold: 4, closePercent: 40 },
+              level3: { drawdownThreshold: 6, closePercent: 30 },
+              minHoldingTime: 5,
+            },
+          };
+
+          // 检查是否已经存在相同的工具调用，避免重复添加
+          const uniqueKey = `setPositionExitStrategy_${JSON.stringify(
+            defaultParams
+          )}`;
+          if (!processedToolCalls.has(uniqueKey)) {
+            toolCalls.push({
+              name: "setPositionExitStrategy",
+              parameters: defaultParams,
+            });
+            processedToolCalls.add(uniqueKey);
+            logger.debug(
+              `从自然语言中成功提取setPositionExitStrategy调用，币种: ${symbol}`
+            );
+          }
+        }
       }
     }
   }

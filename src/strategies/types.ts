@@ -553,6 +553,14 @@ export interface PositionExitStrategy {
     stage2: { trigger: number; closePercent: number };
     stage3: { trigger: number; closePercent: number };
   };
+  dynamicStopLoss?: {
+    enabled: boolean;
+    trailingStop: {
+      level1: { trigger: number; stopAt: number };
+      level2: { trigger: number; stopAt: number };
+      level3: { trigger: number; stopAt: number };
+    };
+  };
   /** 峰值回落配置 */
   peakDrawdown?: {
     level1: { drawdownThreshold: number; closePercent: number };
@@ -560,6 +568,7 @@ export interface PositionExitStrategy {
     level3: { drawdownThreshold: number; closePercent: number };
     minHoldingTime: number;
   };
+
   /** 启用状态 */
   enabled: boolean;
   /** 最后更新时间 */

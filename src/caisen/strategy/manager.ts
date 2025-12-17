@@ -23,6 +23,7 @@ import {
 import { getAgentStrategyParams } from "../../tools/strategyParams";
 import { createLogger } from "../../utils/loggerUtils";
 import { generateCaiSenPrompt } from "./prompt";
+import { dbClient } from "../../database/dbClient";
 import {
   allocateDynamicTimeframeWeights,
   confirmSignal,
@@ -57,7 +58,7 @@ const logger = createLogger({
  */
 export class CaiSenStrategyManager {
   private static instance: CaiSenStrategyManager;
-  private currentStrategyParams: StrategyParams | null = null;
+  private currentStrategyParams: any | null = null;
   // 新增：存储Agent设置的分币种参数
   private agentParamsBySymbol: Record<string, Record<string, any>> = {};
   private lastAnalysisResults: Map<string, CaiSenAnalysisResult> = new Map();
@@ -84,21 +85,34 @@ export class CaiSenStrategyManager {
   /**
    * 初始化策略管理器
    */
-  public init(): void {
-    this.loadStrategyParams();
-    this.refreshAgentParams();
+  public async init(): Promise<void> {
+    await this.loadStrategyParams();
+    await this.refreshAgentParams();
+    await this.syncStrategyParamsToDatabase();
     logger.info("蔡森策略管理器已初始化");
   }
 
   /**
    * 加载当前策略参数
+   * 实现双向同步：先从文件加载，再从数据库同步最新配置
    */
-  private loadStrategyParams(): void {
+  private async loadStrategyParams(): Promise<void> {
     try {
       const strategy = getTradingStrategy();
       if (strategy === "cai-sen") {
-        this.currentStrategyParams = getStrategyParams(strategy);
-        logger.info("已加载蔡森策略参数");
+        // 1. 先从文件加载基础策略参数
+        const baseParams = getStrategyParams(strategy);
+
+        // 2. 从数据库加载最新的策略配置（如果有）
+        const dbParams = await this.loadStrategyParamsFromDatabase();
+
+        // 3. 合并参数：数据库参数优先，覆盖基础参数
+        this.currentStrategyParams = {
+          ...baseParams,
+          ...dbParams,
+        };
+
+        logger.info("已加载蔡森策略参数（双向同步）");
       } else {
         logger.info(`当前策略不是蔡森策略，而是: ${strategy}`);
         this.currentStrategyParams = null;
@@ -110,6 +124,68 @@ export class CaiSenStrategyManager {
   }
 
   /**
+   * 从数据库加载策略参数
+   */
+  private async loadStrategyParamsFromDatabase(): Promise<any> {
+    try {
+      const result = await dbClient.execute({
+        sql: `SELECT value FROM strategy_params WHERE strategy = ? AND key = ?`,
+        args: ["cai-sen", "positionExitStrategy"],
+      });
+
+      if (result.rows && result.rows.length > 0) {
+        return JSON.parse(result.rows[0].value);
+      }
+    } catch (error) {
+      logger.error("从数据库加载策略参数失败:", error as any);
+    }
+    return {};
+  }
+
+  /**
+   * 将策略参数同步到数据库
+   */
+  private async syncStrategyParamsToDatabase(): Promise<void> {
+    try {
+      if (!this.currentStrategyParams) return;
+
+      const strategy = getTradingStrategy();
+      if (strategy === "cai-sen") {
+        // 同步核心策略参数到数据库
+        await dbClient.execute({
+          sql: `INSERT OR REPLACE INTO strategy_params (key, value, strategy, updated_at) 
+                VALUES (?, ?, ?, datetime('now'))`,
+          args: [
+            "positionExitStrategy",
+            JSON.stringify(this.currentStrategyParams.positionExitStrategy),
+            "cai-sen",
+          ],
+        });
+
+        // 同步分币种参数
+        for (const [symbol, params] of Object.entries(
+          this.agentParamsBySymbol
+        )) {
+          await dbClient.execute({
+            sql: `INSERT OR REPLACE INTO strategy_params (key, value, strategy, updated_at, description) 
+                  VALUES (?, ?, ?, datetime('now'), ?)`,
+            args: [
+              `agentParams_${symbol}`,
+              JSON.stringify(params),
+              "cai-sen",
+              `Agent设置的${symbol}参数`,
+            ],
+          });
+        }
+
+        logger.info("策略参数已同步到数据库");
+      }
+    } catch (error) {
+      logger.error("同步策略参数到数据库失败:", error as any);
+    }
+  }
+
+  /**
    * 刷新Agent设置的策略参数
    * 在每个交易周期开始时调用，确保使用最新的参数
    */
@@ -117,13 +193,90 @@ export class CaiSenStrategyManager {
     try {
       const strategy = getTradingStrategy();
       if (strategy === "cai-sen") {
-        this.agentParamsBySymbol = await getAgentStrategyParams(strategy);
+        // 1. 从Agent获取最新参数
+        const agentParams = await getAgentStrategyParams(strategy);
+
+        // 2. 从数据库获取持久化的参数
+        const dbResult = await dbClient.execute({
+          sql: `SELECT key, value FROM strategy_params WHERE strategy = ? AND key LIKE ?`,
+          args: ["cai-sen", "agentParams_%"],
+        });
+
+        // 3. 合并参数：Agent参数优先，数据库参数作为备份
+        const dbAgentParams: Record<string, Record<string, any>> = {};
+        if (dbResult.rows) {
+          for (const row of dbResult.rows) {
+            const symbol = row.key.replace("agentParams_", "");
+            dbAgentParams[symbol] = JSON.parse(row.value);
+          }
+        }
+
+        // 合并：Agent参数覆盖数据库参数
+        this.agentParamsBySymbol = {
+          ...dbAgentParams,
+          ...agentParams,
+        };
+
         logger.info("已刷新Agent设置的策略参数");
         logger.debug("当前Agent参数:", this.agentParamsBySymbol);
+
+        // 4. 将最新参数同步回数据库
+        await this.syncStrategyParamsToDatabase();
       }
     } catch (error) {
       logger.error("刷新Agent策略参数失败:", error as any);
       this.agentParamsBySymbol = {};
+    }
+  }
+
+  /**
+   * 更新策略参数并同步到数据库
+   */
+  public async updateStrategyParams(
+    params: Partial<StrategyParams>
+  ): Promise<void> {
+    try {
+      if (!this.currentStrategyParams) {
+        throw new Error("策略参数未初始化");
+      }
+
+      // 更新内存中的参数
+      this.currentStrategyParams = {
+        ...this.currentStrategyParams,
+        ...params,
+      };
+
+      // 同步到数据库
+      await this.syncStrategyParamsToDatabase();
+
+      logger.info("策略参数已更新并同步到数据库");
+    } catch (error) {
+      logger.error("更新策略参数失败:", error as any);
+      throw error;
+    }
+  }
+
+  /**
+   * 更新特定币种的Agent参数并同步到数据库
+   */
+  public async updateAgentParamsForSymbol(
+    symbol: string,
+    params: Record<string, any>
+  ): Promise<void> {
+    try {
+      // 更新内存中的参数
+      this.agentParamsBySymbol[symbol] = {
+        ...this.agentParamsBySymbol[symbol],
+        ...params,
+      };
+
+      // 同步到数据库
+      await this.syncStrategyParamsToDatabase();
+
+      logger.info(`已更新${symbol}的Agent参数并同步到数据库`);
+    } catch (error) {
+      logger.error(`更新${symbol}的Agent参数失败: ${error as any}`);
+      throw error;
     }
   }
 
@@ -495,7 +648,9 @@ export class CaiSenStrategyManager {
         (timeframeAnalysis.fifteenMinWeight || 0) +
         timeframeAnalysis.fiveMinWeight;
       if (Math.abs(totalWeight - 1) > 0.01) {
-        errors.push(`时间框架权重总和必须为1，当前为${totalWeight}`);
+        errors.push(
+          `Timeframe weight sum must be 1, current is ${totalWeight}`
+        );
       }
     }
 

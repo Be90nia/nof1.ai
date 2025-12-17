@@ -112,11 +112,36 @@ async function syncPositionsOnly() {
         const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
         const liqPrice = Number.parseFloat(pos.liqPrice || "0");
 
+        // 默认退出策略配置
+        const defaultExitStrategy = {
+          strategyType: "combination",
+          enabled: true,
+          partialTakeProfit: {
+            stage1: { trigger: 5, closePercent: 30 },
+            stage2: { trigger: 10, closePercent: 40 },
+            stage3: { trigger: 15, closePercent: 30 },
+          },
+          dynamicStopLoss: {
+            enabled: true,
+            trailingStop: {
+              level1: { trigger: 5, stopAt: 2 },
+              level2: { trigger: 10, stopAt: 5 },
+              level3: { trigger: 15, stopAt: 8 },
+            },
+          },
+          peakDrawdown: {
+            enabled: true,
+            stage1: { drawdownThreshold: 1.0, closePercent: 30 },
+            stage2: { drawdownThreshold: 2.0, closePercent: 50 },
+            stage3: { drawdownThreshold: 3.0, closePercent: 100 },
+          },
+        };
+
         await client.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, entry_order_id, opened_at, exit_strategy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             quantity,
@@ -128,6 +153,7 @@ async function syncPositionsOnly() {
             side,
             "synced",
             new Date().toISOString(),
+            JSON.stringify(defaultExitStrategy),
           ],
         });
 
