@@ -640,7 +640,9 @@ function parseToolCalls(text) {
   }
 
   // 4. 如果没有找到标准格式的工具调用，尝试从自然语言中提取setPositionExitStrategy调用
-  if (toolCalls.length === 0) {
+  // 🔧 修复：禁用自动生成默认参数的逻辑，避免在前端显示错误的参数
+  // 原因：与后端保持一致，不再自动生成默认参数，只显示 AI 实际调用的工具
+  if (false && toolCalls.length === 0) {
     console.log("未找到标准格式工具调用，尝试从自然语言中提取");
 
     // 检查是否包含持仓管理或设置退出策略的关键词

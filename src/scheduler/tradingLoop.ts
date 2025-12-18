@@ -600,8 +600,8 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
       await dbClient.execute({
         sql: `INSERT INTO positions 
               (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-               leverage, side, stop_loss, profit_target, sl_order_id, tp_order_id, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               leverage, side, stop_loss, profit_target, sl_order_id, tp_order_id, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage, executed_levels)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           symbol,
           quantity,
@@ -625,6 +625,7 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
           dbPos?.partial_close_percentage !== undefined
             ? Number(dbPos.partial_close_percentage)
             : 0, // 保留已平仓百分比（关键修复）
+          dbPos?.executed_levels || "[]", // 保留已执行的平仓级别（关键修复）
         ],
       });
 
@@ -1834,7 +1835,8 @@ export async function executeTradingDecision() {
       logger.info(displayText || "无决策输出");
       logger.info("=".repeat(80) + "\n");
 
-      // 保存决策记录
+      // 🔧 修复：保存美化后的决策文本到数据库，显示完整的工具调用参数
+      // 使用 displayText 而不是 decisionText，确保前端能看到完整的参数信息
       await dbClient.execute({
         sql: `INSERT INTO agent_decisions 
               (timestamp, iteration, market_analysis, decision, actions_taken, account_value, positions_count)
@@ -1843,7 +1845,7 @@ export async function executeTradingDecision() {
           getChinaTimeISO(),
           iterationCount,
           JSON.stringify(marketData),
-          decisionText,
+          displayText || decisionText, // 优先使用美化后的文本
           "[]",
           accountInfo.totalBalance,
           positions.length,
@@ -1974,48 +1976,14 @@ export async function executeTradingDecision() {
                     ", "
                   )}`
                 );
-                logger.warn(`📌 系统将自动为该币种设置默认参数...`);
-
-                // 自动为该币种设置默认参数
-                try {
-                  const {
-                    setPartialTakeProfitParams,
-                    setPeakDrawdownParams,
-                    setDynamicStopLossParams,
-                  } = await import("../tools/strategyParams");
-
-                  logger.info(`📤 正在为 ${symbol} 设置默认分批止盈参数...`);
-                  await setPartialTakeProfitParams(
-                    currentStrategy,
-                    symbol,
-                    { trigger: 5, closePercent: 30 },
-                    { trigger: 10, closePercent: 40 },
-                    { trigger: 15, closePercent: 30 }
-                  );
-
-                  logger.info(`📤 正在为 ${symbol} 设置默认峰值回撤参数...`);
-                  await setPeakDrawdownParams(
-                    currentStrategy,
-                    symbol,
-                    { drawdownThreshold: 1.0, closePercent: 30 },
-                    { drawdownThreshold: 2.0, closePercent: 50 },
-                    { drawdownThreshold: 3.0, closePercent: 100 },
-                    5
-                  );
-
-                  logger.info(`📤 正在为 ${symbol} 设置默认动态止损参数...`);
-                  await setDynamicStopLossParams(
-                    currentStrategy,
-                    symbol,
-                    3.0,
-                    30
-                  );
-
-                  logger.info(`✅ 已成功为 ${symbol} 设置所有默认参数`);
-                } catch (error) {
-                  logger.error(`❌ 为 ${symbol} 设置默认参数失败:`, error);
-                }
-
+                // 🔧 修复：不再自动设置默认参数，避免覆盖 AI 的自定义参数
+                // 原因：当 AI 已经调用了 setPositionExitStrategy 并设置了自定义参数时，
+                // 这个逻辑会再次设置默认参数，覆盖 AI 的设置
+                logger.warn(`📌 请确保 AI 为该币种调用了完整的退出策略工具`);
+                
+                // 不再自动设置默认参数，让 AI 自己决定
+                // 如果 AI 没有设置，系统会在下一个周期提醒 AI 设置
+                
                 missingToolCalls = true;
               } else {
                 logger.info(`✅ 币种 ${symbol} 已调用所有必需的工具函数`);

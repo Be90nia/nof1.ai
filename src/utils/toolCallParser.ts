@@ -972,7 +972,10 @@ function extractToolCallFromText(
   }
 
   // 2. 如果没有找到标准格式的工具调用，尝试从自然语言中提取setPositionExitStrategy调用
-  if (!hasStandardCalls) {
+  // 🔧 修复：禁用自动生成默认参数的逻辑，避免覆盖 AI 的自定义参数
+  // 原因：当 AI 已经调用了 setPositionExitStrategy 并设置了自定义参数时，
+  // 这个逻辑会再次生成默认参数的调用，覆盖 AI 的设置
+  if (false && !hasStandardCalls) {
     logger.debug("未找到标准格式工具调用，尝试从自然语言中提取");
 
     // 检查是否包含持仓管理或设置退出策略的关键词

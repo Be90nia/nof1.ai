@@ -140,8 +140,8 @@ async function syncPositionsOnly() {
         await client.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, entry_order_id, opened_at, exit_strategy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, entry_order_id, opened_at, exit_strategy, executed_levels)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             quantity,
@@ -154,6 +154,7 @@ async function syncPositionsOnly() {
             "synced",
             new Date().toISOString(),
             JSON.stringify(defaultExitStrategy),
+            "[]", // 初始化 executed_levels 为空数组
           ],
         });
 

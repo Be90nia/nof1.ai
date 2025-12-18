@@ -416,7 +416,14 @@ class TradingMonitor {
 
         // 更新决策详细内容
         if (decisionContent) {
-          const decision = log.decision || log.actionsTaken || "暂无决策内容";
+          let decision = log.decision || log.actionsTaken || "暂无决策内容";
+          
+          // 🔧 修复：调用 formatToolCallsDisplay 函数美化工具调用参数显示
+          // 将工具调用标记转换为易读的自然语言格式，显示完整的参数信息
+          if (typeof formatToolCallsDisplay === 'function') {
+            decision = formatToolCallsDisplay(decision);
+          }
+          
           // 使用 marked 库将 markdown 转换为 HTML
           const htmlContent = marked.parse(decision);
 

@@ -539,54 +539,141 @@ function checkPositionExitStrategy(
     (strategyType === "peakDrawdown" || strategyType === "combination") &&
     actualPeakDrawdown
   ) {
-    // 峰值回落的三个阶段，使用更清晰的命名避免与移动止盈混淆
-    const levels = [
-      {
-        name: "peak_level3",
-        trigger: actualPeakDrawdown.level3.drawdownThreshold,
-        closePercent: actualPeakDrawdown.level3.closePercent,
-      },
-      {
-        name: "peak_level2",
-        trigger: actualPeakDrawdown.level2.drawdownThreshold,
-        closePercent: actualPeakDrawdown.level2.closePercent,
-      },
-      {
-        name: "peak_level1",
-        trigger: actualPeakDrawdown.level1.drawdownThreshold,
-        closePercent: actualPeakDrawdown.level1.closePercent,
-      },
-    ];
+    // 确定当前盈利所处的分批止盈阶段，以便匹配对应的峰值回落级别
+    let currentStage: "stage1" | "stage2" | "stage3" | null = null;
+    let peakLevel: {
+      name: string;
+      trigger: number;
+      closePercent: number;
+    } | null = null;
 
-    // 按照触发阈值从高到低检查
-    for (const level of levels) {
-      // 参数验证
-      if (!level.trigger) {
-        continue;
+    // 如果是组合策略，需要根据峰值盈利确定所处阶段
+    // 关键逻辑：峰值回落级别应该基于峰值盈利所处的阶段，而不是当前盈利
+    if (strategyType === "combination" && partialTakeProfit) {
+      // 按照分批止盈阶段从高到低检查，确定峰值盈利所处的阶段
+      if (
+        partialTakeProfit.stage3 &&
+        peakPnlPercent >= partialTakeProfit.stage3.trigger
+      ) {
+        currentStage = "stage3";
+        peakLevel = {
+          name: "peak_level3",
+          trigger: actualPeakDrawdown.level3.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level3.closePercent,
+        };
+      } else if (
+        partialTakeProfit.stage2 &&
+        peakPnlPercent >= partialTakeProfit.stage2.trigger
+      ) {
+        currentStage = "stage2";
+        peakLevel = {
+          name: "peak_level2",
+          trigger: actualPeakDrawdown.level2.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level2.closePercent,
+        };
+      } else if (
+        partialTakeProfit.stage1 &&
+        peakPnlPercent >= partialTakeProfit.stage1.trigger
+      ) {
+        currentStage = "stage1";
+        peakLevel = {
+          name: "peak_level1",
+          trigger: actualPeakDrawdown.level1.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level1.closePercent,
+        };
+      } else {
+        // 峰值盈利未达到任何分批止盈阶段，使用level1作为默认保护
+        currentStage = "stage1";
+        peakLevel = {
+          name: "peak_level1",
+          trigger: actualPeakDrawdown.level1.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level1.closePercent,
+        };
       }
 
-      // 检查是否达到峰值回落触发阈值
-      if (drawdownPercent >= level.trigger) {
-        // 检查该级别是否已执行
-        if (executedLevels.has(level.name)) {
-          // 该级别已经执行过，跳过
-          logger.debug(`${level.name} 已执行，跳过`);
+      logger.debug(
+        `峰值盈利${peakPnlPercent.toFixed(
+          2
+        )}%处于${currentStage}阶段，当前盈利${currentPnlPercent.toFixed(
+          2
+        )}%，使用${peakLevel.name}峰值回落保护（阈值${peakLevel.trigger}%）`
+      );
+    } else {
+      // 非组合策略，按照原有逻辑检查所有级别
+      const levels = [
+        {
+          name: "peak_level3",
+          trigger: actualPeakDrawdown.level3.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level3.closePercent,
+        },
+        {
+          name: "peak_level2",
+          trigger: actualPeakDrawdown.level2.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level2.closePercent,
+        },
+        {
+          name: "peak_level1",
+          trigger: actualPeakDrawdown.level1.drawdownThreshold,
+          closePercent: actualPeakDrawdown.level1.closePercent,
+        },
+      ];
+
+      // 按照触发阈值从高到低检查
+      for (const level of levels) {
+        // 参数验证
+        if (!level.trigger) {
           continue;
         }
-        return {
-          shouldClose: true,
-          level: level.name,
-          description: `峰值${peakPnlPercent.toFixed(
-            2
-          )}%，当前${currentPnlPercent.toFixed(
-            2
-          )}%，回落${drawdownPercent.toFixed(2)}%，超过峰值回落保护阈值${
-            level.trigger
-          }%`,
-          type: "peak_drawdown_protection",
-          closePercent: level.closePercent || 100,
-          drawdownThreshold: level.trigger,
-        };
+
+        // 检查是否达到峰值回落触发阈值
+        if (drawdownPercent >= level.trigger) {
+          // 检查该级别是否已执行
+          if (executedLevels.has(level.name)) {
+            // 该级别已经执行过，跳过
+            logger.debug(`${level.name} 已执行，跳过`);
+            continue;
+          }
+          return {
+            shouldClose: true,
+            level: level.name,
+            description: `峰值${peakPnlPercent.toFixed(
+              2
+            )}%，当前${currentPnlPercent.toFixed(
+              2
+            )}%，回落${drawdownPercent.toFixed(2)}%，超过峰值回落保护阈值${
+              level.trigger
+            }%`,
+            type: "peak_drawdown_protection",
+            closePercent: level.closePercent || 100,
+            drawdownThreshold: level.trigger,
+          };
+        }
+      }
+    }
+
+    // 组合策略：检查当前阶段对应的峰值回落级别
+    if (peakLevel && peakLevel.trigger) {
+      // 检查是否达到峰值回落触发阈值
+      if (drawdownPercent >= peakLevel.trigger) {
+        // 检查该级别是否已执行
+        if (executedLevels.has(peakLevel.name)) {
+          logger.debug(`${peakLevel.name} 已执行，跳过`);
+        } else {
+          return {
+            shouldClose: true,
+            level: peakLevel.name,
+            description: `${currentStage}阶段：峰值${peakPnlPercent.toFixed(
+              2
+            )}%，当前${currentPnlPercent.toFixed(
+              2
+            )}%，回落${drawdownPercent.toFixed(2)}%，超过峰值回落保护阈值${
+              peakLevel.trigger
+            }%`,
+            type: "peak_drawdown_protection",
+            closePercent: peakLevel.closePercent || 100,
+            drawdownThreshold: peakLevel.trigger,
+          };
+        }
       }
     }
   }
@@ -1091,12 +1178,22 @@ async function executeTrailingStopClose(
       // 从内存中清除记录
       positionPnlHistory.delete(symbol);
     } else {
-      // 部分平仓，更新持仓数量
+      // 部分平仓，更新持仓数量（同时保留 executed_levels 字段，避免被重置）
       const remainingQuantity = quantity - actualCloseQuantity;
-      await dbClient.execute({
-        sql: "UPDATE positions SET quantity = ? WHERE symbol = ?",
-        args: [remainingQuantity, symbol],
+      
+      // 先获取当前的 executed_levels
+      const posResult = await dbClient.execute({
+        sql: "SELECT executed_levels FROM positions WHERE symbol = ?",
+        args: [symbol],
       });
+      const currentExecutedLevels = posResult.rows[0]?.executed_levels || "[]";
+      
+      // 更新数量时保留 executed_levels
+      await dbClient.execute({
+        sql: "UPDATE positions SET quantity = ?, executed_levels = ? WHERE symbol = ?",
+        args: [remainingQuantity, currentExecutedLevels, symbol],
+      });
+      
       // 更新内存中的持仓记录，保留峰值盈利信息
       const history = positionPnlHistory.get(symbol);
       if (history) {

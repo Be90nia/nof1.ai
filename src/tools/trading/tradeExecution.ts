@@ -728,8 +728,8 @@ export const openPositionTool = createTool({
         await dbClient.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, profit_target, stop_loss, tp_order_id, sl_order_id, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, profit_target, stop_loss, tp_order_id, sl_order_id, entry_order_id, opened_at, executed_levels)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             finalQuantity,
@@ -745,6 +745,7 @@ export const openPositionTool = createTool({
             slOrderId || null,
             order.id?.toString() || "",
             getChinaTimeISO(),
+            "[]", // 初始化 executed_levels 为空数组
           ],
         });
       }
