@@ -412,8 +412,6 @@ export function createCaiSenTradingTools(
     }
   }
 
-
-
   /**
    * 设置止损阈值
    * Set stop loss threshold
@@ -558,3 +556,189 @@ export function createCaiSenTradingTools(
  * CaiSen Agent Trading Tools Type Definition
  */
 export type CaiSenTradingTools = ReturnType<typeof createCaiSenTradingTools>;
+
+/**
+ * 蔡森策略加仓参数接口
+ * CaiSen Strategy Add Position Parameters Interface
+ */
+export interface CaiSenAddPositionParameters {
+  /** 交易对 - Trading pair */
+  symbol: string;
+  /** 加仓金额(USDT) - Add position amount in USDT */
+  addAmountUsdt: number;
+  /** 加仓策略 - Add position strategy */
+  strategy: "pyramid" | "averageCost" | "dynamicRisk";
+  /** 加仓原因 - Reason for adding position */
+  reason: string;
+  /** 加仓价格 - Add position price */
+  addPrice: number;
+  /** 七分位水平 - Seven segment level */
+  sevenSegmentLevel?: number;
+  /** 时间框架确认分数 - Timeframe confirmation score */
+  timeframeConfirmationScore?: number;
+}
+
+/**
+ * 为蔡森策略交易工具集添加加仓功能
+ * Add position function to CaiSen strategy trading tools
+ *
+ * @param tools 蔡森交易工具集 - CaiSen trading tools
+ * @returns 扩展后的蔡森交易工具集 - Extended CaiSen trading tools
+ */
+export function extendCaiSenTradingToolsWithAddPosition(
+  tools: CaiSenTradingTools
+) {
+  /**
+   * 蔡森策略专用加仓工具
+   * CaiSen strategy specific add position tool
+   *
+   * 基于七分位策略和时间框架分析的智能加仓
+   * Intelligent add position based on seven-segment strategy and timeframe analysis
+   */
+  async function caisenAddPosition(
+    parameters: CaiSenAddPositionParameters
+  ): Promise<InterfaceCallResponse<string>> {
+    const startTime = Date.now();
+
+    logger.info("蔡森Agent调用加仓工具", { parameters });
+
+    try {
+      // 1. 导入加仓相关依赖
+      const { dbClient } = await import("../../database/dbClient");
+      const { calculateWeightedAverageCost } = await import(
+        "../../utils/positionUtils"
+      );
+      const { checkCaisenAddPositionConditions } = await import(
+        "../strategy/optimization"
+      );
+
+      const {
+        symbol,
+        addAmountUsdt,
+        strategy,
+        reason,
+        addPrice,
+        sevenSegmentLevel,
+        timeframeConfirmationScore,
+      } = parameters;
+
+      // 2. 获取当前持仓
+      const positionResult = await dbClient.execute({
+        sql: `SELECT * FROM positions WHERE symbol = ? AND closed_at IS NULL`,
+        args: [symbol],
+      });
+
+      if (positionResult.rows.length === 0) {
+        throw new Error(`未找到${symbol}的持仓记录`);
+      }
+
+      const currentPosition = positionResult.rows[0] as any;
+
+      // 3. 检查蔡森策略专用加仓条件
+      const canAdd = checkCaisenAddPositionConditions(
+        currentPosition,
+        addPrice,
+        sevenSegmentLevel,
+        timeframeConfirmationScore
+      );
+
+      if (!canAdd) {
+        throw new Error("不满足蔡森策略加仓条件");
+      }
+
+      // 4. 计算加仓数量
+      const addQuantity = addAmountUsdt / addPrice;
+
+      // 5. 计算加权平均成本
+      const newAveragePrice = calculateWeightedAverageCost(
+        currentPosition.quantity,
+        currentPosition.average_entry_price || currentPosition.entry_price,
+        addQuantity,
+        addPrice
+      );
+
+      // 6. 更新持仓记录
+      await dbClient.execute({
+        sql: `
+          UPDATE positions 
+          SET 
+            quantity = quantity + ?, 
+            average_entry_price = ?, 
+            add_position_count = add_position_count + 1, 
+            last_add_position_time = ?, 
+            total_add_amount_usdt = total_add_amount_usdt + ?, 
+            add_position_history = ?, 
+            caisen_seven_segment_level = ?, 
+            caisen_timeframe_confirmation_score = ?
+          WHERE symbol = ? AND closed_at IS NULL
+        `,
+        args: [
+          addQuantity,
+          newAveragePrice,
+          new Date().toISOString(),
+          addAmountUsdt,
+          JSON.stringify([
+            ...(currentPosition.add_position_history
+              ? JSON.parse(currentPosition.add_position_history)
+              : []),
+            {
+              timestamp: new Date().toISOString(),
+              addQuantity,
+              addPrice,
+              addAmountUsdt,
+              strategy,
+              reason,
+              newAveragePrice,
+              sevenSegmentLevel,
+              timeframeConfirmationScore,
+            },
+          ]),
+          sevenSegmentLevel,
+          timeframeConfirmationScore,
+          symbol,
+        ],
+      });
+
+      logger.info(
+        `蔡森策略加仓成功: ${symbol}, 金额: ${addAmountUsdt} USDT, 平均成本: ${newAveragePrice}`
+      );
+
+      return {
+        result: InterfaceCallResult.SUCCESS,
+        data: `蔡森策略加仓成功: ${symbol}, 金额: ${addAmountUsdt} USDT, 平均成本: ${newAveragePrice}`,
+        callTime: startTime,
+        processingTime: Date.now() - startTime,
+        success: true,
+      };
+    } catch (error) {
+      logger.error("蔡森Agent加仓失败", { error, parameters });
+
+      return {
+        result: InterfaceCallResult.SYSTEM_ERROR,
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        callTime: startTime,
+        processingTime: Date.now() - startTime,
+        error: {
+          code: "CAISEN_ADD_POSITION_ERROR",
+          message: error instanceof Error ? error.message : String(error),
+          details: { parameters },
+        },
+        success: false,
+      };
+    }
+  }
+
+  // 返回扩展后的工具集
+  return {
+    ...tools,
+    caisenAddPosition,
+  };
+}
+
+/**
+ * 扩展后的蔡森Agent交易工具集类型定义
+ * Extended CaiSen Agent Trading Tools Type Definition
+ */
+export type CaiSenTradingToolsWithAddPosition = ReturnType<
+  typeof extendCaiSenTradingToolsWithAddPosition
+>;

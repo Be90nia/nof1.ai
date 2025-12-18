@@ -348,24 +348,24 @@
       "strategyType": "combination",
       "enabled": true,
       "partialTakeProfit": {
-        "stage1": { "trigger": 5, "closePercent": 30 },
-        "stage2": { "trigger": 10, "closePercent": 40 },
-        "stage3": { "trigger": 15, "closePercent": 30 }
+        "stage1": { "trigger": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> },
+        "stage2": { "trigger": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> },
+        "stage3": { "trigger": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> }
       },
       "dynamicStopLoss": {
         "enabled": true,
-        "initialStopLoss": 2,
+        "initialStopLoss": <AI根据市场波动率动态计算>,
         "trailingStopLoss": {
-          "level1": { "trigger": 3, "stopAt": 1 },
-          "level2": { "trigger": 6, "stopAt": 3 },
-          "level3": { "trigger": 10, "stopAt": 5 }
+          "level1": { "trigger": <AI动态计算>, "stopAt": <AI动态计算> },
+          "level2": { "trigger": <AI动态计算>, "stopAt": <AI动态计算> },
+          "level3": { "trigger": <AI动态计算>, "stopAt": <AI动态计算> }
         }
       },
       "peakDrawdown": {
-        "level1": { "drawdownThreshold": 2, "closePercent": 30 },
-        "level2": { "drawdownThreshold": 4, "closePercent": 40 },
-        "level3": { "drawdownThreshold": 6, "closePercent": 30 },
-        "minHoldingTime": 5
+        "level1": { "drawdownThreshold": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> },
+        "level2": { "drawdownThreshold": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> },
+        "level3": { "drawdownThreshold": <AI根据市场波动率动态计算>, "closePercent": <AI根据风险偏好设置> },
+        "minHoldingTime": <AI根据市场节奏动态计算>
       }
     }
   }
