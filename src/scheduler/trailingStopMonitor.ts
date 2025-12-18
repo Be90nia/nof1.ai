@@ -1208,7 +1208,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 
     // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利、初始数量和已执行级别）
     const dbResult = await dbClient.execute(
-      "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity, executed_levels FROM positions"
+      "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity, executed_levels, average_entry_price, entry_price FROM positions"
     );
     const dbInfoMap = new Map(
       dbResult.rows.map((row: any) => [

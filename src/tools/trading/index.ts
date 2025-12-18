@@ -38,6 +38,9 @@ export {
   setBatchClosingTool,
 } from "./tradeExecution";
 
+// 加仓工具
+export { addPositionTool } from "./addPosition";
+
 // 账户管理工具
 export {
   getAccountBalanceTool,

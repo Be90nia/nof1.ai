@@ -538,6 +538,43 @@ export interface StrategyParams {
       lastUpdated: string;
     }
   >;
+
+  /**
+   * 加仓功能配置
+   * Add position configuration
+   */
+  addPosition?: {
+    /** 是否启用加仓功能 */
+    enabled: boolean;
+    /** 最大加仓次数 */
+    maxAdditions: number;
+    /** 加仓比例（相对于初始仓位） */
+    addSizeRatio: number;
+    /** 价格下跌阈值数组（百分比） */
+    priceDropThresholds: number[];
+    /** 最小加仓间隔（分钟） */
+    minIntervalMinutes: number;
+
+    /** 蔡森策略专用加仓参数 */
+    caisen?: {
+      /** 七分位加仓策略 */
+      sevenSegmentStrategy: {
+        /** 是否启用 */
+        enabled: boolean;
+        /** 七分位加仓水平（1-7） */
+        levels: number[];
+        /** 对应加仓比例 */
+        addRatios: number[];
+      };
+      /** 时间框架确认 */
+      timeframeConfirmation: {
+        /** 是否启用 */
+        enabled: boolean;
+        /** 时间框架确认阈值 */
+        threshold: number;
+      };
+    };
+  };
 }
 
 /**

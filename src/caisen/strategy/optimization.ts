@@ -1283,6 +1283,104 @@ export function calculateIntelligentTrailingStop(
 }
 
 /**
+ * 计算蔡森七分位水平
+ * @param currentPrice 当前价格
+ * @param preCrashHigh 暴跌前最高价
+ * @param preCrashLow 暴跌前最低价
+ * @returns 七分位水平 (1-7)
+ */
+export function calculateCaisenSevenSegmentLevel(
+  currentPrice: number,
+  preCrashHigh: number,
+  preCrashLow: number
+): number {
+  const priceRange = preCrashHigh - preCrashLow;
+  const segmentSize = priceRange / 7;
+  
+  // 计算当前价格所处的七分位水平
+  for (let i = 1; i <= 7; i++) {
+    const levelPrice = preCrashHigh - segmentSize * i;
+    if (currentPrice <= levelPrice) {
+      return i;
+    }
+  }
+  
+  return 0; // 高于所有分位
+}
+
+/**
+ * 计算多时间框架确认分数
+ * @param timeframeAnalysis 各时间框架分析结果
+ * @returns 确认分数 (0-100)
+ */
+export function calculateTimeframeConfirmationScore(
+  timeframeAnalysis: MultiTimeframeAnalysis
+): number {
+  // 时间框架权重分配：日线(40%)、小时线(30%)、5分钟线(30%)
+  // 使用strength属性（趋势强度）作为评分依据
+  const score = 
+    (timeframeAnalysis.daily.strength * 0.4) +
+    (timeframeAnalysis.hourly.strength * 0.3) +
+    (timeframeAnalysis.fiveMin.strength * 0.3);
+  
+  return Math.min(Math.max(Math.round(score), 0), 100); // 限制在0-100之间
+}
+
+/**
+ * 蔡森策略智能移动止损计算（基于平均成本）
+ * @param currentPrice 当前价格
+ * @param averageEntryPrice 平均成本
+ * @param sevenSegmentLevel 当前七分位水平
+ * @param volatility 波动率
+ * @returns 计算后的止损价格
+ */
+export function calculateCaisenTrailingStop(
+  currentPrice: number,
+  averageEntryPrice: number, // 使用平均成本
+  sevenSegmentLevel: number,
+  volatility: number
+): number {
+  // 根据七分位水平动态调整止损比例
+  const baseStopRatio = sevenSegmentLevel <= 3 ? 0.05 : 0.08;
+  const volatilityAdjustment = volatility > 0.02 ? 0.03 : 0;
+  
+  return averageEntryPrice * (1 - (baseStopRatio + volatilityAdjustment));
+}
+
+/**
+ * 蔡森策略专用加仓条件检查
+ * @param position 持仓对象
+ * @param addPrice 加仓价格
+ * @param sevenSegmentLevel 七分位水平
+ * @param timeframeConfirmationScore 时间框架确认分数
+ * @returns 是否满足加仓条件
+ */
+export function checkCaisenAddPositionConditions(
+  position: any,
+  addPrice: number,
+  sevenSegmentLevel?: number,
+  timeframeConfirmationScore?: number
+): boolean {
+  // 1. 七分位水平检查
+  if (sevenSegmentLevel === undefined || sevenSegmentLevel < 1 || sevenSegmentLevel > 3) {
+    return false; // 仅在1-3分位加仓
+  }
+
+  // 2. 时间框架确认检查
+  if (timeframeConfirmationScore && timeframeConfirmationScore < 70) {
+    return false; // 时间框架确认分数需>70
+  }
+
+  // 3. 价格下跌幅度检查
+  const currentDrop = (position.entry_price - addPrice) / position.entry_price;
+  if (currentDrop < 0.03 || currentDrop > 0.15) {
+    return false; // 价格下跌幅度需在3%-15%之间
+  }
+
+  return true;
+}
+
+/**
  * 确定当前价格所在区域
  * Determine current price zone
  *

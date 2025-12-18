@@ -27,6 +27,7 @@ import { getQuantoMultiplier } from "../../utils/contractUtils";
 import { createLogger } from "../../utils/loggerUtils";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { dbClient } from "../../database/dbClient";
+import type { Position } from "../../database/schema";
 
 const logger = createLogger({
   name: "trade-execution",
@@ -809,30 +810,17 @@ export const closePositionTool = createTool({
         };
       }
 
-      //  直接从 Gate.io 获取最新的持仓信息（不依赖数据库）
-      const allPositions = await client.getPositions();
-      // 🔧 修复：在双向持仓模式下，需要过滤掉 size=0 的记录，找到实际持仓
-      const gatePosition = allPositions.find(
-        (p: any) =>
-          p.contract === contract && Number.parseFloat(p.size || "0") !== 0
-      );
-
-      if (!gatePosition) {
-        return {
-          success: false,
-          message: `没有找到 ${symbol} 的持仓`,
-        };
-      }
-
       // 🔒 防止同周期内平仓保护：检查持仓开仓时间，防止刚开仓就立即平仓
-      // 从数据库获取持仓信息以检查开仓时间
+      // 优先从数据库获取完整持仓信息
       const dbPositionResult = await dbClient.execute({
-        sql: `SELECT opened_at FROM positions WHERE symbol = ? LIMIT 1`,
+        sql: `SELECT * FROM positions WHERE symbol = ? LIMIT 1`,
         args: [symbol],
       });
 
+      let dbPosition = null;
       if (dbPositionResult.rows.length > 0) {
-        const openedAt = dbPositionResult.rows[0].opened_at as string;
+        dbPosition = dbPositionResult.rows[0] as Position;
+        const openedAt = dbPosition.opened_at;
         const openedTime = new Date(openedAt).getTime();
         const now = Date.now();
         const holdingMinutes = (now - openedTime) / (1000 * 60);
@@ -863,15 +851,41 @@ export const closePositionTool = createTool({
         );
       }
 
-      // 从 Gate.io 获取实时数据
-      const gateSize = Number.parseFloat(gatePosition.size || "0");
-      const side = gateSize > 0 ? "long" : "short";
-      const quantity = Math.abs(gateSize);
-      let entryPrice = Number.parseFloat(gatePosition.entryPrice || "0");
-      let currentPrice = Number.parseFloat(gatePosition.markPrice || "0");
-      const leverage = Number.parseInt(gatePosition.leverage || "1");
+      // 从交易所获取实时持仓数据作为后备
+      const allPositions = await client.getPositions();
+      // 🔧 修复：在双向持仓模式下，需要过滤掉 size=0 的记录，找到实际持仓
+      const gatePosition = allPositions.find(
+        (p: any) =>
+          p.contract === contract && Number.parseFloat(p.size || "0") !== 0
+      );
+
+      if (!gatePosition && !dbPosition) {
+        return {
+          success: false,
+          message: `没有找到 ${symbol} 的持仓`,
+        };
+      }
+
+      // 从交易所获取实时数据
+      const gateSize = Number.parseFloat(gatePosition?.size || "0");
+      const exchangeSide = gateSize > 0 ? "long" : "short";
+      const exchangeQuantity = Math.abs(gateSize);
+      let exchangeEntryPrice = Number.parseFloat(gatePosition?.entryPrice || "0");
+      let currentPrice = Number.parseFloat(gatePosition?.markPrice || "0");
+      const exchangeLeverage = Number.parseInt(gatePosition?.leverage || "1");
       const totalUnrealizedPnl = Number.parseFloat(
-        gatePosition.unrealisedPnl || "0"
+        gatePosition?.unrealisedPnl || "0"
+      );
+
+      // 优先使用数据库中的持仓信息，特别是平均成本
+      const side = dbPosition?.side || exchangeSide;
+      const quantity = dbPosition?.quantity || exchangeQuantity;
+      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
+      let entryPrice = dbPosition?.average_entry_price || dbPosition?.entry_price || exchangeEntryPrice;
+      const leverage = dbPosition?.leverage || exchangeLeverage;
+
+      logger.info(
+        `使用持仓数据: 数据库持仓=${quantity}, 交易所持仓=${exchangeQuantity}, 平均成本=${entryPrice}, 交易所开仓价=${exchangeEntryPrice}`
       );
 
       //  如果价格为0，获取实时行情作为后备

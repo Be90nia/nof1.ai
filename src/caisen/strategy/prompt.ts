@@ -263,8 +263,37 @@ export function generateCaiSenPrompt(
     "   - 强制：每一个货币都要使用 'setPositionExitStrategy' 统一管理所有退出策略（分批止盈 + 动态止损 + 峰值回落）\n" +
     "   - 智能退出策略必须完整包含三个核心组件：分批止盈、动态止损和峰值回落，缺一不可\n" +
     "   - 禁止单独调用其他退出策略相关工具\n\n" +
-    "2. **每个货币对独立调用**：开仓或持有多少货币对，就调用多少次工具\n" +
-    "3. **每次决策必须重新调用**：\n" +
+    "2. **加仓工具 (addPosition)**：为现有持仓增加仓位，降低平均成本\n" +
+    "   - 工具名称：addPosition\n" +
+    "   - 使用场景：持仓亏损且满足加仓条件时使用\n" +
+    "   - 核心优势：通过加权平均成本法降低整体持仓成本，提高盈利概率\n" +
+    "   - 严格限制：\n" +
+    "     - 最大加仓次数：3次\n" +
+    "     - 时间间隔：距离上次加仓至少30分钟\n" +
+    "     - 价格下跌幅度：3%-15%（太小不值得，太大风险高）\n" +
+    "     - 账户资金：必须有足够可用资金\n" +
+    "     - 总敞口：不超过账户最大杠杆限制\n" +
+    "   - 加仓策略类型：\n" +
+    "     - pyramid（金字塔加仓）：价格下跌越多，加仓比例越小\n" +
+    "     - averageCost（平均成本加仓）：基于波动率阈值进行加仓\n" +
+    "     - dynamicRisk（动态风险加仓）：根据当前亏损比例调整加仓规模\n" +
+    "   - 加仓后影响：\n" +
+    "     - 平均成本降低：通过加权平均降低整体持仓成本\n" +
+    "     - 止损止盈调整：基于新的平均成本重新计算\n" +
+    "     - 盈亏计算更新：所有盈亏计算基于平均成本\n" +
+    "   - 加仓决策要点：\n" +
+    "     - 趋势确认：多个时间框架趋势方向一致\n" +
+    "     - 支撑位确认：价格接近关键支撑位\n" +
+    "     - 成交量确认：成交量放大确认支撑有效\n" +
+    "     - 风险回报比：加仓后风险回报比≥2:1\n" +
+    "   - 禁止加仓情况：\n" +
+    "     - 趋势不明确或出现反转信号\n" +
+    "     - 价格下跌超过15%（风险过高）\n" +
+    "     - 账户回撤超过10%\n" +
+    "     - 已达到最大加仓次数\n" +
+    "     - 距离上次加仓不足30分钟\n\n" +
+    "3. **每个货币对独立调用**：开仓或持有多少货币对，就调用多少次工具\n" +
+    "4. **每次决策必须重新调用**：\n" +
     "   - 只要有开仓或持币操作，每次决策都必须重新预测并调用setPositionExitStrategy工具\n" +
     "   - 即使之前设置过，也要重新调用以反映最新市场变化\n" +
     "   - 重新预测必须基于当前最新市场数据，不能使用过时的预测结果\n" +
@@ -313,8 +342,10 @@ export function generateCaiSenPrompt(
     "1. 分析市场数据，确定交易方向\n" +
     "2. 基于最新数据，AI自行预测并计算各币种的完整退出策略参数\n" +
     "3. 为每个目标货币对调用一次 'setPositionExitStrategy' 工具设置完整退出策略\n" +
-    "4. 执行开仓/平仓操作\n\n" +
-    "📌 **统一工具调用示例**\n\n" +
+    "4. 评估是否满足加仓条件，如满足则调用 'addPosition' 工具\n" +
+    "5. 执行开仓/平仓操作\n\n" +
+    "📌 **工具调用示例**\n\n" +
+    "**示例1: 设置退出策略**\n" +
     "```\n" +
     "setPositionExitStrategy({\n" +
     '  symbol: "DOGE",\n' +
@@ -342,6 +373,24 @@ export function generateCaiSenPrompt(
     "  }\n" +
     ")\n" +
     "```\n\n" +
+    "**示例2: 加仓操作**\n" +
+    "```\n" +
+    "- 工具：addPosition\n" +
+    "- 币种：BTC\n" +
+    "- 加仓金额：100 USDT\n" +
+    "- 策略：pyramid\n" +
+    "- 原因：价格从50000下跌至47500（下跌5%），多个时间框架趋势向上，RSI7显示超卖（28），成交量放大1.5倍，价格接近关键支撑位47000，满足加仓条件。加仓后平均成本将从50000降至48333，降低成本3.33%，提高盈利概率。\n" +
+    "```\n\n" +
+    "**加仓决策流程**：\n" +
+    "1. 检查持仓状态：是否有亏损持仓\n" +
+    "2. 评估价格下跌：计算当前价格相对入场价的下跌幅度\n" +
+    "3. 确认趋势方向：检查多个时间框架趋势是否一致\n" +
+    "4. 验证支撑位：价格是否接近关键支撑位\n" +
+    "5. 成交量确认：成交量是否放大确认支撑有效\n" +
+    "6. 计算风险回报：加仓后风险回报比是否≥2:1\n" +
+    "7. 检查限制条件：次数、时间、资金、敞口是否满足\n" +
+    "8. 执行加仓：调用addPosition工具\n" +
+    "9. 更新退出策略：基于新的平均成本重新调用setPositionExitStrategy\n\n" +
     "⚠️ **警告**\n" +
     "- 未调用工具 → 系统不会自动执行平仓\n" +
     "- 缺少核心组件 → 退出策略视为无效\n" +
@@ -716,10 +765,11 @@ export function generateCaiSenPrompt(
       "- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n";
     prompt += "- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n";
     for (const pos of positions) {
-      // 计算盈亏百分比：考虑杠杆倍数
+      // 计算盈亏百分比：考虑杠杆倍数，使用平均成本计算
+      const effectiveEntryPrice = pos.average_entry_price || pos.entry_price;
       const priceChangePercent =
-        pos.entry_price > 0
-          ? ((pos.current_price - pos.entry_price) / pos.entry_price) *
+        effectiveEntryPrice > 0
+          ? ((pos.current_price - effectiveEntryPrice) / effectiveEntryPrice) *
             100 *
             (pos.side === "long" ? 1 : -1)
           : 0;
@@ -746,6 +796,19 @@ export function generateCaiSenPrompt(
         (pos.side === "long" ? "做多" : "做空") +
         "\n";
       prompt += "  杠杆倍数: " + pos.leverage + "x\n";
+      
+      // 加仓信息
+      const addPositionCount = pos.add_position_count || 0;
+      const hasAddedPosition = addPositionCount > 0;
+      
+      if (hasAddedPosition) {
+        const costReduction = ((pos.entry_price - effectiveEntryPrice) / pos.entry_price * 100);
+        prompt += "  加仓状态: 已加仓" + addPositionCount + "次\n";
+        prompt += "  初始价格: " + pos.entry_price.toFixed(2) + "\n";
+        prompt += "  平均成本: " + effectiveEntryPrice.toFixed(2) + " (降低" + costReduction.toFixed(2) + "%)\n";
+        prompt += "  总加仓金额: " + (pos.total_add_amount_usdt || 0).toFixed(2) + " USDT\n";
+      }
+      
       prompt +=
         "  盈亏百分比: " +
         (pnlPercent >= 0 ? "+" : "") +
@@ -779,8 +842,11 @@ export function generateCaiSenPrompt(
         }
       }
 
-      prompt += "  开仓价: " + pos.entry_price.toFixed(2) + "\n";
-      prompt += "  当前价: " + pos.current_price.toFixed(2) + "\n";
+      prompt += "  初始开仓价: " + pos.entry_price.toFixed(2) + "\n";
+      if (hasAddedPosition) {
+        prompt += "  当前平均成本: " + effectiveEntryPrice.toFixed(2) + "\n";
+      }
+      prompt += "  当前市场价: " + pos.current_price.toFixed(2) + "\n";
       prompt += "  开仓时间: " + formatChinaTime(pos.opened_at) + "\n";
       prompt +=
         "  已持仓: " +
@@ -790,6 +856,35 @@ export function generateCaiSenPrompt(
         " 分钟, " +
         holdingCycles +
         " 个周期)\n";
+      
+      // 加仓建议
+      if (pnlPercent < 0 && addPositionCount < 3) {
+        const priceDropPercent = Math.abs(pnlPercent / pos.leverage);
+        if (priceDropPercent >= 3 && priceDropPercent <= 15) {
+          prompt += "  💡 加仓提示: 当前亏损" + Math.abs(pnlPercent).toFixed(2) + "%，价格下跌" + priceDropPercent.toFixed(2) + "%，";
+          prompt += "已加仓" + addPositionCount + "/3次，";
+          if (pos.last_add_position_time) {
+            const lastAddTime = new Date(pos.last_add_position_time).getTime();
+            const minutesSinceLastAdd = Math.floor((Date.now() - lastAddTime) / (1000 * 60));
+            if (minutesSinceLastAdd >= 30) {
+              prompt += "距离上次加仓" + minutesSinceLastAdd + "分钟（≥30分钟），满足时间间隔要求。";
+            } else {
+              prompt += "距离上次加仓仅" + minutesSinceLastAdd + "分钟（<30分钟），需等待" + (30 - minutesSinceLastAdd) + "分钟。";
+            }
+          } else {
+            prompt += "尚未加仓，可考虑加仓降低成本。";
+          }
+          prompt += "\n";
+          prompt += "  💡 加仓评估: 请综合评估趋势方向、支撑位、成交量、风险回报比等因素，决定是否加仓。\n";
+        } else if (priceDropPercent < 3) {
+          prompt += "  ℹ️  加仓提示: 价格下跌" + priceDropPercent.toFixed(2) + "%，未达到加仓阈值（3%），暂不建议加仓。\n";
+        } else if (priceDropPercent > 15) {
+          prompt += "  ⚠️  风险警告: 价格下跌" + priceDropPercent.toFixed(2) + "%，超过加仓上限（15%），风险过高，应考虑止损而非加仓。\n";
+        }
+      } else if (addPositionCount >= 3) {
+        prompt += "  ⚠️  加仓限制: 已达到最大加仓次数（3次），无法继续加仓。\n";
+      }
+      
       prompt += "\n";
     }
   }

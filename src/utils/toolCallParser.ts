@@ -592,6 +592,25 @@ function extractToolCallFromText(
         }
       }
 
+      // 处理 addPosition 特殊参数
+      if (toolName === "addPosition") {
+        // 提取加仓金额
+        const amountRegex = /-\s*加仓金额：\s*(\d+(?:\.\d+)?)\s*USDT/;
+        const amountMatch = toolCallBlock.match(amountRegex);
+        if (amountMatch) {
+          params.addAmountUsdt = parseFloat(amountMatch[1]);
+        }
+
+        // 提取原因
+        const reasonRegex = /-\s*原因：\s*(.+?)(?=(?:\n-\s*|$))/s;
+        const reasonMatch = toolCallBlock.match(reasonRegex);
+        if (reasonMatch) {
+          params.reason = reasonMatch[1].trim();
+        }
+
+        // 策略已在通用参数中提取
+      }
+
       // 处理 setPartialTakeProfitParams 特殊参数
       if (toolName === "setPartialTakeProfitParams") {
         // 提取第一阶段

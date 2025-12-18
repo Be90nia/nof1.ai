@@ -55,6 +55,18 @@ export interface Position {
   risk_usd?: number;
   peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
   partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
+
+  // 加仓相关字段
+  add_position_count?: number; // 加仓次数
+  average_entry_price?: number; // 加权平均成本
+  last_add_position_time?: string; // 最后加仓时间
+  total_add_amount_usdt?: number; // 总加仓金额(USDT)
+  add_position_history?: string; // 加仓历史记录(JSON格式)
+
+  // 蔡森策略专用加仓字段
+  caisen_seven_segment_level?: number; // 七分位水平
+  caisen_timeframe_confirmation_score?: number; // 时间框架确认分数
+  caisen_ai_risk_adjustment_factor?: number; // AI风险调整因子
 }
 
 export interface AccountHistory {
@@ -168,7 +180,22 @@ CREATE TABLE IF NOT EXISTS positions (
   partial_close_percentage REAL DEFAULT 0,
   closing_type TEXT,
   batch_params TEXT,
-  exit_strategy TEXT
+  exit_strategy TEXT,
+  
+  -- 加仓相关字段
+  add_position_count INTEGER DEFAULT 0,
+  average_entry_price REAL,
+  last_add_position_time TEXT,
+  total_add_amount_usdt REAL DEFAULT 0,
+  add_position_history TEXT,
+  
+  -- 蔡森策略专用加仓字段
+  caisen_seven_segment_level INTEGER,
+  caisen_timeframe_confirmation_score REAL,
+  caisen_ai_risk_adjustment_factor REAL,
+  
+  -- 移动止盈已执行级别
+  executed_levels TEXT DEFAULT '[]'
 );
 
 -- 账户历史表
@@ -230,6 +257,15 @@ CREATE TABLE IF NOT EXISTS strategy_params (
   updated_at TEXT NOT NULL,
   description TEXT,
   UNIQUE(key, strategy)
+);
+
+-- 数据库版本管理表
+CREATE TABLE IF NOT EXISTS database_version (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL DEFAULT 1,
+  migration_name TEXT NOT NULL,
+  applied_at TEXT NOT NULL,
+  description TEXT
 );
 
 -- 蔡森策略监控数据表
