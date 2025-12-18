@@ -57,6 +57,7 @@ interface PositionRow {
   peak_pnl_percent?: number | string | null;
   partial_close_percentage?: number | null;
   leverage?: number | string | null;
+  executed_levels?: string | null; // 已执行的平仓级别（JSON 字符串）
 }
 
 interface DbData {
@@ -597,11 +598,28 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
         (dbPos?.entry_order_id as string | undefined) ||
         `synced-${symbol}-${Date.now()}`;
 
+      // 从strategy_params表读取退出策略配置
+      let exitStrategy = dbPos?.exit_strategy || null;
+      if (!exitStrategy) {
+        try {
+          const strategyParamsResult = await dbClient.execute({
+            sql: "SELECT value FROM strategy_params WHERE key = ? AND strategy = ?",
+            args: [`positionExitStrategy_${symbol}`, strategy],
+          });
+          if (strategyParamsResult.rows.length > 0) {
+            exitStrategy = strategyParamsResult.rows[0].value as string;
+            logger.debug(`从strategy_params读取${symbol}的退出策略配置`);
+          }
+        } catch (error: any) {
+          logger.warn(`读取${symbol}的退出策略配置失败: ${error.message}`);
+        }
+      }
+
       await dbClient.execute({
         sql: `INSERT INTO positions 
               (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-               leverage, side, stop_loss, profit_target, sl_order_id, tp_order_id, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage, executed_levels)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               leverage, side, stop_loss, profit_target, sl_order_id, tp_order_id, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage, executed_levels, exit_strategy)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           symbol,
           quantity,
@@ -626,6 +644,7 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
             ? Number(dbPos.partial_close_percentage)
             : 0, // 保留已平仓百分比（关键修复）
           dbPos?.executed_levels || "[]", // 保留已执行的平仓级别（关键修复）
+          exitStrategy, // 从strategy_params同步退出策略配置（关键修复）
         ],
       });
 

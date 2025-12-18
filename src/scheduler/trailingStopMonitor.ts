@@ -799,6 +799,7 @@ const positionPnlHistory = new Map<
     lastCheckTime: number;
     checkCount: number; // 检查次数，用于日志
     initialQuantity: number; // 初始开仓数量，用于计算已平仓百分比
+    baseQuantityForPartialClose: number; // 分批平仓的基准数量（首次触发分批平仓时的持仓量，包含加仓）
     executedLevels: Set<string>; // 已执行的平仓级别，用于避免重复执行
   }
 >();
@@ -1025,14 +1026,20 @@ async function executeTrailingStopClose(
   drawdownPercent: number,
   drawdownThreshold: number,
   stage: string,
-  closePercent: number = 100
+  closePercent: number = 100,
+  initialQuantity?: number // 新增：初始持仓数量，用于分批平仓计算
 ): Promise<boolean> {
   const exchangeClient = createExchangeClient();
   const contract = `${symbol}_USDT`;
 
   try {
     // 计算实际平仓数量
-    const actualCloseQuantity = (quantity * closePercent) / 100;
+    // 如果提供了初始数量，则基于初始数量计算；否则基于当前数量计算
+    const baseQuantity = initialQuantity || quantity;
+    const actualCloseQuantity = Math.min(
+      (baseQuantity * closePercent) / 100,
+      quantity // 确保不超过当前持仓数量
+    );
     const size = side === "long" ? -actualCloseQuantity : actualCloseQuantity;
     const isFullClose = closePercent === 100;
 
@@ -1045,7 +1052,9 @@ async function executeTrailingStopClose(
       )}% (阈值: ${drawdownThreshold.toFixed(2)}%)`
     );
     logger.warn(`  平仓百分比: ${closePercent}%`);
-    logger.warn(`  平仓数量: ${actualCloseQuantity} (总数量: ${quantity})`);
+    logger.warn(
+      `  平仓数量: ${actualCloseQuantity} (当前: ${quantity}, 初始: ${baseQuantity})`
+    );
 
     // 1. 执行平仓订单 - 使用优化后的closePosition方法，支持部分平仓
     const order = await exchangeClient.closePosition({
@@ -1178,7 +1187,7 @@ async function executeTrailingStopClose(
       // 从内存中清除记录
       positionPnlHistory.delete(symbol);
     } else {
-      // 部分平仓，更新持仓数量（同时保留 executed_levels 字段，避免被重置）
+      // 部分平仓，更新持仓数量并添加已执行级别
       const remainingQuantity = quantity - actualCloseQuantity;
       
       // 先获取当前的 executed_levels
@@ -1186,17 +1195,57 @@ async function executeTrailingStopClose(
         sql: "SELECT executed_levels FROM positions WHERE symbol = ?",
         args: [symbol],
       });
-      const currentExecutedLevels = posResult.rows[0]?.executed_levels || "[]";
+      const currentExecutedLevelsStr = String(posResult.rows[0]?.executed_levels || "[]");
       
-      // 更新数量时保留 executed_levels
-      await dbClient.execute({
-        sql: "UPDATE positions SET quantity = ?, executed_levels = ? WHERE symbol = ?",
-        args: [remainingQuantity, currentExecutedLevels, symbol],
+      // 解析当前已执行级别
+      let currentExecutedLevels: string[] = [];
+      try {
+        currentExecutedLevels = JSON.parse(currentExecutedLevelsStr);
+      } catch (e) {
+        logger.warn(`解析executed_levels失败，使用空数组: ${e}`);
+        currentExecutedLevels = [];
+      }
+      
+      // 添加新执行的级别（避免重复）
+      if (!currentExecutedLevels.includes(stage)) {
+        currentExecutedLevels.push(stage);
+        logger.info(`${symbol} 添加已执行级别: ${stage}`);
+      }
+      
+      // 获取当前数据库中的持仓信息
+      const posInfoResult = await dbClient.execute({
+        sql: "SELECT quantity, partial_close_percentage FROM positions WHERE symbol = ?",
+        args: [symbol],
       });
+      const currentDbQuantity = Number.parseFloat(posInfoResult.rows[0]?.quantity as string || "0");
+      const currentPartialClosePercentage = Number.parseFloat(posInfoResult.rows[0]?.partial_close_percentage as string || "0");
+      
+      // 计算本次平仓百分比（基于平仓前的数量，即 quantity 参数）
+      // 注意：quantity 参数是平仓前的数量，currentDbQuantity 应该等于 quantity
+      const thisClosePercent = closePercent; // 直接使用传入的 closePercent 参数
+      
+      // 累加本次平仓百分比
+      const newPartialClosePercentage = currentPartialClosePercentage + thisClosePercent;
+      
+      logger.info(
+        `${symbol} 更新已平仓百分比: ${currentPartialClosePercentage.toFixed(2)}% + ${thisClosePercent.toFixed(2)}% = ${newPartialClosePercentage.toFixed(2)}%`
+      );
+      
+      // 更新数量、已执行级别和已平仓百分比
+      await dbClient.execute({
+        sql: "UPDATE positions SET quantity = ?, executed_levels = ?, partial_close_percentage = ? WHERE symbol = ?",
+        args: [remainingQuantity, JSON.stringify(currentExecutedLevels), newPartialClosePercentage, symbol],
+      });
+      
+      logger.info(
+        `${symbol} 部分平仓后更新数据库: 剩余数量=${remainingQuantity}, 已执行级别=${currentExecutedLevels.join(", ")}`
+      );
       
       // 更新内存中的持仓记录，保留峰值盈利信息
       const history = positionPnlHistory.get(symbol);
       if (history) {
+        // 同步更新内存中的已执行级别
+        history.executedLevels = new Set(currentExecutedLevels);
         // 保留峰值盈利，不重置
         logger.info(
           `${symbol} 部分平仓后，保留峰值盈利: ${history.peakPnlPercent.toFixed(
@@ -1303,7 +1352,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       return;
     }
 
-    // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利、初始数量和已执行级别）
+    // 3. 从数据库获取持仓信息（获取开仓时间、exitStrategy、峰值盈利、初始数量、已执行级别和加权平均成本）
     const dbResult = await dbClient.execute(
       "SELECT symbol, opened_at, exit_strategy, peak_pnl_percent, quantity, executed_levels, average_entry_price, entry_price FROM positions"
     );
@@ -1320,6 +1369,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
           executedLevels: row.executed_levels
             ? new Set(JSON.parse(row.executed_levels))
             : new Set<string>(),
+          averageEntryPrice: row.average_entry_price || row.entry_price || 0, // 加权平均成本
         },
       ])
     );
@@ -1330,7 +1380,12 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       const symbol = pos.contract.replace("_USDT", "");
       const side = size > 0 ? "long" : "short";
       const quantity = Math.abs(size);
-      const entryPrice = Number.parseFloat(pos.entryPrice || "0");
+      
+      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
+      const dbInfo = dbInfoMap.get(symbol);
+      const exchangeEntryPrice = Number.parseFloat(pos.entryPrice || "0");
+      const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
+      
       const currentPrice = Number.parseFloat(pos.markPrice || "0");
       const leverage = Number.parseInt(pos.leverage || "1");
 
@@ -1359,7 +1414,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       let history = positionPnlHistory.get(symbol);
       if (!history) {
         // 初始化峰值盈利，优先使用数据库中的值，否则使用当前盈利
-        const dbInfo = dbInfoMap.get(symbol);
+        // dbInfo 已经在上面声明过了，直接使用
         const initialPeak = dbInfo?.peakPnlPercent || pnlPercent;
         // 使用当前持仓数量作为初始数量，只在首次创建时设置，后续不再更新
         const initialQuantity = quantity;
@@ -1377,6 +1432,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
           lastCheckTime: now,
           checkCount: 0,
           initialQuantity: initialQuantity,
+          baseQuantityForPartialClose: 0, // 初始为0，首次触发分批平仓时设置
           executedLevels: initialExecutedLevels, // 使用从数据库加载的已执行级别集合
         };
         positionPnlHistory.set(symbol, history);
@@ -1423,8 +1479,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
       // 更新最后检查时间
       history.lastCheckTime = now;
 
-      // 获取持仓的 exitStrategy 配置
-      const dbInfo = dbInfoMap.get(symbol);
+      // 获取持仓的 exitStrategy 配置（dbInfo 已经在上面声明过了，直接使用）
       const exitStrategy = dbInfo?.exitStrategy || null;
 
       // 使用内存中保存的初始数量计算已平仓百分比
@@ -1454,6 +1509,14 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 
         // 检查是否应该平仓
         if (exitResult.shouldClose) {
+          // 首次触发分批平仓时，记录基准数量（包含所有加仓后的总持仓）
+          if (history.baseQuantityForPartialClose === 0) {
+            history.baseQuantityForPartialClose = quantity;
+            logger.info(
+              `${symbol} 首次触发分批平仓，记录基准数量: ${quantity}张`
+            );
+          }
+
           logger.warn(`${symbol} 触发平仓:`);
           logger.warn(`  触发类型: ${exitResult.type}`);
           logger.warn(`  触发级别: ${exitResult.level}`);
@@ -1470,10 +1533,12 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 
           // 执行平仓，支持分批平仓
           const closePercent = exitResult.closePercent || 100;
+          // 使用基准数量（首次触发时的总持仓）计算平仓数量
+          const baseQuantity = history.baseQuantityForPartialClose || quantity;
           const success = await executeTrailingStopClose(
             symbol,
             side,
-            quantity,
+            quantity, // 当前持仓数量
             entryPrice,
             currentPrice,
             leverage,
@@ -1482,31 +1547,21 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
             drawdownPercent,
             exitResult.drawdownThreshold || exitResult.stopAt || 0,
             exitResult.level,
-            closePercent
+            closePercent,
+            baseQuantity // 传入基准数量（首次触发时的总持仓）
           );
 
           if (success) {
             logger.info(`${symbol} 平仓成功`);
 
-            // 记录已执行的平仓级别，避免重复执行
+            // 注意：executed_levels 已经在 executeTrailingStopClose 函数中更新到数据库
+            // 这里只需要同步更新内存中的记录即可
             history.executedLevels.add(exitResult.level);
-            logger.info(`${symbol} 记录已执行平仓级别: ${exitResult.level}`);
-
-            // 将已执行级别保存到数据库
-            const executedLevelsArray = Array.from(history.executedLevels);
-            await dbClient.execute({
-              sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
-              args: [JSON.stringify(executedLevelsArray), symbol],
-            });
-            logger.info(
-              `${symbol} 已执行级别已保存到数据库: ${executedLevelsArray.join(
-                ", "
-              )}`
-            );
+            logger.info(`${symbol} 内存中记录已执行平仓级别: ${exitResult.level}`);
 
             // 如果是分批平仓，更新持仓相关信息
             if (closePercent < 100) {
-              // 部分平仓后，继续跟踪新的峰值，不重置为当前盈利
+              // 部分平仓后，继续跟踪当前峰值，不重置为当前盈利
               // 这样可以让剩余仓位继续享受潜在的上涨空间
               logger.info(
                 `${symbol} 部分平仓后，继续跟踪当前峰值: ${history.peakPnlPercent.toFixed(

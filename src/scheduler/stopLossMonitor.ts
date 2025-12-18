@@ -655,16 +655,34 @@ async function checkStopLoss() {
       return;
     }
 
+    // 2. 从数据库获取持仓信息（获取加权平均成本）
+    const dbResult = await dbClient.execute(
+      "SELECT symbol, average_entry_price, entry_price FROM positions"
+    );
+    const dbInfoMap = new Map(
+      dbResult.rows.map((row: any) => [
+        row.symbol,
+        {
+          averageEntryPrice: row.average_entry_price || row.entry_price || 0,
+        },
+      ])
+    );
+
     const now = Date.now();
     let shouldWakeAgent = false; // 标志位：是否需要唤醒Agent
 
-    // 2. 检查每个持仓
+    // 3. 检查每个持仓
     for (const pos of activePositions) {
       const size = Number.parseInt(pos.size || "0");
       const symbol = pos.contract.replace("_USDT", "");
       const side = size > 0 ? "long" : "short";
       const quantity = Math.abs(size);
-      const entryPrice = Number.parseFloat(pos.entryPrice || "0");
+      
+      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
+      const dbInfo = dbInfoMap.get(symbol);
+      const exchangeEntryPrice = Number.parseFloat(pos.entryPrice || "0");
+      const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
+      
       const currentPrice = Number.parseFloat(pos.markPrice || "0");
       const leverage = Number.parseInt(pos.leverage || "1");
 

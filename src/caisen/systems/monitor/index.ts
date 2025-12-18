@@ -643,13 +643,31 @@ async function executeCaiSenMonitor(): Promise<void> {
       return;
     }
 
+    // 从数据库获取持仓信息（获取加权平均成本）
+    const dbResult = await dbClient.execute(
+      "SELECT symbol, average_entry_price, entry_price FROM positions"
+    );
+    const dbInfoMap = new Map(
+      dbResult.rows.map((row: any) => [
+        row.symbol,
+        {
+          averageEntryPrice: row.average_entry_price || row.entry_price || 0,
+        },
+      ])
+    );
+
     // 处理每个持仓
     for (const position of positions) {
       // 修复：position对象中的字段名是contract，不是symbol
       const contract = position.contract;
       const symbol = contract.replace("_USDT", "");
       const side = Number.parseFloat(position.size) > 0 ? "long" : "short";
-      const entryPrice = Number.parseFloat(position.entryPrice);
+      
+      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
+      const dbInfo = dbInfoMap.get(symbol);
+      const exchangeEntryPrice = Number.parseFloat(position.entryPrice);
+      const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
+      
       const currentPrice = await getCurrentPrice(symbol);
 
       if (currentPrice <= 0) {
@@ -781,16 +799,16 @@ async function executeCaiSenMonitor(): Promise<void> {
         : null;
 
       if (takeProfitConfig) {
-        // 计算当前盈亏百分比
-        const entryPrice = Number.parseFloat(position.entryPrice);
-        const currentPrice = await getCurrentPrice(symbol);
+        // 计算当前盈亏百分比（使用上面已经获取的entryPrice，它已经是加权平均成本）
+        // entryPrice 已经在上面定义过了，直接使用
+        const currentPriceForTP = await getCurrentPrice(symbol);
         const size = Math.abs(Number.parseFloat(position.size));
         const leverage = Number.parseFloat(position.leverage || "1");
 
-        if (currentPrice > 0 && entryPrice > 0 && size > 0) {
+        if (currentPriceForTP > 0 && entryPrice > 0 && size > 0) {
           // 计算价格变动百分比（不考虑杠杆）
           const priceChangePercent =
-            ((currentPrice - entryPrice) / entryPrice) * 100;
+            ((currentPriceForTP - entryPrice) / entryPrice) * 100;
           // 考虑杠杆后的盈亏百分比
           const pnlPercent =
             side === "long"
