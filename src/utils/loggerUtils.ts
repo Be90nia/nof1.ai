@@ -33,27 +33,27 @@ export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace";
  * 日志配置接口
  */
 export interface LoggerConfig {
-  /** 日志名称 */
-  name: string;
-  /** 日志级别 */
-  level: LogLevel;
-  /** 是否启用颜色 */
-  colorize?: boolean;
-  /** 时间格式 */
-  timeFormat?: string;
-  /** 是否启用单行模式 */
-  singleLine?: boolean;
+	/** 日志名称 */
+	name: string;
+	/** 日志级别 */
+	level: LogLevel;
+	/** 是否启用颜色 */
+	colorize?: boolean;
+	/** 时间格式 */
+	timeFormat?: string;
+	/** 是否启用单行模式 */
+	singleLine?: boolean;
 }
 
 /**
  * 默认日志配置
  */
 const DEFAULT_CONFIG: LoggerConfig = {
-  name: "ai-btc",
-  level: "info",
-  colorize: true,
-  timeFormat: "SYS:yyyy-mm-dd HH:MM:ss",
-  singleLine: false,
+	name: "ai-btc",
+	level: "info",
+	colorize: true,
+	timeFormat: "SYS:yyyy-mm-dd HH:MM:ss",
+	singleLine: false,
 };
 
 /**
@@ -62,21 +62,21 @@ const DEFAULT_CONFIG: LoggerConfig = {
  * @returns Pino日志实例
  */
 function createPinoInstance(config: LoggerConfig) {
-  return createPinoLogger({
-    name: config.name,
-    level: config.level,
-    transport: {
-      target: "pino-pretty",
-      options: {
-        colorize: config.colorize ?? true,
-        translateTime: config.timeFormat ?? "SYS:yyyy-mm-dd HH:MM:ss",
-        ignore: "pid,hostname,env,component",
-        messageFormat: "{msg}",
-        singleLine: config.singleLine ?? false,
-        indent: 2,
-      },
-    },
-  });
+	return createPinoLogger({
+		name: config.name,
+		level: config.level,
+		transport: {
+			target: "pino-pretty",
+			options: {
+				colorize: config.colorize ?? true,
+				translateTime: config.timeFormat ?? "SYS:yyyy-mm-dd HH:MM:ss",
+				ignore: "pid,hostname,env,component",
+				messageFormat: "{msg}",
+				singleLine: config.singleLine ?? false,
+				indent: 2,
+			},
+		},
+	});
 }
 
 /**
@@ -85,19 +85,19 @@ function createPinoInstance(config: LoggerConfig) {
  * @returns 安全的日志方法对象
  */
 function wrapLoggerMethods(loggerInstance: any) {
-  return {
-    info: createSafeLogger(loggerInstance.info.bind(loggerInstance)),
-    error: createSafeLogger(loggerInstance.error.bind(loggerInstance)),
-    warn: createSafeLogger(loggerInstance.warn.bind(loggerInstance)),
-    debug: createSafeLogger(loggerInstance.debug.bind(loggerInstance)),
-    trace: createSafeLogger(loggerInstance.trace.bind(loggerInstance)),
-    fatal: createSafeLogger(loggerInstance.fatal.bind(loggerInstance)),
-    // 添加 child 方法支持
-    child: (bindings: any) => {
-      const childLogger = loggerInstance.child(bindings);
-      return wrapLoggerMethods(childLogger);
-    },
-  };
+	return {
+		info: createSafeLogger(loggerInstance.info.bind(loggerInstance)),
+		error: createSafeLogger(loggerInstance.error.bind(loggerInstance)),
+		warn: createSafeLogger(loggerInstance.warn.bind(loggerInstance)),
+		debug: createSafeLogger(loggerInstance.debug.bind(loggerInstance)),
+		trace: createSafeLogger(loggerInstance.trace.bind(loggerInstance)),
+		fatal: createSafeLogger(loggerInstance.fatal.bind(loggerInstance)),
+		// 添加 child 方法支持
+		child: (bindings: any) => {
+			const childLogger = loggerInstance.child(bindings);
+			return wrapLoggerMethods(childLogger);
+		},
+	};
 }
 
 /**
@@ -106,8 +106,8 @@ function wrapLoggerMethods(loggerInstance: any) {
  * @returns 配置好的安全日志实例
  */
 export function createLogger(config: LoggerConfig) {
-  const pinoInstance = createPinoInstance(config);
-  return wrapLoggerMethods(pinoInstance);
+	const pinoInstance = createPinoInstance(config);
+	return wrapLoggerMethods(pinoInstance);
 }
 
 /**
@@ -116,8 +116,8 @@ export function createLogger(config: LoggerConfig) {
  * @returns 默认配置的安全日志实例
  */
 export function createDefaultLogger(options: Partial<LoggerConfig> = {}) {
-  const config: LoggerConfig = { ...DEFAULT_CONFIG, ...options };
-  return createLogger(config);
+	const config: LoggerConfig = { ...DEFAULT_CONFIG, ...options };
+	return createLogger(config);
 }
 
 /**

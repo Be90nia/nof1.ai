@@ -41,51 +41,51 @@
 
 import { createClient } from "@libsql/client";
 import {
-  getStrategyParams,
-  getTradingStrategy,
+	getStrategyParams,
+	getTradingStrategy,
 } from "../../../agents/tradingAgent";
+import { executeTradingDecision } from "../../../scheduler/tradingLoop";
 import { createExchangeClient } from "../../../services/exchangeClient";
 import { getQuantoMultiplier } from "../../../utils/contractUtils";
 import { createLogger } from "../../../utils/loggerUtils";
 import { getChinaTimeISO } from "../../../utils/timeUtils";
 import {
-  CaiSenBatchClosingSystem,
-  ClosingType,
-  BatchConfig,
+	type BatchConfig,
+	CaiSenBatchClosingSystem,
+	ClosingType,
 } from "../batch-closing";
-import { executeTradingDecision } from "../../../scheduler/tradingLoop";
 
 const logger = createLogger({
-  name: "caisen-monitor",
-  level: "info",
+	name: "caisen-monitor",
+	level: "info",
 });
 
 const dbClient = createClient({
-  url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+	url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
 });
 
 // 蔡森策略监控状态缓存
 const caiSenMonitorState = {
-  lastCheckTime: 0,
-  checkCount: 0,
-  crashDetectionCache: new Map<
-    string,
-    {
-      crashStartTime: number;
-      crashHighPrice: number;
-      crashLowPrice: number;
-      sevenSegmentLevels: number[];
-      lastSignalTime: number;
-    }
-  >(),
-  pyramidAddCache: new Map<
-    string,
-    {
-      lastAddPrice: number;
-      lastAddTime: number;
-      addCount: number;
-    }
-  >(),
+	lastCheckTime: 0,
+	checkCount: 0,
+	crashDetectionCache: new Map<
+		string,
+		{
+			crashStartTime: number;
+			crashHighPrice: number;
+			crashLowPrice: number;
+			sevenSegmentLevels: number[];
+			lastSignalTime: number;
+		}
+	>(),
+	pyramidAddCache: new Map<
+		string,
+		{
+			lastAddPrice: number;
+			lastAddTime: number;
+			addCount: number;
+		}
+	>(),
 };
 
 // 分批平仓系统实例
@@ -98,31 +98,31 @@ let isRunning = false;
  * 检查当前策略是否为蔡森策略
  */
 export function isCaiSenStrategy(): boolean {
-  const strategy = getTradingStrategy();
-  return strategy === "cai-sen";
+	const strategy = getTradingStrategy();
+	return strategy === "cai-sen";
 }
 
 /**
  * 检查当前策略是否启用代码级自动执行
  */
 function isCodeLevelProtectionEnabled(): boolean {
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
-  return params.enableCodeLevelProtection === true;
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy);
+	return params.enableCodeLevelProtection === true;
 }
 
 /**
  * 获取蔡森策略参数配置
  */
 export function getCaiSenParams() {
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy);
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy);
 
-  if (!params.caiSen) {
-    throw new Error("蔡森策略参数配置不存在");
-  }
+	if (!params.caiSen) {
+		throw new Error("蔡森策略参数配置不存在");
+	}
 
-  return params.caiSen;
+	return params.caiSen;
 }
 
 /**
@@ -130,97 +130,97 @@ export function getCaiSenParams() {
  * 确保每个交易币种都有完整的参数配置
  */
 export async function checkCaiSenParamsIntegrity() {
-  logger.info("🔍 开始检查蔡森策略参数完整性...");
+	logger.info("🔍 开始检查蔡森策略参数完整性...");
 
-  try {
-    const strategy = getTradingStrategy();
-    if (strategy !== "cai-sen") {
-      return;
-    }
+	try {
+		const strategy = getTradingStrategy();
+		if (strategy !== "cai-sen") {
+			return;
+		}
 
-    // 导入需要的函数和配置
-    const {
-      getAgentStrategyParams,
-      setPartialTakeProfitParams,
-      setPeakDrawdownParams,
-      setDynamicStopLossParams,
-    } = await import("../../../tools/strategyParams");
-    const { RISK_PARAMS } = await import("../../../config/riskParams");
+		// 导入需要的函数和配置
+		const {
+			getAgentStrategyParams,
+			setPartialTakeProfitParams,
+			setPeakDrawdownParams,
+			setDynamicStopLossParams,
+		} = await import("../../../tools/strategyParams");
+		const { RISK_PARAMS } = await import("../../../config/riskParams");
 
-    // 获取所有交易币种
-    const tradingSymbols = RISK_PARAMS.TRADING_SYMBOLS;
-    logger.info(`📋 交易币种列表: ${JSON.stringify(tradingSymbols)}`);
+		// 获取所有交易币种
+		const tradingSymbols = RISK_PARAMS.TRADING_SYMBOLS;
+		logger.info(`📋 交易币种列表: ${JSON.stringify(tradingSymbols)}`);
 
-    // 获取所有币种的策略参数
-    const agentParams = await getAgentStrategyParams(strategy);
-    logger.debug(`📊 获取到的参数: ${JSON.stringify(agentParams)}`);
+		// 获取所有币种的策略参数
+		const agentParams = await getAgentStrategyParams(strategy);
+		logger.debug(`📊 获取到的参数: ${JSON.stringify(agentParams)}`);
 
-    // 检查每个币种的参数完整性
-    for (const symbol of tradingSymbols) {
-      logger.info(`🔧 检查币种 ${symbol} 的参数完整性...`);
+		// 检查每个币种的参数完整性
+		for (const symbol of tradingSymbols) {
+			logger.info(`🔧 检查币种 ${symbol} 的参数完整性...`);
 
-      // 获取该币种的参数
-      const symbolParams = agentParams[symbol] || agentParams.global || {};
+			// 获取该币种的参数
+			const symbolParams = agentParams[symbol] || agentParams.global || {};
 
-      // 检查是否缺少必要参数
-      const missingParams = [];
+			// 检查是否缺少必要参数
+			const missingParams = [];
 
-      if (!symbolParams.partialTakeProfit) {
-        missingParams.push("partialTakeProfit");
-      }
+			if (!symbolParams.partialTakeProfit) {
+				missingParams.push("partialTakeProfit");
+			}
 
-      if (!symbolParams.peakDrawdownProtectionConfig) {
-        missingParams.push("peakDrawdownProtectionConfig");
-      }
+			if (!symbolParams.peakDrawdownProtectionConfig) {
+				missingParams.push("peakDrawdownProtectionConfig");
+			}
 
-      if (!symbolParams.dynamicStopLoss) {
-        missingParams.push("dynamicStopLoss");
-      }
+			if (!symbolParams.dynamicStopLoss) {
+				missingParams.push("dynamicStopLoss");
+			}
 
-      if (missingParams.length > 0) {
-        logger.warn(
-          `⚠️ 币种 ${symbol} 缺少以下参数: ${missingParams.join(
-            ", "
-          )}，系统将自动为其设置默认参数`
-        );
+			if (missingParams.length > 0) {
+				logger.warn(
+					`⚠️ 币种 ${symbol} 缺少以下参数: ${missingParams.join(
+						", ",
+					)}，系统将自动为其设置默认参数`,
+				);
 
-        // 自动为该币种设置默认参数
-        try {
-          logger.info(`📤 正在为 ${symbol} 设置默认分批止盈参数...`);
-          await setPartialTakeProfitParams(
-            strategy,
-            symbol,
-            { trigger: 5, closePercent: 30 },
-            { trigger: 10, closePercent: 40 },
-            { trigger: 15, closePercent: 30 }
-          );
+				// 自动为该币种设置默认参数
+				try {
+					logger.info(`📤 正在为 ${symbol} 设置默认分批止盈参数...`);
+					await setPartialTakeProfitParams(
+						strategy,
+						symbol,
+						{ trigger: 5, closePercent: 30 },
+						{ trigger: 10, closePercent: 40 },
+						{ trigger: 15, closePercent: 30 },
+					);
 
-          logger.info(`📤 正在为 ${symbol} 设置默认峰值回撤参数...`);
-          await setPeakDrawdownParams(
-            strategy,
-            symbol,
-            { drawdownThreshold: 1.0, closePercent: 30 },
-            { drawdownThreshold: 2.0, closePercent: 50 },
-            { drawdownThreshold: 3.0, closePercent: 100 },
-            5
-          );
+					logger.info(`📤 正在为 ${symbol} 设置默认峰值回撤参数...`);
+					await setPeakDrawdownParams(
+						strategy,
+						symbol,
+						{ drawdownThreshold: 1.0, closePercent: 30 },
+						{ drawdownThreshold: 2.0, closePercent: 50 },
+						{ drawdownThreshold: 3.0, closePercent: 100 },
+						5,
+					);
 
-          logger.info(`📤 正在为 ${symbol} 设置默认动态止损参数...`);
-          await setDynamicStopLossParams(strategy, symbol, 3.0, 30);
+					logger.info(`📤 正在为 ${symbol} 设置默认动态止损参数...`);
+					await setDynamicStopLossParams(strategy, symbol, 3.0, 30);
 
-          logger.info(`✅ 已成功为 ${symbol} 设置所有默认参数`);
-        } catch (error) {
-          logger.error(`❌ 为 ${symbol} 设置默认参数失败:`, error);
-        }
-      } else {
-        logger.info(`✅ 币种 ${symbol} 的参数配置完整`);
-      }
-    }
+					logger.info(`✅ 已成功为 ${symbol} 设置所有默认参数`);
+				} catch (error) {
+					logger.error(`❌ 为 ${symbol} 设置默认参数失败:`, error);
+				}
+			} else {
+				logger.info(`✅ 币种 ${symbol} 的参数配置完整`);
+			}
+		}
 
-    logger.info("✅ 蔡森策略参数完整性检查完成");
-  } catch (error) {
-    logger.error(`❌ 检查蔡森策略参数完整性失败:`, error);
-  }
+		logger.info("✅ 蔡森策略参数完整性检查完成");
+	} catch (error) {
+		logger.error(`❌ 检查蔡森策略参数完整性失败:`, error);
+	}
 }
 
 /**
@@ -232,69 +232,69 @@ export async function checkCaiSenParamsIntegrity() {
  * @returns 是否检测到暴跌及暴跌信息
  */
 function detectCrash(
-  klineData: any[],
-  crashThreshold: number,
-  timeWindow: number
+	klineData: any[],
+	crashThreshold: number,
+	timeWindow: number,
 ): {
-  detected: boolean;
-  highPrice: number;
-  lowPrice: number;
-  dropPercent: number;
-  startTime: string;
-  endTime: string;
+	detected: boolean;
+	highPrice: number;
+	lowPrice: number;
+	dropPercent: number;
+	startTime: string;
+	endTime: string;
 } | null {
-  if (!klineData || klineData.length < 2) {
-    return null;
-  }
+	if (!klineData || klineData.length < 2) {
+		return null;
+	}
 
-  // 计算时间窗口（毫秒）
-  const timeWindowMs = timeWindow * 60 * 60 * 1000;
-  const now = Date.now();
+	// 计算时间窗口（毫秒）
+	const timeWindowMs = timeWindow * 60 * 60 * 1000;
+	const now = Date.now();
 
-  // 获取时间窗口内的数据
-  const recentData = klineData.filter((k) => now - k.timestamp <= timeWindowMs);
+	// 获取时间窗口内的数据
+	const recentData = klineData.filter((k) => now - k.timestamp <= timeWindowMs);
 
-  if (recentData.length < 2) {
-    return null;
-  }
+	if (recentData.length < 2) {
+		return null;
+	}
 
-  // 找到窗口内的最高价和最低价
-  let highPrice = 0;
-  let lowPrice = Number.MAX_VALUE;
-  let highTime = 0;
-  let lowTime = now;
+	// 找到窗口内的最高价和最低价
+	let highPrice = 0;
+	let lowPrice = Number.MAX_VALUE;
+	let highTime = 0;
+	let lowTime = now;
 
-  for (const k of recentData) {
-    const high = Number.parseFloat(k.high);
-    const low = Number.parseFloat(k.low);
+	for (const k of recentData) {
+		const high = Number.parseFloat(k.high);
+		const low = Number.parseFloat(k.low);
 
-    if (high > highPrice) {
-      highPrice = high;
-      highTime = k.timestamp;
-    }
+		if (high > highPrice) {
+			highPrice = high;
+			highTime = k.timestamp;
+		}
 
-    if (low < lowPrice) {
-      lowPrice = low;
-      lowTime = k.timestamp;
-    }
-  }
+		if (low < lowPrice) {
+			lowPrice = low;
+			lowTime = k.timestamp;
+		}
+	}
 
-  // 计算跌幅
-  const dropPercent = ((lowPrice - highPrice) / highPrice) * 100;
+	// 计算跌幅
+	const dropPercent = ((lowPrice - highPrice) / highPrice) * 100;
 
-  // 检查是否达到暴跌阈值
-  if (dropPercent <= crashThreshold) {
-    return {
-      detected: true,
-      highPrice,
-      lowPrice,
-      dropPercent,
-      startTime: new Date(highTime).toISOString(),
-      endTime: new Date(lowTime).toISOString(),
-    };
-  }
+	// 检查是否达到暴跌阈值
+	if (dropPercent <= crashThreshold) {
+		return {
+			detected: true,
+			highPrice,
+			lowPrice,
+			dropPercent,
+			startTime: new Date(highTime).toISOString(),
+			endTime: new Date(lowTime).toISOString(),
+		};
+	}
 
-  return null;
+	return null;
 }
 
 /**
@@ -305,17 +305,17 @@ function detectCrash(
  * @returns 七个分位价格水平
  */
 function calculateSevenSegmentLevels(
-  highPrice: number,
-  lowPrice: number
+	highPrice: number,
+	lowPrice: number,
 ): number[] {
-  const segmentSize = (highPrice - lowPrice) / 7;
-  const levels = [];
+	const segmentSize = (highPrice - lowPrice) / 7;
+	const levels = [];
 
-  for (let i = 1; i <= 7; i++) {
-    levels.push(lowPrice + segmentSize * i);
-  }
+	for (let i = 1; i <= 7; i++) {
+		levels.push(lowPrice + segmentSize * i);
+	}
 
-  return levels;
+	return levels;
 }
 
 /**
@@ -326,711 +326,1034 @@ function calculateSevenSegmentLevels(
  * @returns 价格位置分析和交易信号
  */
 function analyzePricePosition(
-  currentPrice: number,
-  sevenSegmentLevels: number[]
+	currentPrice: number,
+	sevenSegmentLevels: number[],
 ): {
-  position: string;
-  zone: number;
-  signal: string;
-  confidence: string;
-  description: string;
+	position: string;
+	zone: number;
+	signal: string;
+	confidence: string;
+	description: string;
 } {
-  // 确定当前价格在七分位中的位置
-  let position = "未知";
-  let zone = 0;
-  let signal = "观望";
-  let confidence = "LOW";
+	// 确定当前价格在七分位中的位置
+	let position = "未知";
+	let zone = 0;
+	let signal = "观望";
+	let confidence = "LOW";
 
-  if (currentPrice <= sevenSegmentLevels[0]) {
-    position = "1/7区域以下";
-    zone = 1;
-    signal = "强烈做多";
-    confidence = "HIGH";
-  } else if (currentPrice <= sevenSegmentLevels[1]) {
-    position = "1/7区域";
-    zone = 1;
-    signal = "做多";
-    confidence = "HIGH";
-  } else if (currentPrice <= sevenSegmentLevels[2]) {
-    position = "2/7区域";
-    zone = 2;
-    signal = "做多";
-    confidence = "MEDIUM";
-  } else if (currentPrice <= sevenSegmentLevels[3]) {
-    position = "3/7区域";
-    zone = 3;
-    signal = "观望";
-    confidence = "MEDIUM";
-  } else if (currentPrice <= sevenSegmentLevels[4]) {
-    position = "4/7区域";
-    zone = 4;
-    signal = "观望";
-    confidence = "MEDIUM";
-  } else if (currentPrice <= sevenSegmentLevels[5]) {
-    position = "5/7区域";
-    zone = 5;
-    signal = "观望";
-    confidence = "MEDIUM";
-  } else if (currentPrice <= sevenSegmentLevels[6]) {
-    position = "6/7区域";
-    zone = 6;
-    signal = "做空";
-    confidence = "MEDIUM";
-  } else {
-    position = "7/7区域以上";
-    zone = 7;
-    signal = "强烈做多";
-    confidence = "HIGH";
-  }
+	if (currentPrice <= sevenSegmentLevels[0]) {
+		position = "1/7区域以下";
+		zone = 1;
+		signal = "强烈做多";
+		confidence = "HIGH";
+	} else if (currentPrice <= sevenSegmentLevels[1]) {
+		position = "1/7区域";
+		zone = 1;
+		signal = "做多";
+		confidence = "HIGH";
+	} else if (currentPrice <= sevenSegmentLevels[2]) {
+		position = "2/7区域";
+		zone = 2;
+		signal = "做多";
+		confidence = "MEDIUM";
+	} else if (currentPrice <= sevenSegmentLevels[3]) {
+		position = "3/7区域";
+		zone = 3;
+		signal = "观望";
+		confidence = "MEDIUM";
+	} else if (currentPrice <= sevenSegmentLevels[4]) {
+		position = "4/7区域";
+		zone = 4;
+		signal = "观望";
+		confidence = "MEDIUM";
+	} else if (currentPrice <= sevenSegmentLevels[5]) {
+		position = "5/7区域";
+		zone = 5;
+		signal = "观望";
+		confidence = "MEDIUM";
+	} else if (currentPrice <= sevenSegmentLevels[6]) {
+		position = "6/7区域";
+		zone = 6;
+		signal = "做空";
+		confidence = "MEDIUM";
+	} else {
+		position = "7/7区域以上";
+		zone = 7;
+		signal = "强烈做多";
+		confidence = "HIGH";
+	}
 
-  return {
-    position,
-    zone,
-    signal,
-    confidence,
-    description: `当前价格位于${position}，建议${signal}，信心度${confidence}`,
-  };
+	return {
+		position,
+		zone,
+		signal,
+		confidence,
+		description: `当前价格位于${position}，建议${signal}，信心度${confidence}`,
+	};
 }
 
 /**
  * 检查是否应该执行金字塔加仓
  *
  * @param symbol 交易对
- * @param entryPrice 入场价格
+ * @param entryPrice 入场价格（加权平均成本）
  * @param currentPrice 当前价格
  * @param side 持仓方向
+ * @param dbPosition 数据库中的持仓信息（用于检查加仓历史）
  * @returns 是否应该加仓及加仓信息
  */
-function checkPyramidAdd(
-  symbol: string,
-  entryPrice: number,
-  currentPrice: number,
-  side: string
-): {
-  shouldAdd: boolean;
-  addRatio: number;
-  description: string;
-} | null {
-  const params = getCaiSenParams();
-  const pyramidThreshold = 0.015; // 1.5%的移动阈值
-  const pyramidRatio = 0.3; // 30%的加仓比例
+async function checkPyramidAdd(
+	symbol: string,
+	entryPrice: number,
+	currentPrice: number,
+	side: string,
+	dbPosition?: any,
+): Promise<{
+	shouldAdd: boolean;
+	addRatio: number;
+	description: string;
+} | null> {
+	const params = getCaiSenParams();
+	const pyramidThreshold = 0.015; // 1.5%的移动阈值
+	const pyramidRatio = 0.3; // 30%的加仓比例
+	const maxAdditions = 3; // 最大加仓次数
+	const minIntervalMinutes = 30; // 最小加仓间隔（分钟）
 
-  // 获取缓存状态
-  const cache = caiSenMonitorState.pyramidAddCache.get(symbol);
+	// 🔧 修复：优先使用数据库中的加仓记录，而不是内存缓存
+	// 这样程序重启后也能正确判断是否应该加仓
+	if (dbPosition) {
+		const addPositionCount = dbPosition.add_position_count || 0;
+		const lastAddPositionTime = dbPosition.last_add_position_time;
 
-  // 计算价格变动百分比
-  let priceChangePercent = 0;
-  if (side === "long") {
-    priceChangePercent = ((currentPrice - entryPrice) / entryPrice) * 100;
-  } else {
-    priceChangePercent = ((entryPrice - currentPrice) / entryPrice) * 100;
-  }
+		// 检查是否已达到最大加仓次数
+		if (addPositionCount >= maxAdditions) {
+			logger.debug(
+				`${symbol} 已达到最大加仓次数 ${addPositionCount}/${maxAdditions}，跳过加仓检查`,
+			);
+			return null;
+		}
 
-  // 检查是否达到加仓条件
-  if (priceChangePercent >= pyramidThreshold * 100) {
-    // 检查是否已经加仓过
-    if (
-      !cache ||
-      (currentPrice - cache.lastAddPrice) / cache.lastAddPrice >=
-        pyramidThreshold
-    ) {
-      return {
-        shouldAdd: true,
-        addRatio: pyramidRatio,
-        description: `价格有利移动${priceChangePercent.toFixed(2)}%，达到${(
-          pyramidThreshold * 100
-        ).toFixed(1)}%阈值，建议加仓${(pyramidRatio * 100).toFixed(0)}%`,
-      };
-    }
-  }
+		// 检查距离上次加仓的时间间隔
+		if (lastAddPositionTime) {
+			const lastAddTime = new Date(lastAddPositionTime).getTime();
+			const now = Date.now();
+			const minutesSinceLastAdd = (now - lastAddTime) / (1000 * 60);
 
-  return null;
+			if (minutesSinceLastAdd < minIntervalMinutes) {
+				logger.debug(
+					`${symbol} 距离上次加仓仅 ${minutesSinceLastAdd.toFixed(
+						1,
+					)} 分钟，未达到最小间隔 ${minIntervalMinutes} 分钟，跳过加仓检查`,
+				);
+				return null;
+			}
+		}
+	}
+
+	// 计算价格变动百分比（基于加权平均成本）
+	let priceChangePercent = 0;
+	if (side === "long") {
+		priceChangePercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+	} else {
+		priceChangePercent = ((entryPrice - currentPrice) / entryPrice) * 100;
+	}
+
+	// 检查是否达到加仓条件
+	// 🔧 修复：只有当价格有利移动达到阈值时才加仓
+	// 注意：这里的 entryPrice 已经是加权平均成本，所以计算是正确的
+	if (priceChangePercent >= pyramidThreshold * 100) {
+		return {
+			shouldAdd: true,
+			addRatio: pyramidRatio,
+			description: `价格有利移动${priceChangePercent.toFixed(2)}%，达到${(
+				pyramidThreshold * 100
+			).toFixed(1)}%阈值，建议加仓${(pyramidRatio * 100).toFixed(0)}%`,
+		};
+	}
+
+	return null;
 }
 
 /**
  * 记录蔡森策略监控数据到数据库
  */
 async function recordCaiSenMonitorData(
-  symbol: string,
-  data: any
+	symbol: string,
+	data: any,
 ): Promise<void> {
-  try {
-    await dbClient.execute({
-      sql: `
+	try {
+		await dbClient.execute({
+			sql: `
         INSERT INTO cai_sen_monitor_data (
           symbol, timestamp, data_type, data_json, created_at
         ) VALUES (?, ?, ?, ?, ?)
       `,
-      args: [
-        symbol,
-        Date.now(),
-        data.type,
-        JSON.stringify(data),
-        getChinaTimeISO(),
-      ],
-    });
-  } catch (error) {
-    logger.error(`记录蔡森监控数据失败: ${error}`);
-  }
+			args: [
+				symbol,
+				Date.now(),
+				data.type,
+				JSON.stringify(data),
+				getChinaTimeISO(),
+			],
+		});
+	} catch (error) {
+		logger.error(`记录蔡森监控数据失败: ${error}`);
+	}
 }
 
 /**
  * 获取K线数据
  */
 export async function getKlineData(
-  symbol: string,
-  interval: string,
-  limit = 100
+	symbol: string,
+	interval: string,
+	limit = 100,
 ): Promise<any[]> {
-  const exchangeClient = createExchangeClient();
+	const exchangeClient = createExchangeClient();
 
-  try {
-    const klines = await exchangeClient.getFuturesCandles(
-      `${symbol}_USDT`,
-      interval,
-      limit
-    );
+	try {
+		const klines = await exchangeClient.getFuturesCandles(
+			`${symbol}_USDT`,
+			interval,
+			limit,
+		);
 
-    return klines.map((k: any) => ({
-      timestamp: k.t * 1000, // 转换为毫秒
-      open: Number.parseFloat(k.o),
-      high: Number.parseFloat(k.h),
-      low: Number.parseFloat(k.l),
-      close: Number.parseFloat(k.c),
-      volume: Number.parseFloat(k.v),
-    }));
-  } catch (error) {
-    logger.error(`获取K线数据失败: ${error}`);
-    return [];
-  }
+		return klines.map((k: any) => ({
+			timestamp: k.t * 1000, // 转换为毫秒
+			open: Number.parseFloat(k.o),
+			high: Number.parseFloat(k.h),
+			low: Number.parseFloat(k.l),
+			close: Number.parseFloat(k.c),
+			volume: Number.parseFloat(k.v),
+		}));
+	} catch (error) {
+		logger.error(`获取K线数据失败: ${error}`);
+		return [];
+	}
 }
 
 /**
  * 获取当前持仓
  */
 export async function getCurrentPositions(): Promise<any[]> {
-  const exchangeClient = createExchangeClient();
+	const exchangeClient = createExchangeClient();
 
-  try {
-    const positions = await exchangeClient.getPositions();
-    return positions.filter((p) => Number.parseFloat(p.size) !== 0);
-  } catch (error) {
-    logger.error(`获取持仓信息失败: ${error}`);
-    return [];
-  }
+	try {
+		const positions = await exchangeClient.getPositions();
+		return positions.filter((p) => Number.parseFloat(p.size) !== 0);
+	} catch (error) {
+		logger.error(`获取持仓信息失败: ${error}`);
+		return [];
+	}
 }
 
 /**
  * 获取当前价格
  */
 export async function getCurrentPrice(symbol: string): Promise<number> {
-  const exchangeClient = createExchangeClient();
+	const exchangeClient = createExchangeClient();
 
-  try {
-    const ticker = await exchangeClient.getFuturesTicker(`${symbol}_USDT`);
-    return Number.parseFloat(ticker.last);
-  } catch (error) {
-    logger.error(`获取当前价格失败: ${error}`);
-    return 0;
-  }
+	try {
+		const ticker = await exchangeClient.getFuturesTicker(`${symbol}_USDT`);
+		return Number.parseFloat(ticker.last);
+	} catch (error) {
+		logger.error(`获取当前价格失败: ${error}`);
+		return 0;
+	}
 }
 
 /**
  * 执行金字塔加仓
  */
 async function executePyramidAdd(
-  symbol: string,
-  side: string,
-  addRatio: number,
-  description: string
+	symbol: string,
+	side: string,
+	addRatio: number,
+	description: string,
 ): Promise<boolean> {
-  if (!isCodeLevelProtectionEnabled()) {
-    logger.info(`代码级保护未启用，跳过金字塔加仓: ${description}`);
-    return false;
-  }
+	if (!isCodeLevelProtectionEnabled()) {
+		logger.info(`代码级保护未启用，跳过金字塔加仓: ${description}`);
+		return false;
+	}
 
-  const exchangeClient = createExchangeClient();
-  const contract = `${symbol}_USDT`;
+	const exchangeClient = createExchangeClient();
+	const contract = `${symbol}_USDT`;
 
-  try {
-    // 获取当前持仓
-    const positions = await getCurrentPositions();
-    const position = positions.find((p) => p.contract === `${symbol}_USDT`);
+	try {
+		// 获取当前持仓
+		const positions = await getCurrentPositions();
+		const position = positions.find((p) => p.contract === `${symbol}_USDT`);
 
-    if (!position) {
-      logger.warn(`${symbol} 无持仓，无法执行金字塔加仓`);
-      return false;
-    }
+		if (!position) {
+			logger.warn(`${symbol} 无持仓，无法执行金字塔加仓`);
+			return false;
+		}
 
-    // 计算加仓数量
-    const currentSize = Math.abs(Number.parseFloat(position.size));
-    const addSize = Math.floor(currentSize * addRatio);
+		// 🔧 修复：从数据库获取初始开仓数量
+		const dbPositionResult = await dbClient.execute({
+			sql: "SELECT initial_quantity, quantity FROM positions WHERE symbol = ? LIMIT 1",
+			args: [symbol],
+		});
 
-    if (addSize <= 0) {
-      logger.warn(`${symbol} 计算加仓数量为0，跳过加仓`);
-      return false;
-    }
+		if (dbPositionResult.rows.length === 0) {
+			logger.warn(`${symbol} 数据库中无持仓记录，无法执行金字塔加仓`);
+			return false;
+		}
 
-    // 确定订单方向
-    const orderSize = side === "long" ? addSize : -addSize;
+		const dbPosition = dbPositionResult.rows[0] as {
+			initial_quantity: number | null;
+			quantity: number;
+		};
 
-    logger.warn(`【执行金字塔加仓】${symbol} ${side}`);
-    logger.warn(`  加仓原因: ${description}`);
-    logger.warn(`  加仓数量: ${addSize} 张 (${(addRatio * 100).toFixed(0)}%)`);
-    logger.warn(`  当前持仓: ${currentSize} 张`);
+		// 使用初始开仓数量，如果没有则使用当前数量（兼容旧数据）
+		const baseSize = dbPosition.initial_quantity || dbPosition.quantity;
+		const currentSize = Math.abs(Number.parseFloat(position.size));
 
-    // 执行加仓订单
-    const order = await exchangeClient.placeOrder({
-      contract,
-      size: orderSize,
-      price: 0, // 市价单
-    });
+		// 计算加仓数量（基于初始开仓数量）
+		const addSize = Math.floor(baseSize * addRatio);
 
-    logger.info(`已下达金字塔加仓订单 ${symbol}，订单ID: ${order.id}`);
+		if (addSize <= 0) {
+			logger.warn(`${symbol} 计算加仓数量为0，跳过加仓`);
+			return false;
+		}
 
-    // 更新缓存
-    const currentPrice = await getCurrentPrice(symbol);
-    caiSenMonitorState.pyramidAddCache.set(symbol, {
-      lastAddPrice: currentPrice,
-      lastAddTime: Date.now(),
-      addCount:
-        (caiSenMonitorState.pyramidAddCache.get(symbol)?.addCount || 0) + 1,
-    });
+		// 确定订单方向
+		const orderSize = side === "long" ? addSize : -addSize;
 
-    // 记录到数据库
-    await recordCaiSenMonitorData(symbol, {
-      type: "pyramid_add",
-      side,
-      addSize,
-      addRatio,
-      description,
-      timestamp: Date.now(),
-    });
+		logger.warn(`【执行金字塔加仓】${symbol} ${side}`);
+		logger.warn(`  加仓原因: ${description}`);
+		logger.warn(`  初始持仓: ${baseSize} 张`);
+		logger.warn(`  当前持仓: ${currentSize} 张`);
+		logger.warn(`  加仓数量: ${addSize} 张 (${(addRatio * 100).toFixed(0)}%)`);
+		logger.warn(`  加仓后预计: ${currentSize + addSize} 张`);
 
-    return true;
-  } catch (error) {
-    logger.error(`执行金字塔加仓失败: ${error}`);
-    return false;
-  }
+		// 执行加仓订单
+		const order = await exchangeClient.placeOrder({
+			contract,
+			size: orderSize,
+			price: 0, // 市价单
+		});
+
+		logger.info(`已下达金字塔加仓订单 ${symbol}，订单ID: ${order.id}`);
+
+		// 🔧 修复：更新数据库中的加仓计数和时间
+		// 这样程序重启后也能正确判断是否应该加仓
+		try {
+			await dbClient.execute({
+				sql: `UPDATE positions 
+              SET add_position_count = COALESCE(add_position_count, 0) + 1,
+                  last_add_position_time = ?
+              WHERE symbol = ?`,
+				args: [getChinaTimeISO(), symbol],
+			});
+
+			logger.info({
+				action: "update_add_position_count",
+				symbol,
+				message: "已更新数据库中的加仓计数和时间",
+			});
+		} catch (error) {
+			logger.error({
+				action: "update_add_position_count_error",
+				symbol,
+				error: (error as Error).message,
+				message: "更新加仓计数失败，但不影响加仓操作",
+			});
+		}
+
+		// 更新内存缓存（用于同一运行周期内的快速检查）
+		const currentPrice = await getCurrentPrice(symbol);
+		caiSenMonitorState.pyramidAddCache.set(symbol, {
+			lastAddPrice: currentPrice,
+			lastAddTime: Date.now(),
+			addCount:
+				(caiSenMonitorState.pyramidAddCache.get(symbol)?.addCount || 0) + 1,
+		});
+
+		// 记录到监控数据表
+		await recordCaiSenMonitorData(symbol, {
+			type: "pyramid_add",
+			side,
+			addSize,
+			addRatio,
+			description,
+			timestamp: Date.now(),
+		});
+
+		return true;
+	} catch (error) {
+		logger.error(`执行金字塔加仓失败: ${error}`);
+		return false;
+	}
 }
 
 /**
  * 执行蔡森策略监控主逻辑
  */
 async function executeCaiSenMonitor(): Promise<void> {
-  if (!isCaiSenStrategy()) {
-    return;
-  }
+	if (!isCaiSenStrategy()) {
+		return;
+	}
 
-  if (isRunning) {
-    return;
-  }
+	if (isRunning) {
+		return;
+	}
 
-  isRunning = true;
-  const startTime = Date.now();
+	isRunning = true;
+	const startTime = Date.now();
 
-  try {
-    caiSenMonitorState.checkCount++;
-    caiSenMonitorState.lastCheckTime = startTime;
+	try {
+		caiSenMonitorState.checkCount++;
+		caiSenMonitorState.lastCheckTime = startTime;
 
-    logger.debug(`执行蔡森策略监控 #${caiSenMonitorState.checkCount}`);
+		logger.debug(`执行蔡森策略监控 #${caiSenMonitorState.checkCount}`);
 
-    // 获取当前持仓
-    const positions = await getCurrentPositions();
+		// 获取当前持仓
+		const positions = await getCurrentPositions();
 
-    if (positions.length === 0) {
-      logger.debug("无持仓，跳过蔡森策略监控");
-      return;
-    }
+		if (positions.length === 0) {
+			logger.debug("无持仓，跳过蔡森策略监控");
+			return;
+		}
 
-    // 从数据库获取持仓信息（获取加权平均成本）
-    const dbResult = await dbClient.execute(
-      "SELECT symbol, average_entry_price, entry_price FROM positions"
-    );
-    const dbInfoMap = new Map(
-      dbResult.rows.map((row: any) => [
-        row.symbol,
-        {
-          averageEntryPrice: row.average_entry_price || row.entry_price || 0,
-        },
-      ])
-    );
+		// 从数据库获取持仓信息（获取加权平均成本和加仓历史）
+		const dbResult = await dbClient.execute(
+			"SELECT symbol, average_entry_price, entry_price, add_position_count, last_add_position_time FROM positions",
+		);
+		const dbInfoMap = new Map(
+			dbResult.rows.map((row: any) => [
+				row.symbol,
+				{
+					averageEntryPrice: row.average_entry_price || row.entry_price || 0,
+					add_position_count: row.add_position_count || 0,
+					last_add_position_time: row.last_add_position_time,
+				},
+			]),
+		);
 
-    // 处理每个持仓
-    for (const position of positions) {
-      // 修复：position对象中的字段名是contract，不是symbol
-      const contract = position.contract;
-      const symbol = contract.replace("_USDT", "");
-      const side = Number.parseFloat(position.size) > 0 ? "long" : "short";
-      
-      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
-      const dbInfo = dbInfoMap.get(symbol);
-      const exchangeEntryPrice = Number.parseFloat(position.entryPrice);
-      const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
-      
-      const currentPrice = await getCurrentPrice(symbol);
+		// 处理每个持仓
+		for (const position of positions) {
+			// 修复：position对象中的字段名是contract，不是symbol
+			const contract = position.contract;
+			const symbol = contract.replace("_USDT", "");
+			const side = Number.parseFloat(position.size) > 0 ? "long" : "short";
 
-      if (currentPrice <= 0) {
-        logger.warn(`获取${symbol}当前价格失败，跳过监控`);
-        continue;
-      }
+			// 🔧 关键：优先使用数据库中的加权平均成本（考虑加仓后的平均成本）
+			const dbInfo = dbInfoMap.get(symbol);
+			const exchangeEntryPrice = Number.parseFloat(position.entryPrice);
+			const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
+			const addPositionCount = dbInfo?.add_position_count || 0;
 
-      // 1. 检查金字塔加仓
-      const pyramidAddInfo = checkPyramidAdd(
-        symbol,
-        entryPrice,
-        currentPrice,
-        side
-      );
-      if (pyramidAddInfo) {
-        logger.info(`${symbol} ${pyramidAddInfo.description}`);
+			// 记录是否使用了加权平均成本
+			if (dbInfo?.averageEntryPrice && dbInfo.averageEntryPrice !== exchangeEntryPrice) {
+				logger.debug(
+					`${symbol} 使用加权平均成本: ${entryPrice.toFixed(2)} (交易所价格: ${exchangeEntryPrice.toFixed(2)}, 已加仓${addPositionCount}次)`,
+				);
+			}
 
-        if (isCodeLevelProtectionEnabled()) {
-          await executePyramidAdd(
-            symbol,
-            side,
-            pyramidAddInfo.addRatio,
-            pyramidAddInfo.description
-          );
-        } else {
-          logger.info("代码级保护未启用，仅记录金字塔加仓信号");
+			const currentPrice = await getCurrentPrice(symbol);
 
-          // 记录到数据库
-          await recordCaiSenMonitorData(symbol, {
-            type: "pyramid_add_signal",
-            side,
-            entryPrice,
-            currentPrice,
-            addRatio: pyramidAddInfo.addRatio,
-            description: pyramidAddInfo.description,
-            timestamp: Date.now(),
-          });
-        }
-      }
+			if (currentPrice <= 0) {
+				logger.warn(`获取${symbol}当前价格失败，跳过监控`);
+				continue;
+			}
 
-      // 2. 暴跌检测和七分位分析
-      const params = getCaiSenParams();
-      const crashThreshold =
-        params.sevenSegmentStrategy.crashDetectionThreshold;
-      const calculationPeriod = params.sevenSegmentStrategy.calculationPeriod;
+			// 1. 检查金字塔加仓（传入数据库持仓信息）
+			const pyramidAddInfo = await checkPyramidAdd(
+				symbol,
+				entryPrice,
+				currentPrice,
+				side,
+				dbInfo, // 传入数据库持仓信息，用于检查加仓历史
+			);
+			if (pyramidAddInfo) {
+				logger.info(`${symbol} ${pyramidAddInfo.description}`);
 
-      // 获取4小时K线数据用于暴跌检测
-      const klineData = await getKlineData(symbol, "1h", calculationPeriod + 4);
+				if (isCodeLevelProtectionEnabled()) {
+					await executePyramidAdd(
+						symbol,
+						side,
+						pyramidAddInfo.addRatio,
+						pyramidAddInfo.description,
+					);
+				} else {
+					logger.info("代码级保护未启用，仅记录金字塔加仓信号");
 
-      if (klineData.length > 0) {
-        // 检测暴跌
-        const crashInfo = detectCrash(klineData, crashThreshold, 4); // 4小时窗口
+					// 记录到数据库
+					await recordCaiSenMonitorData(symbol, {
+						type: "pyramid_add_signal",
+						side,
+						entryPrice,
+						currentPrice,
+						addRatio: pyramidAddInfo.addRatio,
+						description: pyramidAddInfo.description,
+						timestamp: Date.now(),
+					});
+				}
+			}
 
-        if (crashInfo && crashInfo.detected) {
-          logger.info(
-            `${symbol} 检测到暴跌: ${crashInfo.dropPercent.toFixed(2)}%`
-          );
-          logger.info(`  最高价: ${crashInfo.highPrice}`);
-          logger.info(`  最低价: ${crashInfo.lowPrice}`);
-          logger.info(`  时间: ${crashInfo.startTime} 至 ${crashInfo.endTime}`);
+			// 2. 暴跌检测和七分位分析
+			const params = getCaiSenParams();
+			const crashThreshold =
+				params.sevenSegmentStrategy.crashDetectionThreshold;
+			const calculationPeriod = params.sevenSegmentStrategy.calculationPeriod;
 
-          // 计算七分位水平
-          const sevenSegmentLevels = calculateSevenSegmentLevels(
-            crashInfo.highPrice,
-            crashInfo.lowPrice
-          );
+			// 获取4小时K线数据用于暴跌检测
+			const klineData = await getKlineData(symbol, "1h", calculationPeriod + 4);
 
-          // 分析当前价格位置
-          const positionAnalysis = analyzePricePosition(
-            currentPrice,
-            sevenSegmentLevels
-          );
+			if (klineData.length > 0) {
+				// 检测暴跌
+				const crashInfo = detectCrash(klineData, crashThreshold, 4); // 4小时窗口
 
-          logger.info(`${symbol} 七分位分析: ${positionAnalysis.description}`);
-          logger.info(
-            `  七分位水平: [${sevenSegmentLevels
-              .map((l) => l.toFixed(6))
-              .join(", ")}]`
-          );
+				if (crashInfo && crashInfo.detected) {
+					logger.info(
+						`${symbol} 检测到暴跌: ${crashInfo.dropPercent.toFixed(2)}%`,
+					);
+					logger.info(`  最高价: ${crashInfo.highPrice}`);
+					logger.info(`  最低价: ${crashInfo.lowPrice}`);
+					logger.info(`  时间: ${crashInfo.startTime} 至 ${crashInfo.endTime}`);
 
-          // 更新缓存
-          caiSenMonitorState.crashDetectionCache.set(symbol, {
-            crashStartTime: Date.now(),
-            crashHighPrice: crashInfo.highPrice,
-            crashLowPrice: crashInfo.lowPrice,
-            sevenSegmentLevels,
-            lastSignalTime: Date.now(),
-          });
+					// 计算七分位水平
+					const sevenSegmentLevels = calculateSevenSegmentLevels(
+						crashInfo.highPrice,
+						crashInfo.lowPrice,
+					);
 
-          // 记录到数据库
-          await recordCaiSenMonitorData(symbol, {
-            type: "crash_detection",
-            crashInfo,
-            sevenSegmentLevels,
-            positionAnalysis,
-            timestamp: Date.now(),
-          });
+					// 分析当前价格位置
+					const positionAnalysis = analyzePricePosition(
+						currentPrice,
+						sevenSegmentLevels,
+					);
 
-          // 如果有交易信号且启用代码级保护，执行交易
-          if (
-            positionAnalysis.signal !== "观望" &&
-            isCodeLevelProtectionEnabled()
-          ) {
-            logger.warn(
-              `${symbol} 七分位交易信号: ${positionAnalysis.signal}，信心度${positionAnalysis.confidence}`
-            );
+					logger.info(`${symbol} 七分位分析: ${positionAnalysis.description}`);
+					logger.info(
+						`  七分位水平: [${sevenSegmentLevels
+							.map((l) => l.toFixed(6))
+							.join(", ")}]`,
+					);
 
-            // 记录信号，但不立即执行交易决策
-            // 交易决策将按照设定的时间间隔执行
-            logger.info("检测到交易信号，将在下次交易周期执行决策");
-          }
-        }
-      }
+					// 更新缓存
+					caiSenMonitorState.crashDetectionCache.set(symbol, {
+						crashStartTime: Date.now(),
+						crashHighPrice: crashInfo.highPrice,
+						crashLowPrice: crashInfo.lowPrice,
+						sevenSegmentLevels,
+						lastSignalTime: Date.now(),
+					});
 
-      // 3. 主动检测止盈条件
-      const strategy = getTradingStrategy();
-      const strategyParams = getStrategyParams(strategy);
-      const exitStrategy = strategyParams.positionExitStrategy;
+					// 记录到数据库
+					await recordCaiSenMonitorData(symbol, {
+						type: "crash_detection",
+						crashInfo,
+						sevenSegmentLevels,
+						positionAnalysis,
+						timestamp: Date.now(),
+					});
 
-      // 检查是否启用了止盈策略
-      const isTakeProfitEnabled =
-        exitStrategy?.enabled &&
-        (exitStrategy.strategyType === "partialTakeProfit" ||
-          exitStrategy.strategyType === "combination") &&
-        exitStrategy.partialTakeProfit;
+					// 如果有交易信号且启用代码级保护，执行交易
+					if (
+						positionAnalysis.signal !== "观望" &&
+						isCodeLevelProtectionEnabled()
+					) {
+						logger.warn(
+							`${symbol} 七分位交易信号: ${positionAnalysis.signal}，信心度${positionAnalysis.confidence}`,
+						);
 
-      const takeProfitConfig = isTakeProfitEnabled
-        ? exitStrategy.partialTakeProfit
-        : null;
+						// 记录信号，但不立即执行交易决策
+						// 交易决策将按照设定的时间间隔执行
+						logger.info("检测到交易信号，将在下次交易周期执行决策");
+					}
+				}
+			}
 
-      if (takeProfitConfig) {
-        // 计算当前盈亏百分比（使用上面已经获取的entryPrice，它已经是加权平均成本）
-        // entryPrice 已经在上面定义过了，直接使用
-        const currentPriceForTP = await getCurrentPrice(symbol);
-        const size = Math.abs(Number.parseFloat(position.size));
-        const leverage = Number.parseFloat(position.leverage || "1");
+			// 3. 主动检测止盈条件和峰值回落
+			const strategy = getTradingStrategy();
+			const strategyParams = getStrategyParams(strategy);
+			const exitStrategy = strategyParams.positionExitStrategy;
 
-        if (currentPriceForTP > 0 && entryPrice > 0 && size > 0) {
-          // 计算价格变动百分比（不考虑杠杆）
-          const priceChangePercent =
-            ((currentPriceForTP - entryPrice) / entryPrice) * 100;
-          // 考虑杠杆后的盈亏百分比
-          const pnlPercent =
-            side === "long"
-              ? priceChangePercent * leverage
-              : -priceChangePercent * leverage;
+			// 检查是否启用了止盈策略
+			const isTakeProfitEnabled =
+				exitStrategy?.enabled &&
+				(exitStrategy.strategyType === "partialTakeProfit" ||
+					exitStrategy.strategyType === "combination") &&
+				exitStrategy.partialTakeProfit;
 
-          logger.debug(
-            `${symbol} 价格变动: ${priceChangePercent.toFixed(
-              2
-            )}%，当前盈亏: ${pnlPercent.toFixed(2)}%，杠杆: ${leverage}x`
-          );
+			const takeProfitConfig = isTakeProfitEnabled
+				? exitStrategy.partialTakeProfit
+				: null;
 
-          // 检查是否达到止盈条件（只在盈利时检查）
-          if (pnlPercent > 0 && batchClosingSystem) {
-            if (pnlPercent >= takeProfitConfig.stage3.trigger) {
-              // 达到第三阶段止盈，全部平仓
-              logger.info(
-                `${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                  takeProfitConfig.stage3.trigger
-                }%`
-              );
-              logger.info("准备执行全部平仓操作");
+			// 检查是否启用了峰值回落策略
+			const isPeakDrawdownEnabled =
+				exitStrategy?.enabled &&
+				(exitStrategy.strategyType === "peakDrawdown" ||
+					exitStrategy.strategyType === "combination") &&
+				exitStrategy.peakDrawdown;
 
-              // 创建全平仓配置
-              const batchConfig: BatchConfig = {
-                batchId: `take_profit_${symbol}_stage3_${Date.now()}`,
-                positionId: contract,
-                closingType: ClosingType.TAKE_PROFIT,
-                closingRatio: 1.0, // 全部平仓
-                closingQuantity: size,
-                triggerCondition: {
-                  triggerType: "manual",
-                  triggerValue: 0,
-                  operator: ">",
-                },
-                priority: 1,
-                createdAt: Date.now(),
-              };
+			const peakDrawdownConfig = isPeakDrawdownEnabled
+				? exitStrategy.peakDrawdown
+				: null;
 
-              // 设置并执行分批平仓
-              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
-              if (batchId) {
-                batchClosingSystem.activateBatchClosing(batchId);
-                await batchClosingSystem.executeBatch(batchId);
-                logger.info(`${symbol} 第三阶段止盈已执行，全部平仓`);
-              }
-            } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
-              // 达到第二阶段止盈，平仓部分仓位
-              logger.info(
-                `${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                  takeProfitConfig.stage2.trigger
-                }%`
-              );
-              logger.info(
-                `准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`
-              );
+			if (takeProfitConfig || peakDrawdownConfig) {
+				// 计算当前盈亏百分比（使用上面已经获取的entryPrice，它已经是加权平均成本）
+				// entryPrice 已经在上面定义过了，直接使用
+				const currentPriceForTP = await getCurrentPrice(symbol);
+				const size = Math.abs(Number.parseFloat(position.size));
+				const leverage = Number.parseFloat(position.leverage || "1");
 
-              // 创建分批平仓配置
-              const closePercent = takeProfitConfig.stage2.closePercent / 100;
-              const closeQuantity = Math.floor(size * closePercent);
-              const batchConfig: BatchConfig = {
-                batchId: `take_profit_${symbol}_stage2_${Date.now()}`,
-                positionId: contract,
-                closingType: ClosingType.TAKE_PROFIT,
-                closingRatio: closePercent,
-                closingQuantity: closeQuantity,
-                triggerCondition: {
-                  triggerType: "manual",
-                  triggerValue: 0,
-                  operator: ">",
-                },
-                priority: 2,
-                createdAt: Date.now(),
-              };
+				if (currentPriceForTP > 0 && entryPrice > 0 && size > 0) {
+					// 计算价格变动百分比（不考虑杠杆）
+					const priceChangePercent =
+						((currentPriceForTP - entryPrice) / entryPrice) * 100;
+					// 考虑杠杆后的盈亏百分比
+					const pnlPercent =
+						side === "long"
+							? priceChangePercent * leverage
+							: -priceChangePercent * leverage;
 
-              // 设置并执行分批平仓
-              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
-              if (batchId) {
-                batchClosingSystem.activateBatchClosing(batchId);
-                await batchClosingSystem.executeBatch(batchId);
-                logger.info(
-                  `${symbol} 第二阶段止盈已执行，平仓${(
-                    closePercent * 100
-                  ).toFixed(0)}%`
-                );
-              }
-            } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
-              // 达到第一阶段止盈，平仓部分仓位
-              logger.info(
-                `${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
-                  takeProfitConfig.stage1.trigger
-                }%`
-              );
-              logger.info(
-                `准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`
-              );
+					logger.debug(
+						`${symbol} 价格变动: ${priceChangePercent.toFixed(
+							2,
+						)}%，当前盈亏: ${pnlPercent.toFixed(2)}%，杠杆: ${leverage}x`,
+					);
 
-              // 创建分批平仓配置
-              const closePercent = takeProfitConfig.stage1.closePercent / 100;
-              const closeQuantity = Math.floor(size * closePercent);
-              const batchConfig: BatchConfig = {
-                batchId: `take_profit_${symbol}_stage1_${Date.now()}`,
-                positionId: contract,
-                closingType: ClosingType.TAKE_PROFIT,
-                closingRatio: closePercent,
-                closingQuantity: closeQuantity,
-                triggerCondition: {
-                  triggerType: "manual",
-                  triggerValue: 0,
-                  operator: ">",
-                },
-                priority: 3,
-                createdAt: Date.now(),
-              };
+					// 🔧 智能峰值回落检测：结合指标数据和分段管理
+					if (peakDrawdownConfig && pnlPercent > 0 && batchClosingSystem) {
+						// 从数据库获取峰值盈利
+						const peakPnlResult = await dbClient.execute(
+							"SELECT peak_pnl_percent FROM positions WHERE symbol = ?",
+							[symbol],
+						);
 
-              // 设置并执行分批平仓
-              const batchId = batchClosingSystem.setBatchClosing(batchConfig);
-              if (batchId) {
-                batchClosingSystem.activateBatchClosing(batchId);
-                await batchClosingSystem.executeBatch(batchId);
-                logger.info(
-                  `${symbol} 第一阶段止盈已执行，平仓${(
-                    closePercent * 100
-                  ).toFixed(0)}%`
-                );
-              }
-            }
-          } else {
-            logger.debug(
-              `${symbol} 当前亏损: ${pnlPercent.toFixed(2)}%，不检查止盈条件`
-            );
-          }
-        }
-      }
-    }
-  } catch (error) {
-    logger.error(`蔡森策略监控执行失败: ${error}`);
-  } finally {
-    isRunning = false;
-    const duration = Date.now() - startTime;
-    logger.debug(`蔡森策略监控执行完成，耗时: ${duration}ms`);
-  }
+						if (peakPnlResult.rows.length > 0) {
+							const peakPnlPercent = Number.parseFloat(
+								(peakPnlResult.rows[0].peak_pnl_percent as string) || "0",
+							);
+
+							// 计算从峰值的回落幅度（绝对回落，单位：百分点）
+							const drawdownFromPeak =
+								peakPnlPercent > 0 ? peakPnlPercent - pnlPercent : 0;
+
+							// 🔧 加仓信息提示
+							const addInfo = addPositionCount > 0 
+								? ` (已加仓${addPositionCount}次，使用加权平均成本${entryPrice.toFixed(2)})`
+								: "";
+							
+							logger.debug(
+								`${symbol} 峰值盈利: ${peakPnlPercent.toFixed(
+									2,
+								)}%，当前盈利: ${pnlPercent.toFixed(
+									2,
+								)}%，峰值回落: ${drawdownFromPeak.toFixed(2)}%${addInfo}`,
+							);
+
+							// 🎯 动态分段管理：根据当前盈利区间选择对应的峰值回落级别
+							let activeLevel: {
+								drawdownThreshold: number;
+								closePercent: number;
+							} | null = null;
+							let levelName = "";
+
+							// 根据分批止盈的区间来确定峰值回落级别
+							if (takeProfitConfig) {
+								// 如果当前盈利在 stage3 区间（最高区间）
+								if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+									activeLevel = peakDrawdownConfig.level3;
+									levelName = "level3";
+									logger.debug(
+										`${symbol} 当前在 stage3 区间 (>=${takeProfitConfig.stage3.trigger}%)，使用 level3 峰值回落阈值`,
+									);
+								}
+								// 如果当前盈利在 stage2 区间
+								else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+									activeLevel = peakDrawdownConfig.level2;
+									levelName = "level2";
+									logger.debug(
+										`${symbol} 当前在 stage2 区间 (${takeProfitConfig.stage2.trigger}%-${takeProfitConfig.stage3.trigger}%)，使用 level2 峰值回落阈值`,
+									);
+								}
+								// 如果当前盈利在 stage1 区间
+								else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+									activeLevel = peakDrawdownConfig.level1;
+									levelName = "level1";
+									logger.debug(
+										`${symbol} 当前在 stage1 区间 (${takeProfitConfig.stage1.trigger}%-${takeProfitConfig.stage2.trigger}%)，使用 level1 峰值回落阈值`,
+									);
+								}
+								// 如果盈利还未达到 stage1，使用最严格的 level1
+								else {
+									activeLevel = peakDrawdownConfig.level1;
+									levelName = "level1";
+									logger.debug(
+										`${symbol} 当前盈利未达到 stage1 (<${takeProfitConfig.stage1.trigger}%)，使用 level1 峰值回落阈值`,
+									);
+								}
+							} else {
+								// 如果没有分批止盈配置，使用传统的从高到低检查
+								if (
+									drawdownFromPeak >=
+									peakDrawdownConfig.level3.drawdownThreshold
+								) {
+									activeLevel = peakDrawdownConfig.level3;
+									levelName = "level3";
+								} else if (
+									drawdownFromPeak >=
+									peakDrawdownConfig.level2.drawdownThreshold
+								) {
+									activeLevel = peakDrawdownConfig.level2;
+									levelName = "level2";
+								} else if (
+									drawdownFromPeak >=
+									peakDrawdownConfig.level1.drawdownThreshold
+								) {
+									activeLevel = peakDrawdownConfig.level1;
+									levelName = "level1";
+								}
+							}
+
+							// 检查是否达到当前级别的峰值回落阈值
+							if (
+								activeLevel &&
+								drawdownFromPeak >= activeLevel.drawdownThreshold
+							) {
+								logger.warn(
+									`${symbol} 峰值回落达到 ${levelName} 阈值: ${drawdownFromPeak.toFixed(
+										2,
+									)}% >= ${activeLevel.drawdownThreshold}%`,
+								);
+
+								// 🔍 智能指标验证：检查是否真的需要平仓
+								let shouldTrigger = true;
+								const indicators: string[] = [];
+
+								try {
+									// 获取市场数据进行指标验证
+									const klines = await getKlineData(symbol, "5m", 20);
+									if (klines.length >= 10) {
+										const latestKlines = klines.slice(-10);
+										const prices = latestKlines.map((k) => k.close);
+										const volumes = latestKlines.map((k) => k.volume);
+
+										// 1. 检查短期趋势（5分钟EMA10）
+										const ema10 =
+											prices.reduce((sum, p) => sum + p, 0) / prices.length;
+										const currentPriceForCheck = prices[prices.length - 1];
+										const trendUp = currentPriceForCheck > ema10;
+
+										if (side === "long" && trendUp) {
+											indicators.push("短期趋势仍向上");
+										} else if (side === "short" && !trendUp) {
+											indicators.push("短期趋势仍向下");
+										}
+
+										// 2. 检查成交量（最近3根K线平均成交量 vs 前7根）
+										const recentVolume =
+											volumes.slice(-3).reduce((sum, v) => sum + v, 0) / 3;
+										const previousVolume =
+											volumes.slice(-10, -3).reduce((sum, v) => sum + v, 0) / 7;
+										const volumeRatio = recentVolume / previousVolume;
+
+										if (volumeRatio > 1.2) {
+											indicators.push(`成交量放大${(volumeRatio * 100).toFixed(0)}%`);
+										} else if (volumeRatio < 0.8) {
+											indicators.push(`成交量萎缩${((1 - volumeRatio) * 100).toFixed(0)}%`);
+										}
+
+										// 3. 检查价格波动（最近3根K线的波动率）
+										const recentPrices = prices.slice(-3);
+										const priceChanges = recentPrices
+											.slice(1)
+											.map((p, i) => Math.abs(p - recentPrices[i]) / recentPrices[i]);
+										const avgVolatility =
+											priceChanges.reduce((sum, c) => sum + c, 0) / priceChanges.length;
+
+										if (avgVolatility > 0.005) {
+											// 波动率 > 0.5%
+											indicators.push(`高波动率${(avgVolatility * 100).toFixed(2)}%`);
+										}
+
+										// 🎯 决策逻辑：如果趋势仍然健康且成交量放大，给予更多容忍度
+										if (
+											((side === "long" && trendUp) ||
+												(side === "short" && !trendUp)) &&
+											volumeRatio > 1.2
+										) {
+											// 趋势健康 + 成交量放大 = 可能只是正常回调
+											// 提高阈值容忍度 50%
+											const adjustedThreshold =
+												activeLevel.drawdownThreshold * 1.5;
+											if (drawdownFromPeak < adjustedThreshold) {
+												shouldTrigger = false;
+												logger.info(
+													`${symbol} 指标健康，提高峰值回落容忍度至 ${adjustedThreshold.toFixed(
+														2,
+													)}%，暂不触发平仓`,
+												);
+												logger.info(
+													`  指标分析: ${indicators.join(", ")}`,
+												);
+											}
+										}
+									}
+								} catch (error) {
+									logger.warn(
+										`${symbol} 获取市场数据失败，使用默认峰值回落逻辑: ${error}`,
+									);
+								}
+
+								// 执行平仓
+								if (shouldTrigger) {
+									logger.warn(
+										`${symbol} 确认触发 ${levelName} 峰值回落保护，准备平仓${activeLevel.closePercent}%的仓位`,
+									);
+									if (indicators.length > 0) {
+										logger.info(`  指标分析: ${indicators.join(", ")}`);
+									}
+
+									const closePercent = activeLevel.closePercent / 100;
+									const closeQuantity = Math.floor(size * closePercent);
+									const batchConfig: BatchConfig = {
+										batchId: `peak_drawdown_${symbol}_${levelName}_${Date.now()}`,
+										positionId: contract,
+										closingType: ClosingType.RISK_MITIGATION,
+										closingRatio: closePercent,
+										closingQuantity: closeQuantity,
+										triggerCondition: {
+											triggerType: "manual",
+											triggerValue: 0,
+											operator: ">",
+										},
+										priority: 1,
+										createdAt: Date.now(),
+									};
+
+									const batchId =
+										batchClosingSystem.setBatchClosing(batchConfig);
+									if (batchId) {
+										batchClosingSystem.activateBatchClosing(batchId);
+										await batchClosingSystem.executeBatch(batchId);
+										logger.info(
+											`${symbol} ${levelName} 峰值回落保护已执行，平仓${(
+												closePercent * 100
+											).toFixed(0)}%`,
+										);
+									}
+									// 触发峰值回落后，跳过分批止盈检查
+									continue;
+								}
+							}
+						}
+					}
+
+					// 检查是否达到止盈条件（只在盈利时检查）
+					if (takeProfitConfig && pnlPercent > 0 && batchClosingSystem) {
+						if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+							// 达到第三阶段止盈，全部平仓
+							logger.info(
+								`${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+									takeProfitConfig.stage3.trigger
+								}%`,
+							);
+							logger.info("准备执行全部平仓操作");
+
+							// 创建全平仓配置
+							const batchConfig: BatchConfig = {
+								batchId: `take_profit_${symbol}_stage3_${Date.now()}`,
+								positionId: contract,
+								closingType: ClosingType.TAKE_PROFIT,
+								closingRatio: 1.0, // 全部平仓
+								closingQuantity: size,
+								triggerCondition: {
+									triggerType: "manual",
+									triggerValue: 0,
+									operator: ">",
+								},
+								priority: 1,
+								createdAt: Date.now(),
+							};
+
+							// 设置并执行分批平仓
+							const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+							if (batchId) {
+								batchClosingSystem.activateBatchClosing(batchId);
+								await batchClosingSystem.executeBatch(batchId);
+								logger.info(`${symbol} 第三阶段止盈已执行，全部平仓`);
+							}
+						} else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+							// 达到第二阶段止盈，平仓部分仓位
+							logger.info(
+								`${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+									takeProfitConfig.stage2.trigger
+								}%`,
+							);
+							logger.info(
+								`准备执行第二阶段止盈，平仓${takeProfitConfig.stage2.closePercent}%的仓位`,
+							);
+
+							// 创建分批平仓配置
+							const closePercent = takeProfitConfig.stage2.closePercent / 100;
+							const closeQuantity = Math.floor(size * closePercent);
+							const batchConfig: BatchConfig = {
+								batchId: `take_profit_${symbol}_stage2_${Date.now()}`,
+								positionId: contract,
+								closingType: ClosingType.TAKE_PROFIT,
+								closingRatio: closePercent,
+								closingQuantity: closeQuantity,
+								triggerCondition: {
+									triggerType: "manual",
+									triggerValue: 0,
+									operator: ">",
+								},
+								priority: 2,
+								createdAt: Date.now(),
+							};
+
+							// 设置并执行分批平仓
+							const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+							if (batchId) {
+								batchClosingSystem.activateBatchClosing(batchId);
+								await batchClosingSystem.executeBatch(batchId);
+								logger.info(
+									`${symbol} 第二阶段止盈已执行，平仓${(
+										closePercent * 100
+									).toFixed(0)}%`,
+								);
+							}
+						} else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+							// 达到第一阶段止盈，平仓部分仓位
+							logger.info(
+								`${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
+									takeProfitConfig.stage1.trigger
+								}%`,
+							);
+							logger.info(
+								`准备执行第一阶段止盈，平仓${takeProfitConfig.stage1.closePercent}%的仓位`,
+							);
+
+							// 创建分批平仓配置
+							const closePercent = takeProfitConfig.stage1.closePercent / 100;
+							const closeQuantity = Math.floor(size * closePercent);
+							const batchConfig: BatchConfig = {
+								batchId: `take_profit_${symbol}_stage1_${Date.now()}`,
+								positionId: contract,
+								closingType: ClosingType.TAKE_PROFIT,
+								closingRatio: closePercent,
+								closingQuantity: closeQuantity,
+								triggerCondition: {
+									triggerType: "manual",
+									triggerValue: 0,
+									operator: ">",
+								},
+								priority: 3,
+								createdAt: Date.now(),
+							};
+
+							// 设置并执行分批平仓
+							const batchId = batchClosingSystem.setBatchClosing(batchConfig);
+							if (batchId) {
+								batchClosingSystem.activateBatchClosing(batchId);
+								await batchClosingSystem.executeBatch(batchId);
+								logger.info(
+									`${symbol} 第一阶段止盈已执行，平仓${(
+										closePercent * 100
+									).toFixed(0)}%`,
+								);
+							}
+						}
+					} else {
+						logger.debug(
+							`${symbol} 当前亏损: ${pnlPercent.toFixed(2)}%，不检查止盈条件`,
+						);
+					}
+				}
+			}
+		}
+	} catch (error) {
+		logger.error(`蔡森策略监控执行失败: ${error}`);
+	} finally {
+		isRunning = false;
+		const duration = Date.now() - startTime;
+		logger.debug(`蔡森策略监控执行完成，耗时: ${duration}ms`);
+	}
 }
 
 /**
  * 启动蔡森策略监控器
  */
 export function startCaiSenMonitor(): void {
-  if (monitorInterval) {
-    logger.warn("蔡森策略监控器已在运行");
-    return;
-  }
+	if (monitorInterval) {
+		logger.warn("蔡森策略监控器已在运行");
+		return;
+	}
 
-  if (!isCaiSenStrategy()) {
-    logger.info("当前策略不是蔡森策略，不启动监控器");
-    return;
-  }
+	if (!isCaiSenStrategy()) {
+		logger.info("当前策略不是蔡森策略，不启动监控器");
+		return;
+	}
 
-  // 初始化分批平仓系统
-  const strategy = getTradingStrategy();
-  const strategyParams = getStrategyParams(strategy);
-  batchClosingSystem = new CaiSenBatchClosingSystem(
-    {
-      maxConcurrentBatches: 3,
-      batchExecutionInterval: 1000,
-      maxRetryCount: 3,
-      enableAutoExecution: true,
-      priceDeviationTolerance: 0.5,
-    },
-    strategyParams
-  );
+	// 初始化分批平仓系统
+	const strategy = getTradingStrategy();
+	const strategyParams = getStrategyParams(strategy);
+	batchClosingSystem = new CaiSenBatchClosingSystem(
+		{
+			maxConcurrentBatches: 3,
+			batchExecutionInterval: 1000,
+			maxRetryCount: 3,
+			enableAutoExecution: true,
+			priceDeviationTolerance: 0.5,
+		},
+		strategyParams,
+	);
 
-  logger.info("启动蔡森策略监控器，每10秒执行一次");
+	logger.info("启动蔡森策略监控器，每10秒执行一次");
 
-  // 立即执行一次
-  executeCaiSenMonitor();
+	// 立即执行一次
+	executeCaiSenMonitor();
 
-  // 设置定时执行
-  monitorInterval = setInterval(executeCaiSenMonitor, 10000);
+	// 设置定时执行
+	monitorInterval = setInterval(executeCaiSenMonitor, 10000);
 }
 
 /**
  * 停止蔡森策略监控器
  */
 export function stopCaiSenMonitor(): void {
-  if (monitorInterval) {
-    clearInterval(monitorInterval);
-    monitorInterval = null;
-    logger.info("蔡森策略监控器已停止");
-  }
+	if (monitorInterval) {
+		clearInterval(monitorInterval);
+		monitorInterval = null;
+		logger.info("蔡森策略监控器已停止");
+	}
 
-  // 销毁分批平仓系统
-  if (batchClosingSystem) {
-    batchClosingSystem.destroy();
-    batchClosingSystem = null;
-  }
+	// 销毁分批平仓系统
+	if (batchClosingSystem) {
+		batchClosingSystem.destroy();
+		batchClosingSystem = null;
+	}
 }
 
 /**
  * 获取蔡森策略监控器状态
  */
 export function getCaiSenMonitorStatus(): {
-  isRunning: boolean;
-  lastCheckTime: number;
-  checkCount: number;
-  crashDetectionCache: any;
-  pyramidAddCache: any;
+	isRunning: boolean;
+	lastCheckTime: number;
+	checkCount: number;
+	crashDetectionCache: any;
+	pyramidAddCache: any;
 } {
-  return {
-    isRunning,
-    lastCheckTime: caiSenMonitorState.lastCheckTime,
-    checkCount: caiSenMonitorState.checkCount,
-    crashDetectionCache: Object.fromEntries(
-      caiSenMonitorState.crashDetectionCache
-    ),
-    pyramidAddCache: Object.fromEntries(caiSenMonitorState.pyramidAddCache),
-  };
+	return {
+		isRunning,
+		lastCheckTime: caiSenMonitorState.lastCheckTime,
+		checkCount: caiSenMonitorState.checkCount,
+		crashDetectionCache: Object.fromEntries(
+			caiSenMonitorState.crashDetectionCache,
+		),
+		pyramidAddCache: Object.fromEntries(caiSenMonitorState.pyramidAddCache),
+	};
 }
 
 /**
  * 手动执行一次蔡森策略监控
  */
 export async function runCaiSenMonitorOnce(): Promise<void> {
-  await executeCaiSenMonitor();
+	await executeCaiSenMonitor();
 }

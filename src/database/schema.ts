@@ -21,119 +21,120 @@
  */
 
 export interface Trade {
-  id: number;
-  order_id: string;
-  symbol: string;
-  side: "long" | "short";
-  type: "open" | "close";
-  price: number;
-  quantity: number;
-  leverage: number;
-  pnl?: number;
-  fee?: number;
-  timestamp: string;
-  status: "pending" | "filled" | "cancelled";
+	id: number;
+	order_id: string;
+	symbol: string;
+	side: "long" | "short";
+	type: "open" | "close";
+	price: number;
+	quantity: number;
+	leverage: number;
+	pnl?: number;
+	fee?: number;
+	timestamp: string;
+	status: "pending" | "filled" | "cancelled";
 }
 
 export interface Position {
-  id: number;
-  symbol: string;
-  quantity: number;
-  entry_price: number;
-  current_price: number;
-  liquidation_price: number;
-  unrealized_pnl: number;
-  leverage: number;
-  side: "long" | "short";
-  profit_target?: number;
-  stop_loss?: number;
-  tp_order_id?: string;
-  sl_order_id?: string;
-  entry_order_id: string;
-  opened_at: string;
-  confidence?: number;
-  risk_usd?: number;
-  peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
-  partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
+	id: number;
+	symbol: string;
+	quantity: number;
+	entry_price: number;
+	current_price: number;
+	liquidation_price: number;
+	unrealized_pnl: number;
+	leverage: number;
+	side: "long" | "short";
+	profit_target?: number;
+	stop_loss?: number;
+	tp_order_id?: string;
+	sl_order_id?: string;
+	entry_order_id: string;
+	opened_at: string;
+	confidence?: number;
+	risk_usd?: number;
+	peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
+	partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
 
-  // 加仓相关字段
-  add_position_count?: number; // 加仓次数
-  average_entry_price?: number; // 加权平均成本
-  last_add_position_time?: string; // 最后加仓时间
-  total_add_amount_usdt?: number; // 总加仓金额(USDT)
-  add_position_history?: string; // 加仓历史记录(JSON格式)
+	// 加仓相关字段
+	initial_quantity?: number; // 初始开仓数量（用于金字塔加仓计算）
+	add_position_count?: number; // 加仓次数
+	average_entry_price?: number; // 加权平均成本
+	last_add_position_time?: string; // 最后加仓时间
+	total_add_amount_usdt?: number; // 总加仓金额(USDT)
+	add_position_history?: string; // 加仓历史记录(JSON格式)
 
-  // 蔡森策略专用加仓字段
-  caisen_seven_segment_level?: number; // 七分位水平
-  caisen_timeframe_confirmation_score?: number; // 时间框架确认分数
-  caisen_ai_risk_adjustment_factor?: number; // AI风险调整因子
+	// 蔡森策略专用加仓字段
+	caisen_seven_segment_level?: number; // 七分位水平
+	caisen_timeframe_confirmation_score?: number; // 时间框架确认分数
+	caisen_ai_risk_adjustment_factor?: number; // AI风险调整因子
 }
 
 export interface AccountHistory {
-  id: number;
-  timestamp: string;
-  total_value: number;
-  available_cash: number;
-  unrealized_pnl: number;
-  realized_pnl: number;
-  return_percent: number;
-  sharpe_ratio?: number;
+	id: number;
+	timestamp: string;
+	total_value: number;
+	available_cash: number;
+	unrealized_pnl: number;
+	realized_pnl: number;
+	return_percent: number;
+	sharpe_ratio?: number;
 }
 
 export interface TradingSignal {
-  id: number;
-  symbol: string;
-  timestamp: string;
-  price: number;
-  ema_20: number;
-  ema_50?: number;
-  macd: number;
-  rsi_7: number;
-  rsi_14: number;
-  volume: number;
-  open_interest?: number;
-  funding_rate?: number;
-  atr_3?: number;
-  atr_14?: number;
+	id: number;
+	symbol: string;
+	timestamp: string;
+	price: number;
+	ema_20: number;
+	ema_50?: number;
+	macd: number;
+	rsi_7: number;
+	rsi_14: number;
+	volume: number;
+	open_interest?: number;
+	funding_rate?: number;
+	atr_3?: number;
+	atr_14?: number;
 }
 
 export interface AgentDecision {
-  id: number;
-  timestamp: string;
-  iteration: number;
-  market_analysis: string;
-  decision: string;
-  actions_taken: string;
-  account_value: number;
-  positions_count: number;
+	id: number;
+	timestamp: string;
+	iteration: number;
+	market_analysis: string;
+	decision: string;
+	actions_taken: string;
+	account_value: number;
+	positions_count: number;
 }
 
 export interface SystemConfig {
-  id: number;
-  key: string;
-  value: string;
-  updated_at: string;
+	id: number;
+	key: string;
+	value: string;
+	updated_at: string;
 }
 
 export interface CaiSenMonitorData {
-  id: number;
-  symbol: string;
-  timestamp: number;
-  data_type: string;
-  data_json: string;
-  created_at: string;
+	id: number;
+	symbol: string;
+	timestamp: number;
+	data_type: string;
+	data_json: string;
+	created_at: string;
 }
 
 /**
  * 策略参数表 - 存储Agent动态设置的策略参数
  */
 export interface StrategyParam {
-  id: number;
-  key: string;
-  value: string;
-  strategy: string;
-  updated_at: string;
-  description?: string;
+	id: number;
+	key: string;
+	value: string;
+	strategy: string;
+	updated_at: string;
+	description?: string;
 }
 
 /**
@@ -183,6 +184,7 @@ CREATE TABLE IF NOT EXISTS positions (
   exit_strategy TEXT,
   
   -- 加仓相关字段
+  initial_quantity REAL,
   add_position_count INTEGER DEFAULT 0,
   average_entry_price REAL,
   last_add_position_time TEXT,

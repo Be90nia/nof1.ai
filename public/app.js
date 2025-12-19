@@ -463,6 +463,188 @@ function fixJsonFormat(jsonString) {
   }
 }
 
+// 从文本中提取工具调用（处理已格式化的中文文本）
+function extractToolCallFromText(text, toolCalls, processedToolCalls) {
+  // 匹配标准格式的工具调用块：- 工具：xxx
+  const toolCallBlocksRegex = /(-\s*工具：\s*\w+)([\s\S]*?)(?=(?:\n-\s*工具：|$))/gs;
+  let toolCallBlockMatch;
+
+  while ((toolCallBlockMatch = toolCallBlocksRegex.exec(text)) !== null) {
+    const toolCallBlock = toolCallBlockMatch[0];
+
+    // 匹配工具名称
+    const toolNameRegex = /-\s*工具：\s*(\w+)/;
+    const toolNameMatch = toolCallBlock.match(toolNameRegex);
+
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1].trim();
+      let params = {};
+
+      // 提取币种
+      const symbolRegex = /-\s*币种：\s*(\w+)/;
+      const symbolMatch = toolCallBlock.match(symbolRegex);
+      if (symbolMatch && symbolMatch[1].trim()) {
+        params.symbol = symbolMatch[1].trim();
+      }
+
+      // 提取策略
+      const strategyRegex = /-\s*策略：\s*(.+?)(?=(?:\n-\s*|$))/s;
+      const strategyMatch = toolCallBlock.match(strategyRegex);
+      if (strategyMatch && strategyMatch[1].trim()) {
+        params.strategy = strategyMatch[1].trim();
+      }
+
+      // 提取策略类型
+      const strategyTypeRegex = /-\s*策略类型：\s*(.+?)(?=(?:\n-\s*|$))/s;
+      const strategyTypeMatch = toolCallBlock.match(strategyTypeRegex);
+      if (strategyTypeMatch && strategyTypeMatch[1].trim()) {
+        params.strategyType = strategyTypeMatch[1].trim();
+      }
+
+      // 提取启用状态
+      const enabledRegex = /-\s*启用状态：\s*(.+?)(?=(?:\n-\s*|$))/s;
+      const enabledMatch = toolCallBlock.match(enabledRegex);
+      if (enabledMatch && enabledMatch[1].trim()) {
+        params.enabled = enabledMatch[1].trim().toLowerCase() === "启用";
+      }
+
+      // 处理 setPositionExitStrategy 特殊参数
+      if (toolName === "setPositionExitStrategy") {
+        // 提取分批止盈设置
+        const partialTakeProfitRegex = /-\s*分批止盈设置：([\s\S]*?)(?=(?:\n-\s*[^ ]|$))/s;
+        const partialTakeProfitMatch = toolCallBlock.match(partialTakeProfitRegex);
+        if (partialTakeProfitMatch && partialTakeProfitMatch[1].trim() !== "未配置") {
+          const partialTakeProfitText = partialTakeProfitMatch[1].trim();
+          params.partialTakeProfit = {};
+
+          // 提取三个阶段
+          const stage1Regex = /-\s*第一阶段：\s*触发条件 \+([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const stage1Match = partialTakeProfitText.match(stage1Regex);
+          if (stage1Match) {
+            params.partialTakeProfit.stage1 = {
+              trigger: parseFloat(stage1Match[1]),
+              closePercent: parseFloat(stage1Match[2])
+            };
+          }
+
+          const stage2Regex = /-\s*第二阶段：\s*触发条件 \+([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const stage2Match = partialTakeProfitText.match(stage2Regex);
+          if (stage2Match) {
+            params.partialTakeProfit.stage2 = {
+              trigger: parseFloat(stage2Match[1]),
+              closePercent: parseFloat(stage2Match[2])
+            };
+          }
+
+          const stage3Regex = /-\s*第三阶段：\s*触发条件 \+([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const stage3Match = partialTakeProfitText.match(stage3Regex);
+          if (stage3Match) {
+            params.partialTakeProfit.stage3 = {
+              trigger: parseFloat(stage3Match[1]),
+              closePercent: parseFloat(stage3Match[2])
+            };
+          }
+        }
+
+        // 提取峰值回落设置
+        const peakDrawdownRegex = /-\s*峰值回落设置：([\s\S]*?)(?=(?:\n-\s*[^ ]|$))/s;
+        const peakDrawdownMatch = toolCallBlock.match(peakDrawdownRegex);
+        if (peakDrawdownMatch && peakDrawdownMatch[1].trim() !== "未配置") {
+          const peakDrawdownText = peakDrawdownMatch[1].trim();
+          params.peakDrawdown = {};
+
+          const level1Regex = /-\s*第一级：\s*回落([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const level1Match = peakDrawdownText.match(level1Regex);
+          if (level1Match) {
+            params.peakDrawdown.level1 = {
+              drawdownThreshold: parseFloat(level1Match[1]),
+              closePercent: parseFloat(level1Match[2])
+            };
+          }
+
+          const level2Regex = /-\s*第二级：\s*回落([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const level2Match = peakDrawdownText.match(level2Regex);
+          if (level2Match) {
+            params.peakDrawdown.level2 = {
+              drawdownThreshold: parseFloat(level2Match[1]),
+              closePercent: parseFloat(level2Match[2])
+            };
+          }
+
+          const level3Regex = /-\s*第三级：\s*回落([\d.]+)%，平仓比例\s*([\d.]+)%/;
+          const level3Match = peakDrawdownText.match(level3Regex);
+          if (level3Match) {
+            params.peakDrawdown.level3 = {
+              drawdownThreshold: parseFloat(level3Match[1]),
+              closePercent: parseFloat(level3Match[2])
+            };
+          }
+
+          const minHoldingTimeRegex = /-\s*最小持仓时间：\s*(\d+)\s*分钟/;
+          const minHoldingTimeMatch = peakDrawdownText.match(minHoldingTimeRegex);
+          if (minHoldingTimeMatch) {
+            params.peakDrawdown.minHoldingTime = parseInt(minHoldingTimeMatch[1]);
+          }
+        }
+
+        // 提取动态止损设置
+        const dynamicStopLossRegex = /-\s*动态止损设置：([\s\S]*?)(?=(?:\n-\s*[^ ]|$))/s;
+        const dynamicStopLossMatch = toolCallBlock.match(dynamicStopLossRegex);
+        if (dynamicStopLossMatch && dynamicStopLossMatch[1].trim() !== "未配置") {
+          const dynamicStopLossText = dynamicStopLossMatch[1].trim();
+          params.dynamicStopLoss = {};
+
+          const initialStopLossRegex = /-\s*初始止损幅度：\s*([\d.]+)%/;
+          const initialStopLossMatch = dynamicStopLossText.match(initialStopLossRegex);
+          if (initialStopLossMatch) {
+            params.dynamicStopLoss.initialStopLoss = parseFloat(initialStopLossMatch[1]);
+          }
+
+          // 提取移动止损配置
+          params.dynamicStopLoss.trailingStopLoss = {};
+
+          const level1Regex = /-\s*第一级移动止损：\s*盈利达到 \+([\d.]+)%时，止损移至 \+([\d.]+)%/;
+          const level1Match = dynamicStopLossText.match(level1Regex);
+          if (level1Match) {
+            params.dynamicStopLoss.trailingStopLoss.level1 = {
+              trigger: parseFloat(level1Match[1]),
+              stopAt: parseFloat(level1Match[2])
+            };
+          }
+
+          const level2Regex = /-\s*第二级移动止损：\s*盈利达到 \+([\d.]+)%时，止损移至 \+([\d.]+)%/;
+          const level2Match = dynamicStopLossText.match(level2Regex);
+          if (level2Match) {
+            params.dynamicStopLoss.trailingStopLoss.level2 = {
+              trigger: parseFloat(level2Match[1]),
+              stopAt: parseFloat(level2Match[2])
+            };
+          }
+
+          const level3Regex = /-\s*第三级移动止损：\s*盈利达到 \+([\d.]+)%时，止损移至 \+([\d.]+)%/;
+          const level3Match = dynamicStopLossText.match(level3Regex);
+          if (level3Match) {
+            params.dynamicStopLoss.trailingStopLoss.level3 = {
+              trigger: parseFloat(level3Match[1]),
+              stopAt: parseFloat(level3Match[2])
+            };
+          }
+        }
+
+        // 修复组件嵌套问题
+        params = fixComponentNesting(params);
+      }
+
+      // 检查是否已经存在相同的工具调用
+      const uniqueKey = `${toolName}_${JSON.stringify(params)}`;
+      if (!processedToolCalls.has(uniqueKey)) {
+        toolCalls.push({ name: toolName, parameters: params });
+        processedToolCalls.add(uniqueKey);
+      }
+    }
+  }
+}
+
 // 解析工具调用
 function parseToolCalls(text) {
   const toolCalls = [];
@@ -718,6 +900,20 @@ function parseToolCalls(text) {
     }
   }
 
+  // 4. 处理不带标签的工具调用
+  // 检查是否有未处理的文本，可能包含直接的工具调用
+  let remainingText = cleanedText;
+  for (const block of processedBlocks) {
+    remainingText = remainingText.replace(block, "");
+  }
+
+  // 尝试从剩余文本中提取工具调用
+  if (remainingText.trim().length > 0) {
+    console.log(`从剩余文本中提取工具调用，剩余文本长度: ${remainingText.length}字符`);
+    extractToolCallFromText(remainingText, toolCalls, processedToolCalls);
+  }
+
+  console.log(`工具调用解析完成，共找到 ${toolCalls.length} 个工具调用`);
   return toolCalls;
 }
 

@@ -50,25 +50,25 @@ import { getStrategyParams } from "../strategies";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { createLogger } from "../utils/loggerUtils";
 import { getChinaTimeISO } from "../utils/timeUtils";
-import { iterationCount, executeTradingDecision } from "./tradingLoop";
+import { executeTradingDecision, iterationCount } from "./tradingLoop";
 
 const logger = createLogger({
-  name: "stop-loss-monitor",
-  level: "info",
+	name: "stop-loss-monitor",
+	level: "info",
 });
 
 const dbClient = createClient({
-  url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+	url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
 });
 
 // ==================== 止损默认配置 ====================
 const DEFAULT_STOP_LOSS_CONFIG = {
-  enabled: true,
-  levels: [
-    { leverageMin: 9, leverageMax: 11, threshold: -15 }, // 9-11倍杠杆，亏损 -15% 时止损
-    { leverageMin: 12, leverageMax: 12, threshold: -10 }, // 12倍杠杆，亏损 -10% 时止损
-    { leverageMin: 13, leverageMax: 100, threshold: -8 }, // 13倍以上杠杆，亏损 -8% 时止损
-  ],
+	enabled: true,
+	levels: [
+		{ leverageMin: 9, leverageMax: 11, threshold: -15 }, // 9-11倍杠杆，亏损 -15% 时止损
+		{ leverageMin: 12, leverageMax: 12, threshold: -10 }, // 12倍杠杆，亏损 -10% 时止损
+		{ leverageMin: 13, leverageMax: 100, threshold: -8 }, // 13倍以上杠杆，亏损 -8% 时止损
+	],
 };
 
 /**
@@ -76,149 +76,149 @@ const DEFAULT_STOP_LOSS_CONFIG = {
  * 支持自定义杠杆范围配置、动态止损阈值和数据库存储
  */
 export async function getStopLossThreshold(
-  leverage: number,
-  symbol?: string
+	leverage: number,
+	symbol?: string,
 ): Promise<{
-  threshold: number;
-  level: string;
-  description: string;
+	threshold: number;
+	level: string;
+	description: string;
 }> {
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
-  let dynamicStopLoss = null;
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+	let dynamicStopLoss = null;
 
-  // 1. 检查是否存在数据库存储的动态止损阈值（优先级最高）
-  if (symbol && strategy === "cai-sen") {
-    try {
-      const { createClient } = await import("@libsql/client");
-      const dbClient = createClient({
-        url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
-      });
+	// 1. 检查是否存在数据库存储的动态止损阈值（优先级最高）
+	if (symbol && strategy === "cai-sen") {
+		try {
+			const { createClient } = await import("@libsql/client");
+			const dbClient = createClient({
+				url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+			});
 
-      const result = await dbClient.execute({
-        sql: `SELECT value FROM strategy_params WHERE key = ? AND strategy = ?`,
-        args: [`dynamic_stop_loss_${symbol}`, strategy],
-      });
+			const result = await dbClient.execute({
+				sql: `SELECT value FROM strategy_params WHERE key = ? AND strategy = ?`,
+				args: [`dynamic_stop_loss_${symbol}`, strategy],
+			});
 
-      if (result.rows && result.rows.length > 0) {
-        dynamicStopLoss = JSON.parse(result.rows[0].value as string);
-        logger.info(
-          `从数据库读取动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`
-        );
-      }
-    } catch (error) {
-      logger.warn(
-        `从数据库读取动态止损阈值失败: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      // 读取失败时，继续检查内存中的动态止损配置
-    }
-  }
+			if (result.rows && result.rows.length > 0) {
+				dynamicStopLoss = JSON.parse(result.rows[0].value as string);
+				logger.info(
+					`从数据库读取动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`,
+				);
+			}
+		} catch (error) {
+			logger.warn(
+				`从数据库读取动态止损阈值失败: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			// 读取失败时，继续检查内存中的动态止损配置
+		}
+	}
 
-  // 2. 检查是否存在内存中的动态止损阈值（蔡森Agent设置）
-  if (
-    !dynamicStopLoss &&
-    symbol &&
-    params.dynamicStopLoss &&
-    params.dynamicStopLoss[symbol]
-  ) {
-    dynamicStopLoss = params.dynamicStopLoss[symbol];
-    logger.debug(
-      `使用内存中的动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`
-    );
-  }
+	// 2. 检查是否存在内存中的动态止损阈值（蔡森Agent设置）
+	if (
+		!dynamicStopLoss &&
+		symbol &&
+		params.dynamicStopLoss &&
+		params.dynamicStopLoss[symbol]
+	) {
+		dynamicStopLoss = params.dynamicStopLoss[symbol];
+		logger.debug(
+			`使用内存中的动态止损阈值: ${symbol} - ${dynamicStopLoss.threshold}%`,
+		);
+	}
 
-  // 3. 如果存在动态止损阈值，返回该阈值
-  if (dynamicStopLoss) {
-    return {
-      threshold: dynamicStopLoss.threshold,
-      level: "动态止损",
-      description: `蔡森Agent动态设置：${symbol} 亏损 ${dynamicStopLoss.threshold}% 时止损（评估周期：${dynamicStopLoss.evaluationInterval}分钟）`,
-    };
-  }
+	// 3. 如果存在动态止损阈值，返回该阈值
+	if (dynamicStopLoss) {
+		return {
+			threshold: dynamicStopLoss.threshold,
+			level: "动态止损",
+			description: `蔡森Agent动态设置：${symbol} 亏损 ${dynamicStopLoss.threshold}% 时止损（评估周期：${dynamicStopLoss.evaluationInterval}分钟）`,
+		};
+	}
 
-  // 4. 获取止损配置，使用默认值作为回退
-  let stopLossConfig;
-  if (params.stopLoss) {
-    // 处理旧格式配置（兼容）
-    if (params.stopLoss.low && params.stopLoss.mid && params.stopLoss.high) {
-      // 旧格式：low/mid/high
-      const levMin = params.leverageMin;
-      const levMax = params.leverageMax;
-      const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
-      const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+	// 4. 获取止损配置，使用默认值作为回退
+	let stopLossConfig;
+	if (params.stopLoss) {
+		// 处理旧格式配置（兼容）
+		if (params.stopLoss.low && params.stopLoss.mid && params.stopLoss.high) {
+			// 旧格式：low/mid/high
+			const levMin = params.leverageMin;
+			const levMax = params.leverageMax;
+			const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+			const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
 
-      stopLossConfig = {
-        enabled: true,
-        levels: [
-          {
-            leverageMin: levMin,
-            leverageMax: lowThreshold,
-            threshold: params.stopLoss.low,
-          },
-          {
-            leverageMin: lowThreshold + 1,
-            leverageMax: midThreshold,
-            threshold: params.stopLoss.mid,
-          },
-          {
-            leverageMin: midThreshold + 1,
-            leverageMax: levMax,
-            threshold: params.stopLoss.high,
-          },
-        ],
-      };
-    } else {
-      // 新格式：自定义杠杆范围
-      stopLossConfig = params.stopLoss;
-    }
-  } else {
-    // 使用默认配置
-    stopLossConfig = DEFAULT_STOP_LOSS_CONFIG;
-  }
+			stopLossConfig = {
+				enabled: true,
+				levels: [
+					{
+						leverageMin: levMin,
+						leverageMax: lowThreshold,
+						threshold: params.stopLoss.low,
+					},
+					{
+						leverageMin: lowThreshold + 1,
+						leverageMax: midThreshold,
+						threshold: params.stopLoss.mid,
+					},
+					{
+						leverageMin: midThreshold + 1,
+						leverageMax: levMax,
+						threshold: params.stopLoss.high,
+					},
+				],
+			};
+		} else {
+			// 新格式：自定义杠杆范围
+			stopLossConfig = params.stopLoss;
+		}
+	} else {
+		// 使用默认配置
+		stopLossConfig = DEFAULT_STOP_LOSS_CONFIG;
+	}
 
-  // 5. 根据杠杆范围自动映射到 low/mid/high
-  // 低杠杆：leverageMin ~ leverageMin + (leverageMax - leverageMin) * 0.33
-  // 中杠杆：低杠杆上限 + 1 ~ leverageMin + (leverageMax - leverageMin) * 0.67
-  // 高杠杆：中杠杆上限 + 1 ~ leverageMax
-  const levMin = params.leverageMin;
-  const levMax = params.leverageMax;
-  const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
-  const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+	// 5. 根据杠杆范围自动映射到 low/mid/high
+	// 低杠杆：leverageMin ~ leverageMin + (leverageMax - leverageMin) * 0.33
+	// 中杠杆：低杠杆上限 + 1 ~ leverageMin + (leverageMax - leverageMin) * 0.67
+	// 高杠杆：中杠杆上限 + 1 ~ leverageMax
+	const levMin = params.leverageMin;
+	const levMax = params.leverageMax;
+	const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+	const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
 
-  if (leverage > midThreshold) {
-    return {
-      threshold: params.stopLoss.high,
-      level: "高杠杆",
-      description: `${midThreshold + 1}倍以上杠杆，亏损 ${
-        params.stopLoss.high
-      }% 时止损`,
-    };
-  } else if (leverage > lowThreshold) {
-    return {
-      threshold: params.stopLoss.mid,
-      level: "中杠杆",
-      description: `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
-        params.stopLoss.mid
-      }% 时止损`,
-    };
-  } else {
-    return {
-      threshold: params.stopLoss.low,
-      level: "低杠杆",
-      description: `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
-    };
-  }
+	if (leverage > midThreshold) {
+		return {
+			threshold: params.stopLoss.high,
+			level: "高杠杆",
+			description: `${midThreshold + 1}倍以上杠杆，亏损 ${
+				params.stopLoss.high
+			}% 时止损`,
+		};
+	} else if (leverage > lowThreshold) {
+		return {
+			threshold: params.stopLoss.mid,
+			level: "中杠杆",
+			description: `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
+				params.stopLoss.mid
+			}% 时止损`,
+		};
+	} else {
+		return {
+			threshold: params.stopLoss.low,
+			level: "低杠杆",
+			description: `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
+		};
+	}
 }
 
 // 持仓监控记录：symbol -> { checkCount, lastCheckTime }
 const positionMonitorHistory = new Map<
-  string,
-  {
-    lastCheckTime: number;
-    checkCount: number;
-  }
+	string,
+	{
+		lastCheckTime: number;
+		checkCount: number;
+	}
 >();
 
 let monitorInterval: NodeJS.Timeout | null = null;
@@ -229,63 +229,63 @@ let aiStopLossJudger: AIStopLossJudger | null = null;
  * 检查当前策略是否启用代码级止损
  */
 function isStopLossEnabled(): boolean {
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
-  return params.enableCodeLevelProtection === true;
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+	return params.enableCodeLevelProtection === true;
 }
 
 /**
  * 获取止损配置（用于日志输出）
  */
 function getStopLossConfig() {
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
 
-  if (!params.stopLoss) {
-    return null;
-  }
+	if (!params.stopLoss) {
+		return null;
+	}
 
-  const levMin = params.leverageMin;
-  const levMax = params.leverageMax;
-  const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
-  const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
+	const levMin = params.leverageMin;
+	const levMax = params.leverageMax;
+	const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
+	const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
 
-  return {
-    lowRisk: {
-      description: `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
-      threshold: params.stopLoss.low,
-    },
-    mediumRisk: {
-      description: `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
-        params.stopLoss.mid
-      }% 时止损`,
-      threshold: params.stopLoss.mid,
-    },
-    highRisk: {
-      description: `${midThreshold + 1}倍以上杠杆，亏损 ${
-        params.stopLoss.high
-      }% 时止损`,
-      threshold: params.stopLoss.high,
-    },
-  };
+	return {
+		lowRisk: {
+			description: `${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
+			threshold: params.stopLoss.low,
+		},
+		mediumRisk: {
+			description: `${lowThreshold + 1}-${midThreshold}倍杠杆，亏损 ${
+				params.stopLoss.mid
+			}% 时止损`,
+			threshold: params.stopLoss.mid,
+		},
+		highRisk: {
+			description: `${midThreshold + 1}倍以上杠杆，亏损 ${
+				params.stopLoss.high
+			}% 时止损`,
+			threshold: params.stopLoss.high,
+		},
+	};
 }
 
 /**
  * 计算持仓盈亏百分比（考虑杠杆）
  */
 function calculatePnlPercent(
-  entryPrice: number,
-  currentPrice: number,
-  side: string,
-  leverage: number
+	entryPrice: number,
+	currentPrice: number,
+	side: string,
+	leverage: number,
 ): number {
-  const priceChangePercent =
-    entryPrice > 0
-      ? ((currentPrice - entryPrice) / entryPrice) *
-        100 *
-        (side === "long" ? 1 : -1)
-      : 0;
-  return priceChangePercent * leverage;
+	const priceChangePercent =
+		entryPrice > 0
+			? ((currentPrice - entryPrice) / entryPrice) *
+				100 *
+				(side === "long" ? 1 : -1)
+			: 0;
+	return priceChangePercent * leverage;
 }
 
 /**
@@ -293,289 +293,289 @@ function calculatePnlPercent(
  * 如果价格为0或盈亏不正确，从开仓记录重新计算
  */
 async function fixStopLossTradeRecord(symbol: string): Promise<void> {
-  const exchangeClient = createExchangeClient();
+	const exchangeClient = createExchangeClient();
 
-  try {
-    // 查找最近的平仓记录
-    const closeResult = await dbClient.execute({
-      sql: `SELECT * FROM trades WHERE symbol = ? AND type = 'close' ORDER BY timestamp DESC LIMIT 1`,
-      args: [symbol],
-    });
+	try {
+		// 查找最近的平仓记录
+		const closeResult = await dbClient.execute({
+			sql: `SELECT * FROM trades WHERE symbol = ? AND type = 'close' ORDER BY timestamp DESC LIMIT 1`,
+			args: [symbol],
+		});
 
-    if (!closeResult.rows || closeResult.rows.length === 0) {
-      logger.warn(`未找到 ${symbol} 的平仓记录`);
-      return;
-    }
+		if (!closeResult.rows || closeResult.rows.length === 0) {
+			logger.warn(`未找到 ${symbol} 的平仓记录`);
+			return;
+		}
 
-    const closeTrade = closeResult.rows[0];
-    const id = closeTrade.id;
-    const side = closeTrade.side as string;
-    let closePrice = Number.parseFloat(closeTrade.price as string);
-    const quantity = Number.parseFloat(closeTrade.quantity as string);
-    const recordedPnl = Number.parseFloat((closeTrade.pnl as string) || "0");
-    const recordedFee = Number.parseFloat((closeTrade.fee as string) || "0");
-    const timestamp = closeTrade.timestamp as string;
+		const closeTrade = closeResult.rows[0];
+		const id = closeTrade.id;
+		const side = closeTrade.side as string;
+		let closePrice = Number.parseFloat(closeTrade.price as string);
+		const quantity = Number.parseFloat(closeTrade.quantity as string);
+		const recordedPnl = Number.parseFloat((closeTrade.pnl as string) || "0");
+		const recordedFee = Number.parseFloat((closeTrade.fee as string) || "0");
+		const timestamp = closeTrade.timestamp as string;
 
-    // 查找对应的开仓记录
-    const openResult = await dbClient.execute({
-      sql: `SELECT * FROM trades WHERE symbol = ? AND type = 'open' AND timestamp < ? ORDER BY timestamp DESC LIMIT 1`,
-      args: [symbol, timestamp],
-    });
+		// 查找对应的开仓记录
+		const openResult = await dbClient.execute({
+			sql: `SELECT * FROM trades WHERE symbol = ? AND type = 'open' AND timestamp < ? ORDER BY timestamp DESC LIMIT 1`,
+			args: [symbol, timestamp],
+		});
 
-    if (!openResult.rows || openResult.rows.length === 0) {
-      logger.warn(`未找到 ${symbol} 对应的开仓记录，无法修复`);
-      return;
-    }
+		if (!openResult.rows || openResult.rows.length === 0) {
+			logger.warn(`未找到 ${symbol} 对应的开仓记录，无法修复`);
+			return;
+		}
 
-    const openTrade = openResult.rows[0];
-    const openPrice = Number.parseFloat(openTrade.price as string);
+		const openTrade = openResult.rows[0];
+		const openPrice = Number.parseFloat(openTrade.price as string);
 
-    // 如果平仓价格为0或无效，尝试获取当前价格作为近似值
-    if (closePrice === 0 || !Number.isFinite(closePrice)) {
-      try {
-        const contract = `${symbol}_USDT`;
-        const ticker = await exchangeClient.getFuturesTicker(contract);
-        closePrice = Number.parseFloat(ticker.last || ticker.markPrice || "0");
+		// 如果平仓价格为0或无效，尝试获取当前价格作为近似值
+		if (closePrice === 0 || !Number.isFinite(closePrice)) {
+			try {
+				const contract = `${symbol}_USDT`;
+				const ticker = await exchangeClient.getFuturesTicker(contract);
+				closePrice = Number.parseFloat(ticker.last || ticker.markPrice || "0");
 
-        if (closePrice > 0) {
-          logger.info(
-            `使用当前ticker价格修复 ${symbol} 平仓价格: ${closePrice}`
-          );
-        } else {
-          logger.error(`无法获取有效价格修复 ${symbol} 交易记录`);
-          return;
-        }
-      } catch (error: any) {
-        logger.error(`获取${symbol} ticker价格失败: ${error.message}`);
-        return;
-      }
-    }
+				if (closePrice > 0) {
+					logger.info(
+						`使用当前ticker价格修复 ${symbol} 平仓价格: ${closePrice}`,
+					);
+				} else {
+					logger.error(`无法获取有效价格修复 ${symbol} 交易记录`);
+					return;
+				}
+			} catch (error: any) {
+				logger.error(`获取${symbol} ticker价格失败: ${error.message}`);
+				return;
+			}
+		}
 
-    // 获取合约乘数
-    const contract = `${symbol}_USDT`;
-    const quantoMultiplier = await getQuantoMultiplier(contract);
+		// 获取合约乘数
+		const contract = `${symbol}_USDT`;
+		const quantoMultiplier = await getQuantoMultiplier(contract);
 
-    // 重新计算正确的盈亏
-    const priceChange =
-      side === "long" ? closePrice - openPrice : openPrice - closePrice;
+		// 重新计算正确的盈亏
+		const priceChange =
+			side === "long" ? closePrice - openPrice : openPrice - closePrice;
 
-    const grossPnl = priceChange * quantity * quantoMultiplier;
-    const openFee = openPrice * quantity * quantoMultiplier * 0.0005;
-    const closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
-    const totalFee = openFee + closeFee;
-    const correctPnl = grossPnl - totalFee;
+		const grossPnl = priceChange * quantity * quantoMultiplier;
+		const openFee = openPrice * quantity * quantoMultiplier * 0.0005;
+		const closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
+		const totalFee = openFee + closeFee;
+		const correctPnl = grossPnl - totalFee;
 
-    // 计算差异
-    const priceDiff = Math.abs(
-      Number.parseFloat(closeTrade.price as string) - closePrice
-    );
-    const pnlDiff = Math.abs(recordedPnl - correctPnl);
-    const feeDiff = Math.abs(recordedFee - totalFee);
+		// 计算差异
+		const priceDiff = Math.abs(
+			Number.parseFloat(closeTrade.price as string) - closePrice,
+		);
+		const pnlDiff = Math.abs(recordedPnl - correctPnl);
+		const feeDiff = Math.abs(recordedFee - totalFee);
 
-    // 如果需要修复（价格为0或差异大于阈值）
-    if (priceDiff > 0.01 || pnlDiff > 0.5 || feeDiff > 0.1) {
-      logger.warn(`【修复止损交易记录】${symbol} ${side}`);
-      logger.warn(`  开仓价: ${openPrice.toFixed(4)}`);
-      logger.warn(
-        `  平仓价: ${Number.parseFloat(closeTrade.price as string).toFixed(
-          4
-        )} → ${closePrice.toFixed(4)}`
-      );
-      logger.warn(
-        `  盈亏: ${recordedPnl.toFixed(2)} → ${correctPnl.toFixed(
-          2
-        )} USDT (差异: ${pnlDiff.toFixed(2)})`
-      );
-      logger.warn(
-        `  手续费: ${recordedFee.toFixed(4)} → ${totalFee.toFixed(4)} USDT`
-      );
+		// 如果需要修复（价格为0或差异大于阈值）
+		if (priceDiff > 0.01 || pnlDiff > 0.5 || feeDiff > 0.1) {
+			logger.warn(`【修复止损交易记录】${symbol} ${side}`);
+			logger.warn(`  开仓价: ${openPrice.toFixed(4)}`);
+			logger.warn(
+				`  平仓价: ${Number.parseFloat(closeTrade.price as string).toFixed(
+					4,
+				)} → ${closePrice.toFixed(4)}`,
+			);
+			logger.warn(
+				`  盈亏: ${recordedPnl.toFixed(2)} → ${correctPnl.toFixed(
+					2,
+				)} USDT (差异: ${pnlDiff.toFixed(2)})`,
+			);
+			logger.warn(
+				`  手续费: ${recordedFee.toFixed(4)} → ${totalFee.toFixed(4)} USDT`,
+			);
 
-      // 更新数据库
-      await dbClient.execute({
-        sql: `UPDATE trades SET price = ?, pnl = ?, fee = ? WHERE id = ?`,
-        args: [closePrice, correctPnl, totalFee, id],
-      });
+			// 更新数据库
+			await dbClient.execute({
+				sql: `UPDATE trades SET price = ?, pnl = ?, fee = ? WHERE id = ?`,
+				args: [closePrice, correctPnl, totalFee, id],
+			});
 
-      logger.info(`【修复完成】${symbol} 止损交易记录已修复`);
-    } else {
-      logger.debug(`${symbol} 止损交易记录正确，无需修复`);
-    }
-  } catch (error: any) {
-    logger.error(`修复 ${symbol} 止损交易记录失败: ${error.message}`);
-    throw error;
-  }
+			logger.info(`【修复完成】${symbol} 止损交易记录已修复`);
+		} else {
+			logger.debug(`${symbol} 止损交易记录正确，无需修复`);
+		}
+	} catch (error: any) {
+		logger.error(`修复 ${symbol} 止损交易记录失败: ${error.message}`);
+		throw error;
+	}
 }
 
 /**
  * 执行止损平仓
  */
 async function executeStopLossClose(
-  symbol: string,
-  side: string,
-  quantity: number,
-  entryPrice: number,
-  currentPrice: number,
-  leverage: number,
-  pnlPercent: number,
-  stopLossThreshold: number,
-  riskLevel: string
+	symbol: string,
+	side: string,
+	quantity: number,
+	entryPrice: number,
+	currentPrice: number,
+	leverage: number,
+	pnlPercent: number,
+	stopLossThreshold: number,
+	riskLevel: string,
 ): Promise<boolean> {
-  const exchangeClient = createExchangeClient();
-  const contract = `${symbol}_USDT`;
+	const exchangeClient = createExchangeClient();
+	const contract = `${symbol}_USDT`;
 
-  try {
-    const size = side === "long" ? -quantity : quantity;
+	try {
+		const size = side === "long" ? -quantity : quantity;
 
-    logger.error(`【触发止损 ${riskLevel}】${symbol} ${side}`);
-    logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
-    logger.error(`  止损线: ${stopLossThreshold.toFixed(2)}%`);
-    logger.error(`  杠杆倍数: ${leverage}x`);
+		logger.error(`【触发止损 ${riskLevel}】${symbol} ${side}`);
+		logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
+		logger.error(`  止损线: ${stopLossThreshold.toFixed(2)}%`);
+		logger.error(`  杠杆倍数: ${leverage}x`);
 
-    // 1. 执行平仓订单
-    const order = await exchangeClient.placeOrder({
-      contract,
-      size,
-      price: 0,
-      reduceOnly: true,
-    });
+		// 1. 执行平仓订单
+		const order = await exchangeClient.placeOrder({
+			contract,
+			size,
+			price: 0,
+			reduceOnly: true,
+		});
 
-    logger.info(`已下达止损平仓订单 ${symbol}，订单ID: ${order.id}`);
+		logger.info(`已下达止损平仓订单 ${symbol}，订单ID: ${order.id}`);
 
-    // 2. 等待订单完成并获取成交信息
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+		// 2. 等待订单完成并获取成交信息
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    let actualExitPrice = 0;
-    let actualQuantity = quantity;
-    let pnl = 0;
-    let totalFee = 0;
-    let orderFilled = false;
+		let actualExitPrice = 0;
+		let actualQuantity = quantity;
+		let pnl = 0;
+		let totalFee = 0;
+		let orderFilled = false;
 
-    // 尝试从订单获取成交信息
-    if (order.id) {
-      for (let retry = 0; retry < 5; retry++) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+		// 尝试从订单获取成交信息
+		if (order.id) {
+			for (let retry = 0; retry < 5; retry++) {
+				await new Promise((resolve) => setTimeout(resolve, 500));
 
-        try {
-          const orderStatus = await exchangeClient.getOrder(
-            order.id?.toString() || ""
-          );
+				try {
+					const orderStatus = await exchangeClient.getOrder(
+						order.id?.toString() || "",
+					);
 
-          if (orderStatus.status === "finished") {
-            const fillPrice = Number.parseFloat(
-              orderStatus.fill_price || orderStatus.price || "0"
-            );
-            actualQuantity = Math.abs(
-              Number.parseFloat(orderStatus.size || "0")
-            );
+					if (orderStatus.status === "finished") {
+						const fillPrice = Number.parseFloat(
+							orderStatus.fill_price || orderStatus.price || "0",
+						);
+						actualQuantity = Math.abs(
+							Number.parseFloat(orderStatus.size || "0"),
+						);
 
-            if (fillPrice > 0) {
-              actualExitPrice = fillPrice;
-              orderFilled = true;
-              logger.info(`从订单获取成交价格: ${actualExitPrice}`);
-              break;
-            }
-          }
-        } catch (statusError: any) {
-          logger.warn(
-            `查询止损订单状态失败 (重试${retry + 1}/5): ${statusError.message}`
-          );
-        }
-      }
-    }
+						if (fillPrice > 0) {
+							actualExitPrice = fillPrice;
+							orderFilled = true;
+							logger.info(`从订单获取成交价格: ${actualExitPrice}`);
+							break;
+						}
+					}
+				} catch (statusError: any) {
+					logger.warn(
+						`查询止损订单状态失败 (重试${retry + 1}/5): ${statusError.message}`,
+					);
+				}
+			}
+		}
 
-    // 如果未能从订单获取价格，使用ticker价格
-    if (actualExitPrice === 0) {
-      try {
-        const ticker = await exchangeClient.getFuturesTicker(contract);
-        actualExitPrice = Number.parseFloat(
-          ticker.last || ticker.markPrice || "0"
-        );
+		// 如果未能从订单获取价格，使用ticker价格
+		if (actualExitPrice === 0) {
+			try {
+				const ticker = await exchangeClient.getFuturesTicker(contract);
+				actualExitPrice = Number.parseFloat(
+					ticker.last || ticker.markPrice || "0",
+				);
 
-        if (actualExitPrice > 0) {
-          logger.warn(`未能从订单获取价格，使用ticker价格: ${actualExitPrice}`);
-        } else {
-          // 最后备用：使用传入的currentPrice
-          actualExitPrice = currentPrice;
-          logger.warn(
-            `ticker价格也无效，使用传入的currentPrice: ${actualExitPrice}`
-          );
-        }
-      } catch (tickerError: any) {
-        logger.error(
-          `获取ticker价格失败: ${tickerError.message}，使用传入的currentPrice: ${currentPrice}`
-        );
-        actualExitPrice = currentPrice;
-      }
-    }
+				if (actualExitPrice > 0) {
+					logger.warn(`未能从订单获取价格，使用ticker价格: ${actualExitPrice}`);
+				} else {
+					// 最后备用：使用传入的currentPrice
+					actualExitPrice = currentPrice;
+					logger.warn(
+						`ticker价格也无效，使用传入的currentPrice: ${actualExitPrice}`,
+					);
+				}
+			} catch (tickerError: any) {
+				logger.error(
+					`获取ticker价格失败: ${tickerError.message}，使用传入的currentPrice: ${currentPrice}`,
+				);
+				actualExitPrice = currentPrice;
+			}
+		}
 
-    // 计算盈亏（无论是否成功获取订单状态）
-    if (actualExitPrice > 0) {
-      try {
-        // 获取合约乘数
-        const quantoMultiplier = await getQuantoMultiplier(contract);
+		// 计算盈亏（无论是否成功获取订单状态）
+		if (actualExitPrice > 0) {
+			try {
+				// 获取合约乘数
+				const quantoMultiplier = await getQuantoMultiplier(contract);
 
-        // 计算盈亏
-        const priceChange =
-          side === "long"
-            ? actualExitPrice - entryPrice
-            : entryPrice - actualExitPrice;
+				// 计算盈亏
+				const priceChange =
+					side === "long"
+						? actualExitPrice - entryPrice
+						: entryPrice - actualExitPrice;
 
-        const grossPnl = priceChange * actualQuantity * quantoMultiplier;
+				const grossPnl = priceChange * actualQuantity * quantoMultiplier;
 
-        // 计算手续费（开仓 + 平仓）
-        const openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
-        const closeFee =
-          actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
-        totalFee = openFee + closeFee;
+				// 计算手续费（开仓 + 平仓）
+				const openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
+				const closeFee =
+					actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
+				totalFee = openFee + closeFee;
 
-        // 净盈亏
-        pnl = grossPnl - totalFee;
+				// 净盈亏
+				pnl = grossPnl - totalFee;
 
-        logger.info(
-          `止损平仓成交: 价格=${actualExitPrice.toFixed(
-            2
-          )}, 数量=${actualQuantity}, 盈亏=${pnl.toFixed(2)} USDT`
-        );
-      } catch (calcError: any) {
-        logger.error(`计算盈亏失败: ${calcError.message}`);
-      }
-    } else {
-      logger.error(`无法获取有效的平仓价格，将记录为0，稍后由修复工具修复`);
-    }
+				logger.info(
+					`止损平仓成交: 价格=${actualExitPrice.toFixed(
+						2,
+					)}, 数量=${actualQuantity}, 盈亏=${pnl.toFixed(2)} USDT`,
+				);
+			} catch (calcError: any) {
+				logger.error(`计算盈亏失败: ${calcError.message}`);
+			}
+		} else {
+			logger.error(`无法获取有效的平仓价格，将记录为0，稍后由修复工具修复`);
+		}
 
-    // 3. 记录到trades表
-    const insertResult = await dbClient.execute({
-      sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+		// 3. 记录到trades表
+		const insertResult = await dbClient.execute({
+			sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        order.id?.toString() || "",
-        symbol,
-        side,
-        "close",
-        actualExitPrice,
-        actualQuantity,
-        leverage,
-        pnl,
-        totalFee,
-        getChinaTimeISO(),
-        orderFilled ? "filled" : "pending",
-      ],
-    });
+			args: [
+				order.id?.toString() || "",
+				symbol,
+				side,
+				"close",
+				actualExitPrice,
+				actualQuantity,
+				leverage,
+				pnl,
+				totalFee,
+				getChinaTimeISO(),
+				orderFilled ? "filled" : "pending",
+			],
+		});
 
-    // 3.1 立即调用修复工具修复这条交易记录
-    try {
-      logger.info(`正在验证和修复 ${symbol} 的止损交易记录...`);
-      await fixStopLossTradeRecord(symbol);
-    } catch (fixError: any) {
-      logger.warn(
-        `修复止损交易记录失败: ${fixError.message}，将在下次周期自动修复`
-      );
-    }
+		// 3.1 立即调用修复工具修复这条交易记录
+		try {
+			logger.info(`正在验证和修复 ${symbol} 的止损交易记录...`);
+			await fixStopLossTradeRecord(symbol);
+		} catch (fixError: any) {
+			logger.warn(
+				`修复止损交易记录失败: ${fixError.message}，将在下次周期自动修复`,
+			);
+		}
 
-    // 4. 记录决策信息到agent_decisions表
-    const decisionText = `【止损触发 - ${riskLevel}】${symbol} ${
-      side === "long" ? "做多" : "做空"
-    }
+		// 4. 记录决策信息到agent_decisions表
+		const decisionText = `【止损触发 - ${riskLevel}】${symbol} ${
+			side === "long" ? "做多" : "做空"
+		}
 风险等级: ${riskLevel}
 杠杆倍数: ${leverage}x
 当前亏损: ${pnlPercent.toFixed(2)}%
@@ -584,339 +584,339 @@ async function executeStopLossClose(
 平仓盈亏: ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} USDT
 
 触发条件: 亏损达到${pnlPercent.toFixed(
-      2
-    )}%，超过${riskLevel}止损线${stopLossThreshold.toFixed(2)}%`;
+			2,
+		)}%，超过${riskLevel}止损线${stopLossThreshold.toFixed(2)}%`;
 
-    await dbClient.execute({
-      sql: `INSERT INTO agent_decisions 
+		await dbClient.execute({
+			sql: `INSERT INTO agent_decisions 
             (timestamp, iteration, market_analysis, decision, actions_taken, account_value, positions_count)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        getChinaTimeISO(),
-        iterationCount, // 使用当前AI策略回合数
-        JSON.stringify({
-          trigger: "stop_loss",
-          symbol,
-          pnlPercent,
-          stopLossThreshold,
-          riskLevel,
-        }),
-        decisionText,
-        JSON.stringify([
-          { action: "close_position", symbol, reason: "stop_loss" },
-        ]),
-        0, // 稍后更新
-        0, // 稍后更新
-      ],
-    });
+			args: [
+				getChinaTimeISO(),
+				iterationCount, // 使用当前AI策略回合数
+				JSON.stringify({
+					trigger: "stop_loss",
+					symbol,
+					pnlPercent,
+					stopLossThreshold,
+					riskLevel,
+				}),
+				decisionText,
+				JSON.stringify([
+					{ action: "close_position", symbol, reason: "stop_loss" },
+				]),
+				0, // 稍后更新
+				0, // 稍后更新
+			],
+		});
 
-    // 5. 从数据库删除持仓记录
-    await dbClient.execute({
-      sql: "DELETE FROM positions WHERE symbol = ?",
-      args: [symbol],
-    });
+		// 5. 从数据库删除持仓记录
+		await dbClient.execute({
+			sql: "DELETE FROM positions WHERE symbol = ?",
+			args: [symbol],
+		});
 
-    logger.info(
-      `止损平仓完成 ${symbol}，盈亏：${pnl >= 0 ? "+" : ""}${pnl.toFixed(
-        2
-      )} USDT`
-    );
+		logger.info(
+			`止损平仓完成 ${symbol}，盈亏：${pnl >= 0 ? "+" : ""}${pnl.toFixed(
+				2,
+			)} USDT`,
+		);
 
-    // 6. 从内存中清除记录
-    positionMonitorHistory.delete(symbol);
+		// 6. 从内存中清除记录
+		positionMonitorHistory.delete(symbol);
 
-    return true;
-  } catch (error: any) {
-    logger.error(`止损平仓失败 ${symbol}: ${error.message}`);
-    return false;
-  }
+		return true;
+	} catch (error: any) {
+		logger.error(`止损平仓失败 ${symbol}: ${error.message}`);
+		return false;
+	}
 }
 
 /**
  * 检查所有持仓的止损条件
  */
 async function checkStopLoss() {
-  if (!isRunning) {
-    return;
-  }
+	if (!isRunning) {
+		return;
+	}
 
-  try {
-    const exchangeClient = createExchangeClient();
+	try {
+		const exchangeClient = createExchangeClient();
 
-    // 1. 获取所有持仓
-    const gatePositions = await exchangeClient.getPositions();
-    const activePositions = gatePositions.filter(
-      (p: any) => Number.parseInt(p.size || "0") !== 0
-    );
+		// 1. 获取所有持仓
+		const gatePositions = await exchangeClient.getPositions();
+		const activePositions = gatePositions.filter(
+			(p: any) => Number.parseInt(p.size || "0") !== 0,
+		);
 
-    if (activePositions.length === 0) {
-      // 清空内存记录
-      positionMonitorHistory.clear();
-      return;
-    }
+		if (activePositions.length === 0) {
+			// 清空内存记录
+			positionMonitorHistory.clear();
+			return;
+		}
 
-    // 2. 从数据库获取持仓信息（获取加权平均成本）
-    const dbResult = await dbClient.execute(
-      "SELECT symbol, average_entry_price, entry_price FROM positions"
-    );
-    const dbInfoMap = new Map(
-      dbResult.rows.map((row: any) => [
-        row.symbol,
-        {
-          averageEntryPrice: row.average_entry_price || row.entry_price || 0,
-        },
-      ])
-    );
+		// 2. 从数据库获取持仓信息（获取加权平均成本）
+		const dbResult = await dbClient.execute(
+			"SELECT symbol, average_entry_price, entry_price FROM positions",
+		);
+		const dbInfoMap = new Map(
+			dbResult.rows.map((row: any) => [
+				row.symbol,
+				{
+					averageEntryPrice: row.average_entry_price || row.entry_price || 0,
+				},
+			]),
+		);
 
-    const now = Date.now();
-    let shouldWakeAgent = false; // 标志位：是否需要唤醒Agent
+		const now = Date.now();
+		let shouldWakeAgent = false; // 标志位：是否需要唤醒Agent
 
-    // 3. 检查每个持仓
-    for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
-      const symbol = pos.contract.replace("_USDT", "");
-      const side = size > 0 ? "long" : "short";
-      const quantity = Math.abs(size);
-      
-      // 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
-      const dbInfo = dbInfoMap.get(symbol);
-      const exchangeEntryPrice = Number.parseFloat(pos.entryPrice || "0");
-      const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
-      
-      const currentPrice = Number.parseFloat(pos.markPrice || "0");
-      const leverage = Number.parseInt(pos.leverage || "1");
+		// 3. 检查每个持仓
+		for (const pos of activePositions) {
+			const size = Number.parseInt(pos.size || "0");
+			const symbol = pos.contract.replace("_USDT", "");
+			const side = size > 0 ? "long" : "short";
+			const quantity = Math.abs(size);
 
-      // 验证数据有效性
-      if (entryPrice === 0 || currentPrice === 0 || leverage === 0) {
-        logger.warn(`${symbol} 数据无效，跳过止损检查`);
-        continue;
-      }
+			// 优先使用数据库中的加权平均成本，如果没有则使用交易所的开仓价
+			const dbInfo = dbInfoMap.get(symbol);
+			const exchangeEntryPrice = Number.parseFloat(pos.entryPrice || "0");
+			const entryPrice = dbInfo?.averageEntryPrice || exchangeEntryPrice;
 
-      // 计算盈亏百分比（考虑杠杆）
-      const pnlPercent = calculatePnlPercent(
-        entryPrice,
-        currentPrice,
-        side,
-        leverage
-      );
+			const currentPrice = Number.parseFloat(pos.markPrice || "0");
+			const leverage = Number.parseInt(pos.leverage || "1");
 
-      // 获取或初始化监控历史记录
-      let history = positionMonitorHistory.get(symbol);
-      if (!history) {
-        history = {
-          lastCheckTime: now,
-          checkCount: 0,
-        };
-        positionMonitorHistory.set(symbol, history);
-        logger.info(
-          `${symbol} 开始监控止损，当前盈亏: ${pnlPercent.toFixed(2)}%`
-        );
-      }
+			// 验证数据有效性
+			if (entryPrice === 0 || currentPrice === 0 || leverage === 0) {
+				logger.warn(`${symbol} 数据无效，跳过止损检查`);
+				continue;
+			}
 
-      // 增加检查次数
-      history.checkCount++;
-      history.lastCheckTime = now;
+			// 计算盈亏百分比（考虑杠杆）
+			const pnlPercent = calculatePnlPercent(
+				entryPrice,
+				currentPrice,
+				side,
+				leverage,
+			);
 
-      // 3. 检查止损条件
-      // 根据杠杆倍数和币种确定止损阈值（支持动态止损）
-      const thresholdInfo = await getStopLossThreshold(leverage, symbol);
+			// 获取或初始化监控历史记录
+			let history = positionMonitorHistory.get(symbol);
+			if (!history) {
+				history = {
+					lastCheckTime: now,
+					checkCount: 0,
+				};
+				positionMonitorHistory.set(symbol, history);
+				logger.info(
+					`${symbol} 开始监控止损，当前盈亏: ${pnlPercent.toFixed(2)}%`,
+				);
+			}
 
-      // 检查止损线合理性，防止异常值
-      if (thresholdInfo.threshold >= 0) {
-        logger.warn(
-          `${symbol} 止损线配置异常: ${thresholdInfo.threshold.toFixed(
-            2
-          )}%，使用默认值 -8%`
-        );
-        thresholdInfo.threshold = -8;
-        thresholdInfo.description = `异常修复: 13倍以上杠杆，亏损 -8% 时止损`;
-      }
+			// 增加检查次数
+			history.checkCount++;
+			history.lastCheckTime = now;
 
-      // 检查是否触发止损（亏损达到或超过止损线，且亏损幅度大于0.1%以避免微小波动）
-      if (pnlPercent <= thresholdInfo.threshold && pnlPercent < -0.1) {
-        logger.error(`${symbol} 触发止损条件:`);
-        logger.error(
-          `  风险等级: ${thresholdInfo.level} - ${thresholdInfo.description}`
-        );
-        logger.error(`  杠杆倍数: ${leverage}x`);
-        logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
-        logger.error(`  止损线: ${thresholdInfo.threshold.toFixed(2)}%`);
+			// 3. 检查止损条件
+			// 根据杠杆倍数和币种确定止损阈值（支持动态止损）
+			const thresholdInfo = await getStopLossThreshold(leverage, symbol);
 
-        // 设置标志位，需要唤醒Agent
-        shouldWakeAgent = true;
+			// 检查止损线合理性，防止异常值
+			if (thresholdInfo.threshold >= 0) {
+				logger.warn(
+					`${symbol} 止损线配置异常: ${thresholdInfo.threshold.toFixed(
+						2,
+					)}%，使用默认值 -8%`,
+				);
+				thresholdInfo.threshold = -8;
+				thresholdInfo.description = `异常修复: 13倍以上杠杆，亏损 -8% 时止损`;
+			}
 
-        // 使用AI判断是否为偶发性波动
-        let shouldStopLoss = true;
-        let aiJudgment = "未启用AI判断";
+			// 检查是否触发止损（亏损达到或超过止损线，且亏损幅度大于0.1%以避免微小波动）
+			if (pnlPercent <= thresholdInfo.threshold && pnlPercent < -0.1) {
+				logger.error(`${symbol} 触发止损条件:`);
+				logger.error(
+					`  风险等级: ${thresholdInfo.level} - ${thresholdInfo.description}`,
+				);
+				logger.error(`  杠杆倍数: ${leverage}x`);
+				logger.error(`  当前亏损: ${pnlPercent.toFixed(2)}%`);
+				logger.error(`  止损线: ${thresholdInfo.threshold.toFixed(2)}%`);
 
-        try {
-          // 初始化AI判断器（如果尚未初始化）
-          if (!aiStopLossJudger) {
-            aiStopLossJudger = new AIStopLossJudger();
-            await aiStopLossJudger.initialize();
-          }
+				// 设置标志位，需要唤醒Agent
+				shouldWakeAgent = true;
 
-          // 使用AI判断当前市场情况
-          const judgment = await aiStopLossJudger.judgeStopLoss(
-            pos.id || `${symbol}_${Date.now()}`,
-            symbol,
-            pnlPercent,
-            leverage
-          );
+				// 使用AI判断是否为偶发性波动
+				let shouldStopLoss = true;
+				let aiJudgment = "未启用AI判断";
 
-          // 根据AI判断结果决定是否执行止损
-          if (
-            judgment.recommendedAction === "hold_position" &&
-            judgment.confidence >= 0.7
-          ) {
-            shouldStopLoss = false;
-            aiJudgment = `AI建议继续持仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
-          } else if (judgment.recommendedAction === "reduce_position") {
-            // 减少仓位的情况，暂时执行止损，但记录AI建议
-            aiJudgment = `AI建议减少仓位(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
-          } else {
-            aiJudgment = `AI建议平仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
-          }
+				try {
+					// 初始化AI判断器（如果尚未初始化）
+					if (!aiStopLossJudger) {
+						aiStopLossJudger = new AIStopLossJudger();
+						await aiStopLossJudger.initialize();
+					}
 
-          logger.info(`AI判断结果: ${aiJudgment}`);
-        } catch (error: any) {
-          logger.warn(`AI判断失败，使用传统止损: ${error.message}`);
-          // AI判断失败时，默认执行止损
-          shouldStopLoss = true;
-        }
+					// 使用AI判断当前市场情况
+					const judgment = await aiStopLossJudger.judgeStopLoss(
+						pos.id || `${symbol}_${Date.now()}`,
+						symbol,
+						pnlPercent,
+						leverage,
+					);
 
-        // 根据AI判断结果决定是否执行止损
-        if (shouldStopLoss) {
-          // 执行止损平仓
-          const success = await executeStopLossClose(
-            symbol,
-            side,
-            quantity,
-            entryPrice,
-            currentPrice,
-            leverage,
-            pnlPercent,
-            thresholdInfo.threshold,
-            `${thresholdInfo.level} - ${thresholdInfo.description} (AI确认: ${aiJudgment})`
-          );
+					// 根据AI判断结果决定是否执行止损
+					if (
+						judgment.recommendedAction === "hold_position" &&
+						judgment.confidence >= 0.7
+					) {
+						shouldStopLoss = false;
+						aiJudgment = `AI建议继续持仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+					} else if (judgment.recommendedAction === "reduce_position") {
+						// 减少仓位的情况，暂时执行止损，但记录AI建议
+						aiJudgment = `AI建议减少仓位(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+					} else {
+						aiJudgment = `AI建议平仓(${judgment.volatilityType}, 信心度: ${judgment.confidence})`;
+					}
 
-          if (success) {
-            logger.info(`${symbol} 止损平仓成功 (AI确认: ${aiJudgment})`);
-          }
-        } else {
-          logger.info(
-            `${symbol} AI判断为偶发性波动，暂不执行止损: ${aiJudgment}`
-          );
-        }
-      } else {
-        // 每10次检查输出一次调试日志
-        if (history.checkCount % 10 === 0) {
-          logger.debug(
-            `${symbol} ${
-              thresholdInfo.level
-            } 监控中: ${leverage}x杠杆, 当前${pnlPercent.toFixed(
-              2
-            )}%, 止损线${thresholdInfo.threshold.toFixed(2)}%`
-          );
-        }
-      }
-    }
+					logger.info(`AI判断结果: ${aiJudgment}`);
+				} catch (error: any) {
+					logger.warn(`AI判断失败，使用传统止损: ${error.message}`);
+					// AI判断失败时，默认执行止损
+					shouldStopLoss = true;
+				}
 
-    // 4. 清理已平仓的记录
-    const activeSymbols = new Set(
-      activePositions.map((p: any) => p.contract.replace("_USDT", ""))
-    );
+				// 根据AI判断结果决定是否执行止损
+				if (shouldStopLoss) {
+					// 执行止损平仓
+					const success = await executeStopLossClose(
+						symbol,
+						side,
+						quantity,
+						entryPrice,
+						currentPrice,
+						leverage,
+						pnlPercent,
+						thresholdInfo.threshold,
+						`${thresholdInfo.level} - ${thresholdInfo.description} (AI确认: ${aiJudgment})`,
+					);
 
-    for (const symbol of positionMonitorHistory.keys()) {
-      if (!activeSymbols.has(symbol)) {
-        positionMonitorHistory.delete(symbol);
-        logger.debug(`清理已平仓的记录: ${symbol}`);
-      }
-    }
+					if (success) {
+						logger.info(`${symbol} 止损平仓成功 (AI确认: ${aiJudgment})`);
+					}
+				} else {
+					logger.info(
+						`${symbol} AI判断为偶发性波动，暂不执行止损: ${aiJudgment}`,
+					);
+				}
+			} else {
+				// 每10次检查输出一次调试日志
+				if (history.checkCount % 10 === 0) {
+					logger.debug(
+						`${symbol} ${
+							thresholdInfo.level
+						} 监控中: ${leverage}x杠杆, 当前${pnlPercent.toFixed(
+							2,
+						)}%, 止损线${thresholdInfo.threshold.toFixed(2)}%`,
+					);
+				}
+			}
+		}
 
-    // 5. 根据标志位决定是否唤醒Agent
-    // 无论有多少个货币触发止损，都只会唤醒一次Agent
-    if (shouldWakeAgent && getTradingStrategy() === "cai-sen") {
-      logger.error(`有持仓触发动态止损阈值，立即唤醒蔡森Agent进行决策`);
-      try {
-        await executeTradingDecision();
-        logger.info(`已成功唤醒蔡森Agent进行决策`);
-      } catch (error: any) {
-        logger.error(`唤醒蔡森Agent失败: ${error.message}`);
-      }
-    }
-  } catch (error: any) {
-    logger.error(`止损检查失败: ${error.message}`);
-  }
+		// 4. 清理已平仓的记录
+		const activeSymbols = new Set(
+			activePositions.map((p: any) => p.contract.replace("_USDT", "")),
+		);
+
+		for (const symbol of positionMonitorHistory.keys()) {
+			if (!activeSymbols.has(symbol)) {
+				positionMonitorHistory.delete(symbol);
+				logger.debug(`清理已平仓的记录: ${symbol}`);
+			}
+		}
+
+		// 5. 根据标志位决定是否唤醒Agent
+		// 无论有多少个货币触发止损，都只会唤醒一次Agent
+		if (shouldWakeAgent && getTradingStrategy() === "cai-sen") {
+			logger.error(`有持仓触发动态止损阈值，立即唤醒蔡森Agent进行决策`);
+			try {
+				await executeTradingDecision();
+				logger.info(`已成功唤醒蔡森Agent进行决策`);
+			} catch (error: any) {
+				logger.error(`唤醒蔡森Agent失败: ${error.message}`);
+			}
+		}
+	} catch (error: any) {
+		logger.error(`止损检查失败: ${error.message}`);
+	}
 }
 
 /**
  * 启动止损监控（仅限波段策略）
  */
 export function startStopLossMonitor() {
-  // 检查当前策略是否启用代码级止损
-  const strategy = getTradingStrategy();
-  const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
+	// 检查当前策略是否启用代码级止损
+	const strategy = getTradingStrategy();
+	const params = getStrategyParams(strategy, RISK_PARAMS.MAX_LEVERAGE);
 
-  if (!isStopLossEnabled()) {
-    logger.info(
-      `当前策略 [${params.name}] 未启用代码级止损监控（enableCodeLevelProtection = false）`
-    );
-    return;
-  }
+	if (!isStopLossEnabled()) {
+		logger.info(
+			`当前策略 [${params.name}] 未启用代码级止损监控（enableCodeLevelProtection = false）`,
+		);
+		return;
+	}
 
-  if (isRunning) {
-    logger.warn("止损监控已在运行中");
-    return;
-  }
+	if (isRunning) {
+		logger.warn("止损监控已在运行中");
+		return;
+	}
 
-  const stopLossConfig = getStopLossConfig();
-  if (!stopLossConfig) {
-    logger.error(`策略 [${params.name}] 的止损配置缺失`);
-    return;
-  }
+	const stopLossConfig = getStopLossConfig();
+	if (!stopLossConfig) {
+		logger.error(`策略 [${params.name}] 的止损配置缺失`);
+		return;
+	}
 
-  isRunning = true;
-  logger.info(`启动止损监控（自动止损系统 - ${params.name}策略）`);
-  logger.info(`  当前策略: ${strategy} (${params.name})`);
-  logger.info("  检查间隔: 10秒");
-  logger.info("  AI判断: 已启用，用于区分偶发性波动和行情异常");
+	isRunning = true;
+	logger.info(`启动止损监控（自动止损系统 - ${params.name}策略）`);
+	logger.info(`  当前策略: ${strategy} (${params.name})`);
+	logger.info("  检查间隔: 10秒");
+	logger.info("  AI判断: 已启用，用于区分偶发性波动和行情异常");
 
-  // 输出止损规则
-  logger.info(`  低风险: ${stopLossConfig.lowRisk.description}`);
-  logger.info(`  中风险: ${stopLossConfig.mediumRisk.description}`);
-  logger.info(`  高风险: ${stopLossConfig.highRisk.description}`);
+	// 输出止损规则
+	logger.info(`  低风险: ${stopLossConfig.lowRisk.description}`);
+	logger.info(`  中风险: ${stopLossConfig.mediumRisk.description}`);
+	logger.info(`  高风险: ${stopLossConfig.highRisk.description}`);
 
-  // 立即执行一次
-  checkStopLoss();
+	// 立即执行一次
+	checkStopLoss();
 
-  // 每10秒执行一次
-  monitorInterval = setInterval(() => {
-    checkStopLoss();
-  }, 10 * 1000);
+	// 每10秒执行一次
+	monitorInterval = setInterval(() => {
+		checkStopLoss();
+	}, 10 * 1000);
 }
 
 /**
  * 停止止损监控
  */
 export function stopStopLossMonitor() {
-  if (!isRunning) {
-    logger.warn("止损监控未在运行");
-    return;
-  }
+	if (!isRunning) {
+		logger.warn("止损监控未在运行");
+		return;
+	}
 
-  isRunning = false;
+	isRunning = false;
 
-  if (monitorInterval) {
-    clearInterval(monitorInterval);
-    monitorInterval = null;
-  }
+	if (monitorInterval) {
+		clearInterval(monitorInterval);
+		monitorInterval = null;
+	}
 
-  // 清理AI判断器
-  if (aiStopLossJudger) {
-    aiStopLossJudger = null;
-  }
+	// 清理AI判断器
+	if (aiStopLossJudger) {
+		aiStopLossJudger = null;
+	}
 
-  positionMonitorHistory.clear();
-  logger.info("止损监控已停止");
+	positionMonitorHistory.clear();
+	logger.info("止损监控已停止");
 }

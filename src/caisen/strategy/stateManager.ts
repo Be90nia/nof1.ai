@@ -3,9 +3,9 @@
  * 负责管理策略的运行状态、异常事件和等待时间阈值
  */
 
+import { dbClient } from "../../database/dbClient";
 import { createLogger } from "../../utils/loggerUtils";
 import { getChinaTimeISO } from "../../utils/timeUtils";
-import { dbClient } from "../../database/dbClient";
 
 const logger = createLogger({ name: "caisen-state-manager", level: "info" });
 

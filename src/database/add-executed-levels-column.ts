@@ -24,38 +24,38 @@ import { createClient } from "@libsql/client";
 
 const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
 const dbClient = createClient({
-  url: dbUrl,
+	url: dbUrl,
 });
 
 async function addExecutedLevelsColumn() {
-  try {
-    console.log("开始数据库迁移：添加 executed_levels 字段...");
+	try {
+		console.log("开始数据库迁移：添加 executed_levels 字段...");
 
-    // 检查字段是否已存在
-    const tableInfo = await dbClient.execute("PRAGMA table_info(positions)");
-    const columnExists = tableInfo.rows.some(
-      (row: any) => row.name === "executed_levels"
-    );
+		// 检查字段是否已存在
+		const tableInfo = await dbClient.execute("PRAGMA table_info(positions)");
+		const columnExists = tableInfo.rows.some(
+			(row: any) => row.name === "executed_levels",
+		);
 
-    if (columnExists) {
-      console.log("✅ executed_levels 字段已存在，无需迁移");
-      return;
-    }
+		if (columnExists) {
+			console.log("✅ executed_levels 字段已存在，无需迁移");
+			return;
+		}
 
-    // 添加字段
-    await dbClient.execute(`
+		// 添加字段
+		await dbClient.execute(`
       ALTER TABLE positions 
       ADD COLUMN executed_levels TEXT DEFAULT '[]'
     `);
 
-    console.log("✅ 成功添加 executed_levels 字段到 positions 表");
-    console.log("数据库迁移完成");
-  } catch (error: any) {
-    console.error("❌ 数据库迁移失败:", error.message);
-    process.exit(1);
-  } finally {
-    await dbClient.close();
-  }
+		console.log("✅ 成功添加 executed_levels 字段到 positions 表");
+		console.log("数据库迁移完成");
+	} catch (error: any) {
+		console.error("❌ 数据库迁移失败:", error.message);
+		process.exit(1);
+	} finally {
+		await dbClient.close();
+	}
 }
 
 addExecutedLevelsColumn();

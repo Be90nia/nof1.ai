@@ -23,36 +23,36 @@
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import {
-  createExchangeClient,
-  getExchangeType,
+	createExchangeClient,
+	getExchangeType,
 } from "../services/exchangeClient";
 import { createLogger } from "../utils/loggerUtils";
 
 const logger = createLogger({
-  name: "sync-positions",
-  level: "info",
+	name: "sync-positions",
+	level: "info",
 });
 
 async function syncPositionsOnly() {
-  try {
-    const exchangeType = getExchangeType();
-    const exchangeName = exchangeType === "okx" ? "OKX" : "Gate.io";
-    logger.info(`🔄 从 ${exchangeName} 同步持仓...`);
+	try {
+		const exchangeType = getExchangeType();
+		const exchangeName = exchangeType === "okx" ? "OKX" : "Gate.io";
+		logger.info(`🔄 从 ${exchangeName} 同步持仓...`);
 
-    // 1. 连接数据库
-    const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
-    const client = createClient({
-      url: dbUrl,
-    });
+		// 1. 连接数据库
+		const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
+		const client = createClient({
+			url: dbUrl,
+		});
 
-    // 2. 检查表是否存在，不存在则创建
-    try {
-      await client.execute("SELECT COUNT(*) FROM positions");
-      logger.info("✅ 数据库表已存在");
-    } catch (error) {
-      logger.warn("⚠️  数据库表不存在，正在创建...");
-      // 创建必要的表
-      await client.execute(`
+		// 2. 检查表是否存在，不存在则创建
+		try {
+			await client.execute("SELECT COUNT(*) FROM positions");
+			logger.info("✅ 数据库表已存在");
+		} catch (error) {
+			logger.warn("⚠️  数据库表不存在，正在创建...");
+			// 创建必要的表
+			await client.execute(`
         CREATE TABLE IF NOT EXISTS positions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,
@@ -79,101 +79,101 @@ async function syncPositionsOnly() {
           exit_strategy TEXT
         )
       `);
-      logger.info("✅ 数据库表创建完成");
-    }
+			logger.info("✅ 数据库表创建完成");
+		}
 
-    // 3. 从交易所获取持仓
-    const exchangeClient = createExchangeClient();
-    const positions = await exchangeClient.getPositions();
-    const activePositions = positions.filter(
-      (p) => Number.parseInt(p.size || "0") !== 0
-    );
+		// 3. 从交易所获取持仓
+		const exchangeClient = createExchangeClient();
+		const positions = await exchangeClient.getPositions();
+		const activePositions = positions.filter(
+			(p) => Number.parseInt(p.size || "0") !== 0,
+		);
 
-    logger.info(`\n📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
+		logger.info(`\n📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
 
-    // 4. 清空本地持仓表
-    await client.execute("DELETE FROM positions");
-    logger.info("✅ 已清空本地持仓表");
+		// 4. 清空本地持仓表
+		await client.execute("DELETE FROM positions");
+		logger.info("✅ 已清空本地持仓表");
 
-    // 5. 同步持仓到数据库
-    if (activePositions.length > 0) {
-      logger.info(`\n🔄 同步 ${activePositions.length} 个持仓到数据库...`);
+		// 5. 同步持仓到数据库
+		if (activePositions.length > 0) {
+			logger.info(`\n🔄 同步 ${activePositions.length} 个持仓到数据库...`);
 
-      for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
-        if (size === 0) continue;
+			for (const pos of activePositions) {
+				const size = Number.parseInt(pos.size || "0");
+				if (size === 0) continue;
 
-        const symbol = pos.contract.replace("_USDT", "");
-        const entryPrice = Number.parseFloat(pos.entryPrice || "0");
-        const currentPrice = Number.parseFloat(pos.markPrice || "0");
-        const leverage = Number.parseInt(pos.leverage || "1");
-        const side = size > 0 ? "long" : "short";
-        const quantity = Math.abs(size);
-        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-        const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+				const symbol = pos.contract.replace("_USDT", "");
+				const entryPrice = Number.parseFloat(pos.entryPrice || "0");
+				const currentPrice = Number.parseFloat(pos.markPrice || "0");
+				const leverage = Number.parseInt(pos.leverage || "1");
+				const side = size > 0 ? "long" : "short";
+				const quantity = Math.abs(size);
+				const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
+				const liqPrice = Number.parseFloat(pos.liqPrice || "0");
 
-        // 默认退出策略配置
-        const defaultExitStrategy = {
-          strategyType: "combination",
-          enabled: true,
-          partialTakeProfit: {
-            stage1: { trigger: 5, closePercent: 30 },
-            stage2: { trigger: 10, closePercent: 40 },
-            stage3: { trigger: 15, closePercent: 30 },
-          },
-          dynamicStopLoss: {
-            enabled: true,
-            trailingStop: {
-              level1: { trigger: 5, stopAt: 2 },
-              level2: { trigger: 10, stopAt: 5 },
-              level3: { trigger: 15, stopAt: 8 },
-            },
-          },
-          peakDrawdown: {
-            enabled: true,
-            stage1: { drawdownThreshold: 1.0, closePercent: 30 },
-            stage2: { drawdownThreshold: 2.0, closePercent: 50 },
-            stage3: { drawdownThreshold: 3.0, closePercent: 100 },
-          },
-        };
+				// 默认退出策略配置
+				const defaultExitStrategy = {
+					strategyType: "combination",
+					enabled: true,
+					partialTakeProfit: {
+						stage1: { trigger: 5, closePercent: 30 },
+						stage2: { trigger: 10, closePercent: 40 },
+						stage3: { trigger: 15, closePercent: 30 },
+					},
+					dynamicStopLoss: {
+						enabled: true,
+						trailingStop: {
+							level1: { trigger: 5, stopAt: 2 },
+							level2: { trigger: 10, stopAt: 5 },
+							level3: { trigger: 15, stopAt: 8 },
+						},
+					},
+					peakDrawdown: {
+						enabled: true,
+						stage1: { drawdownThreshold: 1.0, closePercent: 30 },
+						stage2: { drawdownThreshold: 2.0, closePercent: 50 },
+						stage3: { drawdownThreshold: 3.0, closePercent: 100 },
+					},
+				};
 
-        await client.execute({
-          sql: `INSERT INTO positions 
+				await client.execute({
+					sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
                  leverage, side, entry_order_id, opened_at, exit_strategy, executed_levels)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [
-            symbol,
-            quantity,
-            entryPrice,
-            currentPrice,
-            liqPrice,
-            pnl,
-            leverage,
-            side,
-            "synced",
-            new Date().toISOString(),
-            JSON.stringify(defaultExitStrategy),
-            "[]", // 初始化 executed_levels 为空数组
-          ],
-        });
+					args: [
+						symbol,
+						quantity,
+						entryPrice,
+						currentPrice,
+						liqPrice,
+						pnl,
+						leverage,
+						side,
+						"synced",
+						new Date().toISOString(),
+						JSON.stringify(defaultExitStrategy),
+						"[]", // 初始化 executed_levels 为空数组
+					],
+				});
 
-        logger.info(
-          `   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice} | 盈亏: ${
-            pnl >= 0 ? "+" : ""
-          }${pnl.toFixed(2)} USDT`
-        );
-      }
-    } else {
-      logger.info("✅ 当前无持仓");
-    }
+				logger.info(
+					`   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice} | 盈亏: ${
+						pnl >= 0 ? "+" : ""
+					}${pnl.toFixed(2)} USDT`,
+				);
+			}
+		} else {
+			logger.info("✅ 当前无持仓");
+		}
 
-    client.close();
-    logger.info("\n✅ 持仓同步完成");
-  } catch (error) {
-    logger.error("❌ 同步失败:", error);
-    process.exit(1);
-  }
+		client.close();
+		logger.info("\n✅ 持仓同步完成");
+	} catch (error) {
+		logger.error("❌ 同步失败:", error);
+		process.exit(1);
+	}
 }
 
 // 执行同步

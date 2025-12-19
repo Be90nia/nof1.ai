@@ -36,72 +36,72 @@
 
 // ==================== 类型定义导出 ====================
 export type {
-  TradingStrategy,
-  StrategyParams,
-  StrategyPromptContext,
+	TradingStrategy,
+	StrategyParams,
+	StrategyPromptContext,
 } from "./types";
 // ==================== 各策略实现导出 ====================
 export { getUltraShortStrategy, generateUltraShortPrompt } from "./ultraShort"; // 超短线策略
 export { getSwingTrendStrategy, generateSwingTrendPrompt } from "./swingTrend"; // 波段趋势策略
 export { getMediumLongStrategy, generateMediumLongPrompt } from "./mediumLong"; // 中长线策略
 export {
-  getConservativeStrategy,
-  generateConservativePrompt,
+	getConservativeStrategy,
+	generateConservativePrompt,
 } from "./conservative"; // 稳健策略
 export { getBalancedStrategy, generateBalancedPrompt } from "./balanced"; // 平衡策略
 export { getAggressiveStrategy, generateAggressivePrompt } from "./aggressive"; // 激进策略
 export {
-  getAggressiveTeamStrategy,
-  generateAggressiveTeamPrompt,
+	getAggressiveTeamStrategy,
+	generateAggressiveTeamPrompt,
 } from "./aggressiveTeam"; // 激进团策略
 export {
-  getRebateFarmingStrategy,
-  generateRebateFarmingPrompt,
+	getRebateFarmingStrategy,
+	generateRebateFarmingPrompt,
 } from "./rebateFarming"; // 返佣套利策略
 export {
-  getAiAutonomousStrategy,
-  generateAiAutonomousPrompt,
+	getAiAutonomousStrategy,
+	generateAiAutonomousPrompt,
 } from "./aiAutonomous"; // AI自主策略
 export {
-  getMultiAgentConsensusStrategy,
-  generateMultiAgentConsensusPrompt,
+	getMultiAgentConsensusStrategy,
+	generateMultiAgentConsensusPrompt,
 } from "./multiAgentConsensus"; // 多Agent共识策略
 export { getAlphaBetaStrategy, generateAlphaBetaPrompt } from "./alphaBeta"; // Alpha Beta策略
 export { getCaiSenStrategy, generateCaiSenPrompt } from "../caisen"; // 蔡森策略
 
+import { createClient } from "@libsql/client";
 import { generateCaiSenPrompt, getCaiSenStrategy } from "../caisen";
+import { getAgentStrategyParams as getAgentStrategyParamsFromTools } from "../tools/strategyParams";
 import { generateAggressivePrompt, getAggressiveStrategy } from "./aggressive";
 import {
-  generateAggressiveTeamPrompt,
-  getAggressiveTeamStrategy,
+	generateAggressiveTeamPrompt,
+	getAggressiveTeamStrategy,
 } from "./aggressiveTeam";
 import {
-  generateAiAutonomousPrompt,
-  getAiAutonomousStrategy,
+	generateAiAutonomousPrompt,
+	getAiAutonomousStrategy,
 } from "./aiAutonomous";
 import { generateAlphaBetaPrompt, getAlphaBetaStrategy } from "./alphaBeta";
 import { generateBalancedPrompt, getBalancedStrategy } from "./balanced";
 import {
-  generateConservativePrompt,
-  getConservativeStrategy,
+	generateConservativePrompt,
+	getConservativeStrategy,
 } from "./conservative";
 import { generateMediumLongPrompt, getMediumLongStrategy } from "./mediumLong";
 import {
-  generateMultiAgentConsensusPrompt,
-  getMultiAgentConsensusStrategy,
+	generateMultiAgentConsensusPrompt,
+	getMultiAgentConsensusStrategy,
 } from "./multiAgentConsensus";
 import {
-  generateRebateFarmingPrompt,
-  getRebateFarmingStrategy,
+	generateRebateFarmingPrompt,
+	getRebateFarmingStrategy,
 } from "./rebateFarming";
 import { generateSwingTrendPrompt, getSwingTrendStrategy } from "./swingTrend";
 import type {
-  StrategyParams,
-  StrategyPromptContext,
-  TradingStrategy,
+	StrategyParams,
+	StrategyPromptContext,
+	TradingStrategy,
 } from "./types";
-import { createClient } from "@libsql/client";
-import { getAgentStrategyParams as getAgentStrategyParamsFromTools } from "../tools/strategyParams";
 // 重新导出统一的getAgentStrategyParams函数
 export { getAgentStrategyParamsFromTools as getAgentStrategyParams };
 import { generateUltraShortPrompt, getUltraShortStrategy } from "./ultraShort";
@@ -125,37 +125,37 @@ import { generateUltraShortPrompt, getUltraShortStrategy } from "./ultraShort";
  * ```
  */
 export function getStrategyParams(
-  strategy: TradingStrategy,
-  maxLeverage: number
+	strategy: TradingStrategy,
+	maxLeverage: number,
 ): StrategyParams {
-  switch (strategy) {
-    case "ultra-short":
-      return getUltraShortStrategy(maxLeverage);
-    case "swing-trend":
-      return getSwingTrendStrategy(maxLeverage);
-    case "medium-long":
-      return getMediumLongStrategy(maxLeverage);
-    case "conservative":
-      return getConservativeStrategy(maxLeverage);
-    case "balanced":
-      return getBalancedStrategy(maxLeverage);
-    case "aggressive":
-      return getAggressiveStrategy(maxLeverage);
-    case "aggressive-team":
-      return getAggressiveTeamStrategy(maxLeverage);
-    case "rebate-farming":
-      return getRebateFarmingStrategy(maxLeverage);
-    case "ai-autonomous":
-      return getAiAutonomousStrategy(maxLeverage);
-    case "multi-agent-consensus":
-      return getMultiAgentConsensusStrategy(maxLeverage);
-    case "alpha-beta":
-      return getAlphaBetaStrategy(maxLeverage);
-    case "cai-sen":
-      return getCaiSenStrategy(maxLeverage);
-    default:
-      return getAiAutonomousStrategy(maxLeverage);
-  }
+	switch (strategy) {
+		case "ultra-short":
+			return getUltraShortStrategy(maxLeverage);
+		case "swing-trend":
+			return getSwingTrendStrategy(maxLeverage);
+		case "medium-long":
+			return getMediumLongStrategy(maxLeverage);
+		case "conservative":
+			return getConservativeStrategy(maxLeverage);
+		case "balanced":
+			return getBalancedStrategy(maxLeverage);
+		case "aggressive":
+			return getAggressiveStrategy(maxLeverage);
+		case "aggressive-team":
+			return getAggressiveTeamStrategy(maxLeverage);
+		case "rebate-farming":
+			return getRebateFarmingStrategy(maxLeverage);
+		case "ai-autonomous":
+			return getAiAutonomousStrategy(maxLeverage);
+		case "multi-agent-consensus":
+			return getMultiAgentConsensusStrategy(maxLeverage);
+		case "alpha-beta":
+			return getAlphaBetaStrategy(maxLeverage);
+		case "cai-sen":
+			return getCaiSenStrategy(maxLeverage);
+		default:
+			return getAiAutonomousStrategy(maxLeverage);
+	}
 }
 
 /**
@@ -173,41 +173,41 @@ export function getStrategyParams(
  * @returns Promise<boolean> - 设置是否成功
  */
 export async function setAgentStrategyParams(
-  strategy: TradingStrategy,
-  params: Record<string, any>
+	strategy: TradingStrategy,
+	params: Record<string, any>,
 ): Promise<boolean> {
-  try {
-    const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
-    const client = createClient({
-      url: dbUrl,
-    });
+	try {
+		const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
+		const client = createClient({
+			url: dbUrl,
+		});
 
-    // 开始事务
-    await client.execute("BEGIN TRANSACTION");
+		// 开始事务
+		await client.execute("BEGIN TRANSACTION");
 
-    // 删除旧的参数
-    await client.execute({
-      sql: "DELETE FROM strategy_params WHERE strategy = ?",
-      args: [strategy],
-    });
+		// 删除旧的参数
+		await client.execute({
+			sql: "DELETE FROM strategy_params WHERE strategy = ?",
+			args: [strategy],
+		});
 
-    // 插入新的参数
-    for (const [key, value] of Object.entries(params)) {
-      await client.execute({
-        sql: `INSERT INTO strategy_params (key, value, strategy, updated_at) 
+		// 插入新的参数
+		for (const [key, value] of Object.entries(params)) {
+			await client.execute({
+				sql: `INSERT INTO strategy_params (key, value, strategy, updated_at) 
 				VALUES (?, ?, ?, ?)`,
-        args: [key, JSON.stringify(value), strategy, new Date().toISOString()],
-      });
-    }
+				args: [key, JSON.stringify(value), strategy, new Date().toISOString()],
+			});
+		}
 
-    // 提交事务
-    await client.execute("COMMIT");
-    client.close();
-    return true;
-  } catch (error) {
-    console.error("设置Agent策略参数失败:", error);
-    return false;
-  }
+		// 提交事务
+		await client.execute("COMMIT");
+		client.close();
+		return true;
+	} catch (error) {
+		console.error("设置Agent策略参数失败:", error);
+		return false;
+	}
 }
 
 /**
@@ -237,37 +237,37 @@ export async function setAgentStrategyParams(
  * ```
  */
 export async function generateStrategySpecificPrompt(
-  strategy: TradingStrategy,
-  params: StrategyParams,
-  context: StrategyPromptContext,
-  data?: any
+	strategy: TradingStrategy,
+	params: StrategyParams,
+	context: StrategyPromptContext,
+	data?: any,
 ): Promise<string> {
-  switch (strategy) {
-    case "aggressive":
-      return generateAggressivePrompt(params, context);
-    case "aggressive-team":
-      return generateAggressiveTeamPrompt(params, context);
-    case "balanced":
-      return generateBalancedPrompt(params, context);
-    case "conservative":
-      return generateConservativePrompt(params, context);
-    case "ultra-short":
-      return generateUltraShortPrompt(params, context);
-    case "swing-trend":
-      return generateSwingTrendPrompt(params, context);
-    case "medium-long":
-      return generateMediumLongPrompt(params, context);
-    case "rebate-farming":
-      return generateRebateFarmingPrompt(params, context);
-    case "ai-autonomous":
-      return generateAiAutonomousPrompt(params, context);
-    case "multi-agent-consensus":
-      return generateMultiAgentConsensusPrompt(params, context);
-    case "alpha-beta":
-      return generateAlphaBetaPrompt(params, context);
-    case "cai-sen":
-      return generateCaiSenPrompt(params, context, data);
-    default:
-      return generateAiAutonomousPrompt(params, context);
-  }
+	switch (strategy) {
+		case "aggressive":
+			return generateAggressivePrompt(params, context);
+		case "aggressive-team":
+			return generateAggressiveTeamPrompt(params, context);
+		case "balanced":
+			return generateBalancedPrompt(params, context);
+		case "conservative":
+			return generateConservativePrompt(params, context);
+		case "ultra-short":
+			return generateUltraShortPrompt(params, context);
+		case "swing-trend":
+			return generateSwingTrendPrompt(params, context);
+		case "medium-long":
+			return generateMediumLongPrompt(params, context);
+		case "rebate-farming":
+			return generateRebateFarmingPrompt(params, context);
+		case "ai-autonomous":
+			return generateAiAutonomousPrompt(params, context);
+		case "multi-agent-consensus":
+			return generateMultiAgentConsensusPrompt(params, context);
+		case "alpha-beta":
+			return generateAlphaBetaPrompt(params, context);
+		case "cai-sen":
+			return generateCaiSenPrompt(params, context, data);
+		default:
+			return generateAiAutonomousPrompt(params, context);
+	}
 }
