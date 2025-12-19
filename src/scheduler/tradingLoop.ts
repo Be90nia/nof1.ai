@@ -58,6 +58,7 @@ interface PositionRow {
   partial_close_percentage?: number | null;
   leverage?: number | string | null;
   executed_levels?: string | null; // 已执行的平仓级别（JSON 字符串）
+  exit_strategy?: string | null; // 退出策略配置（JSON 字符串）
 }
 
 interface DbData {
@@ -532,7 +533,7 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
     const exchangePositions =
       cachedPositions || (await exchangeClient.getPositions());
     const dbResult = await dbClient.execute(
-      "SELECT symbol, sl_order_id, tp_order_id, stop_loss, profit_target, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage FROM positions"
+      "SELECT symbol, sl_order_id, tp_order_id, stop_loss, profit_target, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage, executed_levels, exit_strategy FROM positions"
     );
     const dbPositionsMap = new Map<string, PositionRow>(
       dbResult.rows.map((row: PositionRow) => [row.symbol, row])
@@ -602,9 +603,10 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
       let exitStrategy = dbPos?.exit_strategy || null;
       if (!exitStrategy) {
         try {
+          const currentStrategy = getTradingStrategy();
           const strategyParamsResult = await dbClient.execute({
             sql: "SELECT value FROM strategy_params WHERE key = ? AND strategy = ?",
-            args: [`positionExitStrategy_${symbol}`, strategy],
+            args: [`positionExitStrategy_${symbol}`, currentStrategy],
           });
           if (strategyParamsResult.rows.length > 0) {
             exitStrategy = strategyParamsResult.rows[0].value as string;
