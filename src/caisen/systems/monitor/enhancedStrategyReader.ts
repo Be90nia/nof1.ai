@@ -49,9 +49,9 @@ export function getCompleteStrategyParams() {
 				},
 			},
 			peakDrawdown: {
-				level1: { drawdownThreshold: 1.0, closePercent: 30 },
-				level2: { drawdownThreshold: 2.0, closePercent: 50 },
-				level3: { drawdownThreshold: 3.0, closePercent: 100 },
+				level1: { drawdownThreshold: 1.0, closePercent: 100 }, // 智能全平，保证不转亏
+				level2: { drawdownThreshold: 2.0, closePercent: 60 },  // 平仓60%
+				level3: { drawdownThreshold: 3.0, closePercent: 80 },  // 平仓80%（盈利最高时保护最多）
 				minHoldingTime: 1,
 			},
 			lastUpdated: new Date().toISOString(),
@@ -105,9 +105,9 @@ export async function getExitStrategyForSymbol(symbol: string) {
 				},
 			},
 			peakDrawdown: {
-				level1: { drawdownThreshold: 1.0, closePercent: 30 },
-				level2: { drawdownThreshold: 2.0, closePercent: 50 },
-				level3: { drawdownThreshold: 3.0, closePercent: 100 },
+				level1: { drawdownThreshold: 1.0, closePercent: 100 }, // 智能全平，保证不转亏
+				level2: { drawdownThreshold: 2.0, closePercent: 60 },  // 平仓60%
+				level3: { drawdownThreshold: 3.0, closePercent: 80 },  // 平仓80%（盈利最高时保护最多）
 				minHoldingTime: 1,
 			},
 			lastUpdated: new Date().toISOString(),
@@ -152,7 +152,7 @@ export async function fixStageCorrespondence() {
 				}
 			} else {
 				// 如果没有设置部分止盈参数，设置默认值
-			logger.warn(`⚠️  币种 ${symbol} 缺少部分止盈参数，正在设置默认值..`);
+				logger.warn(`⚠️  币种 ${symbol} 缺少部分止盈参数，正在设置默认值..`);
 				await setPartialTakeProfitParams(
 					strategy,
 					symbol,
@@ -180,15 +180,13 @@ export async function fixStageCorrespondence() {
 				}
 			} else if (symbolParams.peakDrawdown) {
 				// 如果没有设置峰值回落保护参数，设置默认值
-			logger.warn(
-					`⚠️  币种 ${symbol} 缺少峰值回落保护参数，正在设置默认值..`,
-				);
+				logger.warn(`⚠️  币种 ${symbol} 缺少峰值回落保护参数，正在设置默认值..`);
 				await setPeakDrawdownParams(
 					strategy,
 					symbol,
-					{ drawdownThreshold: 1.0, closePercent: 30 },
-					{ drawdownThreshold: 2.0, closePercent: 50 },
-					{ drawdownThreshold: 3.0, closePercent: 100 },
+					{ drawdownThreshold: 1.0, closePercent: 100 }, // level1智能全平
+					{ drawdownThreshold: 2.0, closePercent: 60 },  // level2平仓60%
+					{ drawdownThreshold: 3.0, closePercent: 80 },  // level3平仓80%
 					3,
 				);
 			} else if (symbolParams.drawdownProtection) {

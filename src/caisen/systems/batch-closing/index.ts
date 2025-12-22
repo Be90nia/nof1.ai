@@ -966,18 +966,18 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 
 			// 计算实际平仓数量 - Calculate actual closing quantity
 			const allPositions = await this.exchangeClient.getPositions();
-			
+
 			// 🔧 修复：过滤掉size为0的持仓（已平仓的持仓）
 			const activePositions = allPositions.filter(
-				(p) => Math.abs(Number.parseFloat(p.size || "0")) > 0
+				(p) => Math.abs(Number.parseFloat(p.size || "0")) > 0,
 			);
-			
+
 			const position = activePositions.find(
 				(p) =>
 					p.positionId === batchState.config.positionId ||
 					p.contract === batchState.config.positionId,
 			);
-			
+
 			if (!position) {
 				logger.error({
 					action: "position_not_found",
@@ -992,7 +992,9 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 					})),
 					message: "持仓未找到，可能已被平仓或size为0",
 				});
-				throw new Error(`Position ${batchState.config.positionId} not found or already closed`);
+				throw new Error(
+					`Position ${batchState.config.positionId} not found or already closed`,
+				);
 			}
 
 			let actualQuantity = batchState.config.closingQuantity;
@@ -1007,12 +1009,174 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 				size: actualQuantity,
 			});
 
+			// 🔧 修复：等待订单成交并查询实际盈亏和手续费
+			let actualPnl = 0;
+			let actualFee = 0;
+			let actualPrice = closeResult.avgPrice || position.markPrice;
+			let actualExecutedQty = closeResult.executedQty || actualQuantity;
+
+			if (closeResult && closeResult.id) {
+				try {
+					// 等待订单成交（最多等待5秒）
+					logger.info({
+						action: "waiting_order_filled",
+						orderId: closeResult.id,
+						batchId: batchState.config.batchId,
+						message: "等待订单成交...",
+					});
+
+					const orderFilled = await this.waitForOrderFilled(
+						closeResult.id,
+						5000,
+					);
+
+					if (orderFilled) {
+						// 查询订单详情获取实际成交信息
+						const orderDetails = await this.exchangeClient.getOrder(
+							closeResult.id,
+							batchState.config.positionId,
+						);
+
+						if (orderDetails) {
+							// 解析实际成交价格
+							actualPrice = Number.parseFloat(
+								orderDetails.fill_price ||
+									orderDetails.avgPrice ||
+									orderDetails.average ||
+									actualPrice.toString(),
+							);
+
+							// 解析实际手续费（取绝对值）
+							actualFee = Math.abs(
+								Number.parseFloat(orderDetails.tkfr || orderDetails.fee || "0"),
+							);
+
+							// 解析实际成交数量
+							if (orderDetails.size) {
+								actualExecutedQty = Math.abs(
+									Number.parseFloat(orderDetails.size),
+								);
+							}
+
+							logger.info({
+								action: "order_details_fetched",
+								orderId: closeResult.id,
+								actualPrice,
+								actualFee,
+								actualExecutedQty,
+								message: "成功获取订单详情",
+							});
+						}
+					} else {
+						logger.warn({
+							action: "order_fill_timeout",
+							orderId: closeResult.id,
+							message: "等待订单成交超时，将使用估算值",
+						});
+					}
+				} catch (error) {
+					logger.warn({
+						action: "fetch_order_details_failed",
+						orderId: closeResult.id,
+						error: error instanceof Error ? error.message : String(error),
+						message: "查询订单详情失败，将使用估算值",
+					});
+				}
+			}
+
+			// 计算实际盈亏
+			try {
+				const entryPrice =
+					position.entry_price || position.entryPrice || position.markPrice;
+				const isLong =
+					position.side === "long" ||
+					Number.parseFloat(position.size || "0") > 0;
+
+				// 🔧 修复：获取合约乘数用于正确计算盈亏
+				const { getQuantoMultiplier } = await import(
+					"../../../utils/contractUtils"
+				);
+				const quantoMultiplier = await getQuantoMultiplier(
+					batchState.config.positionId,
+				);
+
+				// 计算价格差异
+				const priceDiff = isLong
+					? actualPrice - entryPrice
+					: entryPrice - actualPrice;
+
+				// 🔧 修复：计算毛盈亏（价格差 × 数量 × 合约乘数）
+				const grossPnl = priceDiff * actualExecutedQty * quantoMultiplier;
+				
+				// 🔧 关键修复：如果手续费还没有计算，只计算平仓手续费
+				// 开仓手续费已经在开仓时记录过了，不应该在平仓时再加一次
+				if (actualFee === 0) {
+					const closeFee = Math.abs(actualPrice * actualExecutedQty * quantoMultiplier * 0.0005);
+					actualFee = closeFee;
+					
+					logger.info({
+						action: "fee_calculated_in_pnl",
+						closeFee,
+						actualFee,
+						message: "在盈亏计算中补充计算平仓手续费（开仓手续费已在开仓时记录）",
+					});
+				}
+				
+				// 净盈亏 = 毛盈亏 - 平仓手续费
+				actualPnl = grossPnl - actualFee;
+
+				logger.info({
+					action: "pnl_calculated",
+					entryPrice,
+					actualPrice,
+					priceDiff,
+					actualExecutedQty,
+					quantoMultiplier,
+					grossPnl,
+					actualFee,
+					actualPnl,
+					isLong,
+					message: "盈亏计算完成（已考虑合约乘数和手续费）",
+				});
+			} catch (error) {
+				logger.error({
+					action: "pnl_calculation_failed",
+					error: error instanceof Error ? error.message : String(error),
+					message: "盈亏计算失败",
+				});
+			}
+
+			// 如果手续费仍为0，使用估算值（假设 taker 费率 0.05%）
+			// 🔧 关键修复：平仓时只记录平仓手续费，不要加上开仓手续费
+		// 因为开仓手续费已经在开仓时单独记录过了
+			if (actualFee === 0) {
+				// 获取合约乘数
+				const { getQuantoMultiplier } = await import(
+					"../../../utils/contractUtils"
+				);
+				const quantoMultiplier = await getQuantoMultiplier(
+					batchState.config.positionId,
+				);
+				
+				// 只计算平仓手续费（0.05%）
+				// 开仓手续费已经在开仓时单独记录过了
+				const closeFee = Math.abs(actualPrice * actualExecutedQty * quantoMultiplier * 0.0005);
+				actualFee = closeFee;
+				
+				logger.info({
+					action: "fee_estimated",
+					closeFee,
+					actualFee,
+					message: "使用估算平仓手续费（0.05%），开仓手续费已在开仓时记录",
+				});
+			}
+
 			// 更新执行结果 - Update execution result
 			batchState.executionResult = {
-				actualQuantity: closeResult.executedQty || actualQuantity,
-				actualPrice: closeResult.avgPrice || position.markPrice,
-				fee: closeResult.fee || 0,
-				pnl: closeResult.realizedPnl || 0,
+				actualQuantity: actualExecutedQty,
+				actualPrice: actualPrice,
+				fee: actualFee,
+				pnl: actualPnl,
 			};
 
 			// 更新状态为已完成 - Update status to completed
@@ -1023,7 +1187,7 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 			try {
 				const symbol = batchState.config.positionId.replace("_USDT", "");
 				const { createClient } = await import("@libsql/client");
-				
+
 				// 🔧 使用环境变量中的数据库URL，确保使用正确的数据库
 				const dbClient = createClient({
 					url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
@@ -1058,11 +1222,12 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 					action: "trade_recorded",
 					batchId: batchState.config.batchId,
 					symbol,
-					type: batchState.config.closingType === ClosingType.TAKE_PROFIT
-						? "take_profit"
-						: batchState.config.closingType === ClosingType.STOP_LOSS
-							? "stop_loss"
-							: "risk_mitigation",
+					type:
+						batchState.config.closingType === ClosingType.TAKE_PROFIT
+							? "take_profit"
+							: batchState.config.closingType === ClosingType.STOP_LOSS
+								? "stop_loss"
+								: "risk_mitigation",
 					quantity: batchState.executionResult.actualQuantity,
 					price: batchState.executionResult.actualPrice,
 					pnl: batchState.executionResult.pnl,
@@ -1121,6 +1286,62 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 				batchState.status = BatchStatus.PENDING;
 			}
 		}
+	}
+
+	/**
+	 * 等待订单成交
+	 * Wait for order to be filled
+	 * @private
+	 * @param orderId 订单ID - Order ID
+	 * @param timeoutMs 超时时间（毫秒） - Timeout in milliseconds
+	 * @returns Promise<boolean> 是否成交 - Whether order is filled
+	 */
+	private async waitForOrderFilled(
+		orderId: string,
+		timeoutMs: number,
+	): Promise<boolean> {
+		const startTime = Date.now();
+		const checkInterval = 500; // 每500ms检查一次
+
+		while (Date.now() - startTime < timeoutMs) {
+			try {
+				const order = await this.exchangeClient.getOrder(orderId);
+
+				if (
+					order &&
+					(order.status === "filled" ||
+						order.status === "finished" ||
+						order.status === "closed")
+				) {
+					logger.info({
+						action: "order_filled",
+						orderId,
+						status: order.status,
+						message: "订单已成交",
+					});
+					return true;
+				}
+
+				// 等待后再次检查
+				await new Promise((resolve) => setTimeout(resolve, checkInterval));
+			} catch (error) {
+				logger.warn({
+					action: "check_order_status_failed",
+					orderId,
+					error: error instanceof Error ? error.message : String(error),
+					message: "检查订单状态失败，继续等待",
+				});
+				await new Promise((resolve) => setTimeout(resolve, checkInterval));
+			}
+		}
+
+		logger.warn({
+			action: "wait_order_filled_timeout",
+			orderId,
+			timeoutMs,
+			message: "等待订单成交超时",
+		});
+		return false;
 	}
 
 	/**

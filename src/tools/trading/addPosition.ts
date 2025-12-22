@@ -399,7 +399,7 @@ export const addPositionTool = createTool({
 					updatedMetrics.stop_loss,
 					updatedMetrics.peak_pnl_percent,
 					JSON.stringify(adjustedExecutedLevels), // 智能调整后的已执行级别
-					updatedMetrics.quantity, // 🔧 关键修复：加仓后更新 initial_quantity 为新的总持仓
+					currentPosition.initial_quantity || currentPosition.quantity, // 🔧 保持 initial_quantity 不变（首次开仓时的数量）
 					symbol,
 				],
 			});

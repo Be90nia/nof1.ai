@@ -350,8 +350,12 @@ class TradingMonitor {
             const sideClass = trade.side === "long" ? "long" : "short";
 
             // 盈亏显示（仅平仓时显示）
+            // 平仓记录的 side 是 'close'，或者 type 包含平仓类型
+            const isCloseOrder = trade.side === "close" || 
+                                 ['close', 'take_profit', 'stop_loss', 'risk_mitigation'].includes(trade.type);
+            
             const pnlHtml =
-              trade.type === "close" &&
+              isCloseOrder &&
               trade.pnl !== null &&
               trade.pnl !== undefined
                 ? `<span class="${trade.pnl >= 0 ? "profit" : "loss"}">${
