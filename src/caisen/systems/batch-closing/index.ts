@@ -1038,18 +1038,30 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 						);
 
 						if (orderDetails) {
-							// 解析实际成交价格
-							actualPrice = Number.parseFloat(
-								orderDetails.fill_price ||
-									orderDetails.avgPrice ||
-									orderDetails.average ||
-									actualPrice.toString(),
-							);
-
-							// 解析实际手续费（取绝对值）
-							actualFee = Math.abs(
-								Number.parseFloat(orderDetails.tkfr || orderDetails.fee || "0"),
-							);
+							// 🔧 修复：正确解析平均成交价
+							// Gate.io返回的字段可能是：fill_price, fillPrice, avgPrice, average
+							const fillPrice = orderDetails.fill_price || 
+							                  orderDetails.fillPrice || 
+							                  orderDetails.avgPrice || 
+							                  orderDetails.average;
+							
+							if (fillPrice) {
+								actualPrice = Number.parseFloat(fillPrice);
+								logger.info({
+									action: "fill_price_found",
+									orderId: closeResult.id,
+									fillPrice: actualPrice,
+									message: "成功获取平均成交价",
+								});
+							} else {
+								logger.warn({
+									action: "fill_price_missing",
+									orderId: closeResult.id,
+									orderDetails: JSON.stringify(orderDetails),
+									message: "订单详情中未找到平均成交价，使用估算价格",
+								});
+								actualPrice = Number.parseFloat(actualPrice.toString());
+							}
 
 							// 解析实际成交数量
 							if (orderDetails.size) {
@@ -1058,13 +1070,36 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 								);
 							}
 
+							// 🔧 修复：Gate.io API返回的tkfr/fee是费率(0.0005)，不是手续费金额
+							// 需要根据成交价格和数量计算实际手续费
+							// 手续费 = 价格 × 数量 × 合约乘数 × 费率
+							const feeRate = Math.abs(
+								Number.parseFloat(orderDetails.tkfr || orderDetails.fee || "0"),
+							);
+							
+							// 获取合约乘数
+							const { getQuantoMultiplier } = await import(
+								"../../../utils/contractUtils"
+							);
+							const quantoMultiplier = await getQuantoMultiplier(
+								batchState.config.positionId,
+							);
+							
+							// 计算实际手续费金额
+							if (feeRate > 0 && actualPrice > 0 && actualExecutedQty > 0) {
+								actualFee = actualPrice * actualExecutedQty * quantoMultiplier * feeRate;
+							}
+
 							logger.info({
 								action: "order_details_fetched",
 								orderId: closeResult.id,
 								actualPrice,
-								actualFee,
 								actualExecutedQty,
-								message: "成功获取订单详情",
+								quantoMultiplier,
+								feeRate,
+								actualFee,
+								calculation: `${actualPrice} × ${actualExecutedQty} × ${quantoMultiplier} × ${feeRate} = ${actualFee}`,
+								message: "成功获取订单详情并计算手续费",
 							});
 						}
 					} else {
@@ -1111,13 +1146,19 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 				// 🔧 关键修复：如果手续费还没有计算，只计算平仓手续费
 				// 开仓手续费已经在开仓时记录过了，不应该在平仓时再加一次
 				if (actualFee === 0) {
+					// 手续费 = 价格 × 数量 × 合约乘数 × 费率(0.05%)
 					const closeFee = Math.abs(actualPrice * actualExecutedQty * quantoMultiplier * 0.0005);
 					actualFee = closeFee;
 					
 					logger.info({
 						action: "fee_calculated_in_pnl",
+						actualPrice,
+						actualExecutedQty,
+						quantoMultiplier,
+						feeRate: 0.0005,
 						closeFee,
 						actualFee,
+						calculation: `${actualPrice} × ${actualExecutedQty} × ${quantoMultiplier} × 0.0005 = ${closeFee}`,
 						message: "在盈亏计算中补充计算平仓手续费（开仓手续费已在开仓时记录）",
 					});
 				}
@@ -1159,14 +1200,20 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 				);
 				
 				// 只计算平仓手续费（0.05%）
+				// 手续费 = 价格 × 数量 × 合约乘数 × 费率(0.05%)
 				// 开仓手续费已经在开仓时单独记录过了
 				const closeFee = Math.abs(actualPrice * actualExecutedQty * quantoMultiplier * 0.0005);
 				actualFee = closeFee;
 				
 				logger.info({
 					action: "fee_estimated",
+					actualPrice,
+					actualExecutedQty,
+					quantoMultiplier,
+					feeRate: 0.0005,
 					closeFee,
 					actualFee,
+					calculation: `${actualPrice} × ${actualExecutedQty} × ${quantoMultiplier} × 0.0005 = ${closeFee}`,
 					message: "使用估算平仓手续费（0.05%），开仓手续费已在开仓时记录",
 				});
 			}

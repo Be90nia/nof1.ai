@@ -1041,6 +1041,11 @@ async function executeCaiSenMonitor(): Promise<void> {
 
 								// 按照回落幅度从大到小检查，优先触发更严格的保护
 								// 同时检查该级别是否已经执行过
+								// 🔧 关键修复：如果高级别已执行，则不再检查低级别（峰值回落是递进的，不应重复触发）
+								const hasExecutedHigherLevel = 
+									executedPeakDrawdownLevels.has("peak_drawdown_level3") ||
+									executedPeakDrawdownLevels.has("peak_drawdown_level2");
+								
 								if (
 									drawdownFromPeak >=
 										peakDrawdownConfig.level3.drawdownThreshold &&
@@ -1058,7 +1063,8 @@ async function executeCaiSenMonitor(): Promise<void> {
 								} else if (
 									drawdownFromPeak >=
 										peakDrawdownConfig.level2.drawdownThreshold &&
-									!executedPeakDrawdownLevels.has("peak_drawdown_level2")
+									!executedPeakDrawdownLevels.has("peak_drawdown_level2") &&
+									!hasExecutedHigherLevel
 								) {
 									activeLevel = peakDrawdownConfig.level2;
 									levelName = "level2";
@@ -1072,7 +1078,8 @@ async function executeCaiSenMonitor(): Promise<void> {
 								} else if (
 									drawdownFromPeak >=
 										peakDrawdownConfig.level1.drawdownThreshold &&
-									!executedPeakDrawdownLevels.has("peak_drawdown_level1")
+									!executedPeakDrawdownLevels.has("peak_drawdown_level1") &&
+									!hasExecutedHigherLevel
 								) {
 									activeLevel = peakDrawdownConfig.level1;
 									levelName = "level1";
@@ -1085,7 +1092,11 @@ async function executeCaiSenMonitor(): Promise<void> {
 									);
 								} else {
 									// 回落幅度未达到任何级别的阈值，或所有级别都已执行
-									if (
+									if (hasExecutedHigherLevel) {
+										logger.debug(
+											`${symbol} 已执行过高级别峰值回落保护（level2或level3），不再触发低级别保护`,
+										);
+									} else if (
 										drawdownFromPeak >=
 										peakDrawdownConfig.level1.drawdownThreshold
 									) {

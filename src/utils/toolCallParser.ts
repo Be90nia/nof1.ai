@@ -1480,6 +1480,9 @@ export function formatToolCallsDisplay(text: string): string {
 		// 重置正则表达式的lastIndex，以便重新匹配
 		toolCallRegex.lastIndex = 0;
 
+		// 收集所有需要替换的块，避免在循环中直接替换导致的问题
+		const replacements: Array<{ original: string; formatted: string }> = [];
+
 		// 匹配所有工具调用块，并逐个处理
 		let toolCallMatch;
 		while ((toolCallMatch = toolCallRegex.exec(text)) !== null) {
@@ -1769,8 +1772,19 @@ export function formatToolCallsDisplay(text: string): string {
 				}
 			}
 
-			// 替换当前工具调用块，只保留美化后的文本
-			finalResult = finalResult.replace(entireBlock, formattedToolCalls);
+			// 保存替换信息，稍后统一替换
+			replacements.push({
+				original: entireBlock,
+				formatted: formattedToolCalls,
+			});
+		}
+
+		// 统一执行所有替换（从后往前替换，避免位置偏移问题）
+		for (const replacement of replacements) {
+			finalResult = finalResult.replace(
+				replacement.original,
+				replacement.formatted,
+			);
 		}
 	}
 
