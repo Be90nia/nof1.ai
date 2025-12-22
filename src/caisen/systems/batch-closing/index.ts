@@ -965,13 +965,34 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 			});
 
 			// 计算实际平仓数量 - Calculate actual closing quantity
-			const position = await this.exchangeClient
-				.getPositions()
-				.then((positions) =>
-					positions.find((p) => p.positionId === batchState.config.positionId),
-				);
+			const allPositions = await this.exchangeClient.getPositions();
+			
+			// 🔧 修复：过滤掉size为0的持仓（已平仓的持仓）
+			const activePositions = allPositions.filter(
+				(p) => Math.abs(Number.parseFloat(p.size || "0")) > 0
+			);
+			
+			const position = activePositions.find(
+				(p) =>
+					p.positionId === batchState.config.positionId ||
+					p.contract === batchState.config.positionId,
+			);
+			
 			if (!position) {
-				throw new Error(`Position ${batchState.config.positionId} not found`);
+				logger.error({
+					action: "position_not_found",
+					batchId: batchState.config.batchId,
+					positionId: batchState.config.positionId,
+					allPositionsCount: allPositions.length,
+					activePositionsCount: activePositions.length,
+					availablePositions: activePositions.map((p) => ({
+						contract: p.contract,
+						positionId: p.positionId,
+						size: p.size,
+					})),
+					message: "持仓未找到，可能已被平仓或size为0",
+				});
+				throw new Error(`Position ${batchState.config.positionId} not found or already closed`);
 			}
 
 			let actualQuantity = batchState.config.closingQuantity;
@@ -997,6 +1018,65 @@ export class CaiSenBatchClosingSystem extends EventEmitter {
 			// 更新状态为已完成 - Update status to completed
 			batchState.status = BatchStatus.COMPLETED;
 			batchState.completedAt = Date.now();
+
+			// 🔧 修复 #6 & #9：记录交易到数据库（使用连接池）
+			try {
+				const symbol = batchState.config.positionId.replace("_USDT", "");
+				const { createClient } = await import("@libsql/client");
+				
+				// 🔧 使用环境变量中的数据库URL，确保使用正确的数据库
+				const dbClient = createClient({
+					url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+				});
+
+				// 记录交易
+				await dbClient.execute({
+					sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					args: [
+						closeResult.id?.toString() || `batch_${Date.now()}`,
+						symbol,
+						"close",
+						batchState.config.closingType === ClosingType.TAKE_PROFIT
+							? "take_profit"
+							: batchState.config.closingType === ClosingType.STOP_LOSS
+								? "stop_loss"
+								: "risk_mitigation",
+						batchState.executionResult.actualPrice,
+						batchState.executionResult.actualQuantity,
+						position.leverage || 1,
+						batchState.executionResult.pnl,
+						batchState.executionResult.fee,
+						new Date().toISOString(),
+						"filled",
+					],
+				});
+
+				await dbClient.close();
+
+				logger.info({
+					action: "trade_recorded",
+					batchId: batchState.config.batchId,
+					symbol,
+					type: batchState.config.closingType === ClosingType.TAKE_PROFIT
+						? "take_profit"
+						: batchState.config.closingType === ClosingType.STOP_LOSS
+							? "stop_loss"
+							: "risk_mitigation",
+					quantity: batchState.executionResult.actualQuantity,
+					price: batchState.executionResult.actualPrice,
+					pnl: batchState.executionResult.pnl,
+					message: "交易记录已保存到 trades 表",
+				});
+			} catch (error) {
+				logger.error({
+					action: "trade_record_failed",
+					batchId: batchState.config.batchId,
+					error: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+					message: "保存交易记录失败，但不影响平仓操作",
+				});
+			}
 
 			// 发出批次执行完成事件 - Emit batch execution completed event
 			this.emit("batchExecutionCompleted", {

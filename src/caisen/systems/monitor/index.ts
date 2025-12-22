@@ -874,9 +874,36 @@ async function executeCaiSenMonitor(): Promise<void> {
       }
 
       // 3. 主动检测止盈条件和峰值回落
-      const strategy = getTradingStrategy();
-      const strategyParams = getStrategyParams(strategy);
-      const exitStrategy = strategyParams.positionExitStrategy;
+      // 🔧 关键修复：从数据库读取该持仓的退出策略配置，而不是全局配置
+      const dbPositionResult = await dbClient.execute({
+        sql: "SELECT exit_strategy FROM positions WHERE symbol = ?",
+        args: [symbol],
+      });
+
+      let exitStrategy: any = null;
+      if (dbPositionResult.rows.length > 0) {
+        const exitStrategyStr = dbPositionResult.rows[0].exit_strategy as string;
+        if (exitStrategyStr) {
+          try {
+            exitStrategy = JSON.parse(exitStrategyStr);
+            logger.debug(
+              `${symbol} 从数据库读取退出策略配置: ${JSON.stringify(exitStrategy)}`
+            );
+          } catch (e) {
+            logger.warn(`${symbol} 解析退出策略配置失败: ${e}`);
+          }
+        }
+      }
+
+      // 如果数据库中没有配置，回退到全局配置
+      if (!exitStrategy) {
+        const strategy = getTradingStrategy();
+        const strategyParams = getStrategyParams(strategy);
+        exitStrategy = strategyParams.positionExitStrategy;
+        logger.debug(
+          `${symbol} 数据库中无退出策略配置，使用全局配置`
+        );
+      }
 
       // 检查是否启用了止盈策略
       const isTakeProfitEnabled =
@@ -973,67 +1000,108 @@ async function executeCaiSenMonitor(): Promise<void> {
                   )}%，峰值回落: ${drawdownFromPeak.toFixed(2)}%${addInfo}${lossInfo}`
                 );
 
-                // 🎯 动态分段管理：根据峰值盈利区间选择对应的峰值回落级别
+                // 🎯 修复：根据回落幅度选择峰值回落级别，而不是根据峰值所在区间
+                // 这样可以确保当价格从高位回落时，能够及时触发保护
                 let activeLevel: {
                   drawdownThreshold: number;
                   closePercent: number;
                 } | null = null;
                 let levelName = "";
 
-                // 根据峰值盈利所处的区间来确定峰值回落级别
-                if (takeProfitConfig) {
-                  // 如果峰值盈利在 stage3 区间（最高区间）
-                  if (peakPnlPercent >= takeProfitConfig.stage3.trigger) {
-                    activeLevel = peakDrawdownConfig.level3;
-                    levelName = "level3";
-                    logger.debug(
-                      `${symbol} 峰值盈利在 stage3 区间 (>=${takeProfitConfig.stage3.trigger}%)，使用 level3 峰值回落阈值`
+                // 🔧 关键修复：先读取已执行的峰值回落级别，避免重复触发
+                const executedLevelsResult = await dbClient.execute({
+                  sql: "SELECT executed_levels FROM positions WHERE symbol = ?",
+                  args: [symbol],
+                });
+
+                let executedPeakDrawdownLevels: Set<string> = new Set();
+                if (executedLevelsResult.rows.length > 0) {
+                  const executedLevelsStr = String(
+                    executedLevelsResult.rows[0].executed_levels || "[]"
+                  );
+                  try {
+                    const executedLevels = JSON.parse(executedLevelsStr);
+                    // 只提取峰值回落相关的级别
+                    executedPeakDrawdownLevels = new Set(
+                      executedLevels.filter((level: string) =>
+                        level.startsWith("peak_drawdown_")
+                      )
                     );
+                    if (executedPeakDrawdownLevels.size > 0) {
+                      logger.debug(
+                        `${symbol} 已执行的峰值回落级别: ${JSON.stringify(
+                          Array.from(executedPeakDrawdownLevels)
+                        )}`
+                      );
+                    }
+                  } catch (e) {
+                    logger.warn(`${symbol} 解析 executed_levels 失败: ${e}`);
                   }
-                  // 如果峰值盈利在 stage2 区间
-                  else if (peakPnlPercent >= takeProfitConfig.stage2.trigger) {
-                    activeLevel = peakDrawdownConfig.level2;
-                    levelName = "level2";
-                    logger.debug(
-                      `${symbol} 峰值盈利在 stage2 区间 (${takeProfitConfig.stage2.trigger}%-${takeProfitConfig.stage3.trigger}%)，使用 level2 峰值回落阈值`
-                    );
-                  }
-                  // 如果峰值盈利在 stage1 区间
-                  else if (peakPnlPercent >= takeProfitConfig.stage1.trigger) {
-                    activeLevel = peakDrawdownConfig.level1;
-                    levelName = "level1";
-                    logger.debug(
-                      `${symbol} 峰值盈利在 stage1 区间 (${takeProfitConfig.stage1.trigger}%-${takeProfitConfig.stage2.trigger}%)，使用 level1 峰值回落阈值`
-                    );
-                  }
-                  // 如果峰值盈利还未达到 stage1，使用最严格的 level1
-                  else {
-                    activeLevel = peakDrawdownConfig.level1;
-                    levelName = "level1";
-                    logger.debug(
-                      `${symbol} 峰值盈利未达到 stage1 (<${takeProfitConfig.stage1.trigger}%)，使用 level1 峰值回落阈值`
-                    );
-                  }
+                }
+
+                // 按照回落幅度从大到小检查，优先触发更严格的保护
+                // 同时检查该级别是否已经执行过
+                if (
+                  drawdownFromPeak >=
+                    peakDrawdownConfig.level3.drawdownThreshold &&
+                  !executedPeakDrawdownLevels.has("peak_drawdown_level3")
+                ) {
+                  activeLevel = peakDrawdownConfig.level3;
+                  levelName = "level3";
+                  logger.debug(
+                    `${symbol} 回落幅度 ${drawdownFromPeak.toFixed(
+                      2
+                    )}% >= level3 阈值 ${
+                      peakDrawdownConfig.level3.drawdownThreshold
+                    }%，使用 level3 峰值回落保护`
+                  );
+                } else if (
+                  drawdownFromPeak >=
+                    peakDrawdownConfig.level2.drawdownThreshold &&
+                  !executedPeakDrawdownLevels.has("peak_drawdown_level2")
+                ) {
+                  activeLevel = peakDrawdownConfig.level2;
+                  levelName = "level2";
+                  logger.debug(
+                    `${symbol} 回落幅度 ${drawdownFromPeak.toFixed(
+                      2
+                    )}% >= level2 阈值 ${
+                      peakDrawdownConfig.level2.drawdownThreshold
+                    }%，使用 level2 峰值回落保护`
+                  );
+                } else if (
+                  drawdownFromPeak >=
+                    peakDrawdownConfig.level1.drawdownThreshold &&
+                  !executedPeakDrawdownLevels.has("peak_drawdown_level1")
+                ) {
+                  activeLevel = peakDrawdownConfig.level1;
+                  levelName = "level1";
+                  logger.debug(
+                    `${symbol} 回落幅度 ${drawdownFromPeak.toFixed(
+                      2
+                    )}% >= level1 阈值 ${
+                      peakDrawdownConfig.level1.drawdownThreshold
+                    }%，使用 level1 峰值回落保护`
+                  );
                 } else {
-                  // 如果没有分批止盈配置，使用传统的从高到低检查
+                  // 回落幅度未达到任何级别的阈值，或所有级别都已执行
                   if (
-                    drawdownFromPeak >=
-                    peakDrawdownConfig.level3.drawdownThreshold
-                  ) {
-                    activeLevel = peakDrawdownConfig.level3;
-                    levelName = "level3";
-                  } else if (
-                    drawdownFromPeak >=
-                    peakDrawdownConfig.level2.drawdownThreshold
-                  ) {
-                    activeLevel = peakDrawdownConfig.level2;
-                    levelName = "level2";
-                  } else if (
                     drawdownFromPeak >=
                     peakDrawdownConfig.level1.drawdownThreshold
                   ) {
-                    activeLevel = peakDrawdownConfig.level1;
-                    levelName = "level1";
+                    logger.debug(
+                      `${symbol} 回落幅度 ${drawdownFromPeak.toFixed(
+                        2
+                      )}% 达到阈值，但所有峰值回落级别都已执行过`
+                    );
+                  } else {
+                    logger.debug(
+                      `${symbol} 回落幅度 ${drawdownFromPeak.toFixed(
+                        2
+                      )}% 未达到任何峰值回落阈值（level1: ${
+                        peakDrawdownConfig.level1.drawdownThreshold
+                      }%），暂不触发`
+                    );
                   }
                 }
 
@@ -1142,24 +1210,42 @@ async function executeCaiSenMonitor(): Promise<void> {
                           }），必须执行峰值回落保护`
                         );
                       }
-                      // 情况3：只有在趋势仍然有利且成交量放大时，才给予容忍度
+                      // 情况3：只有在趋势仍然有利且成交量放大时，才给予有限的容忍度
+                      // 🔧 修复：容忍度不应该太高，最多只能提高20%，避免利润大幅回吐
                       else if (
                         ((side === "long" && trendUp) ||
                           (side === "short" && !trendUp)) &&
                         volumeRatio > 1.2
                       ) {
                         // 趋势健康 + 成交量放大 = 可能只是正常回调
-                        // 提高阈值容忍度 50%
+                        // 🔧 关键修复：容忍度从50%降低到20%，更严格保护利润
                         const adjustedThreshold =
-                          activeLevel.drawdownThreshold * 1.5;
+                          activeLevel.drawdownThreshold * 1.2;
                         if (drawdownFromPeak < adjustedThreshold) {
                           shouldTrigger = false;
                           logger.info(
                             `${symbol} 指标健康，提高峰值回落容忍度至 ${adjustedThreshold.toFixed(
                               2
-                            )}%，暂不触发平仓`
+                            )}%，暂不触发平仓（当前回落: ${drawdownFromPeak.toFixed(
+                              2
+                            )}%）`
                           );
                           logger.info(`  指标分析: ${indicators.join(", ")}`);
+                        } else {
+                          // 即使指标健康，但回落幅度已经超过容忍度，仍然要触发
+                          shouldTrigger = true;
+                          indicators.push(
+                            `⚠️ 回落幅度${drawdownFromPeak.toFixed(
+                              2
+                            )}%超过容忍度${adjustedThreshold.toFixed(2)}%`
+                          );
+                          logger.warn(
+                            `${symbol} 虽然指标健康，但回落幅度${drawdownFromPeak.toFixed(
+                              2
+                            )}%已超过容忍度${adjustedThreshold.toFixed(
+                              2
+                            )}%，必须执行峰值回落保护`
+                          );
                         }
                       }
                     }
@@ -1178,15 +1264,37 @@ async function executeCaiSenMonitor(): Promise<void> {
 
                   // 执行平仓
                   if (shouldTrigger) {
+                    // 🔧 新增：在创建批次前，再次确认持仓仍然存在且有足够数量
+                    const currentPositions = await getCurrentPositions();
+                    const currentPosition = currentPositions.find(
+                      (p) => p.contract === contract
+                    );
+                    
+                    if (!currentPosition || Math.abs(Number.parseFloat(currentPosition.size)) === 0) {
+                      logger.warn(
+                        `${symbol} 持仓已不存在或已被完全平仓，跳过峰值回落保护`
+                      );
+                      continue;
+                    }
+                    
+                    const currentSize = Math.abs(Number.parseFloat(currentPosition.size));
+                    const closePercent = activeLevel.closePercent / 100;
+                    const closeQuantity = Math.floor(currentSize * closePercent);
+                    
+                    if (closeQuantity === 0) {
+                      logger.warn(
+                        `${symbol} 计算平仓数量为0（当前持仓: ${currentSize}，平仓比例: ${(closePercent * 100).toFixed(0)}%），跳过峰值回落保护`
+                      );
+                      continue;
+                    }
+                    
                     logger.warn(
-                      `${symbol} 确认触发 ${levelName} 峰值回落保护，准备平仓${activeLevel.closePercent}%的仓位`
+                      `${symbol} 确认触发 ${levelName} 峰值回落保护，准备平仓${activeLevel.closePercent}%的仓位（${closeQuantity}张）`
                     );
                     if (indicators.length > 0) {
                       logger.info(`  指标分析: ${indicators.join(", ")}`);
                     }
 
-                    const closePercent = activeLevel.closePercent / 100;
-                    const closeQuantity = Math.floor(size * closePercent);
                     const batchConfig: BatchConfig = {
                       batchId: `peak_drawdown_${symbol}_${levelName}_${Date.now()}`,
                       positionId: contract,
@@ -1212,6 +1320,57 @@ async function executeCaiSenMonitor(): Promise<void> {
                           closePercent * 100
                         ).toFixed(0)}%`
                       );
+
+                      // 🔧 关键修复：记录已执行的峰值回落级别，防止重复触发
+                      try {
+                        // 从数据库读取当前的 executed_levels
+                        const executedLevelsResult = await dbClient.execute({
+                          sql: "SELECT executed_levels FROM positions WHERE symbol = ?",
+                          args: [symbol],
+                        });
+
+                        let executedLevels: string[] = [];
+                        if (executedLevelsResult.rows.length > 0) {
+                          const executedLevelsStr = String(
+                            executedLevelsResult.rows[0].executed_levels || "[]"
+                          );
+                          try {
+                            executedLevels = JSON.parse(executedLevelsStr);
+                          } catch (e) {
+                            logger.warn(
+                              `${symbol} 解析 executed_levels 失败: ${e}`
+                            );
+                          }
+                        }
+
+                        // 添加当前执行的级别（使用 peak_drawdown_ 前缀区分）
+                        const peakDrawdownLevelKey = `peak_drawdown_${levelName}`;
+                        if (!executedLevels.includes(peakDrawdownLevelKey)) {
+                          executedLevels.push(peakDrawdownLevelKey);
+
+                          // 更新数据库
+                          await dbClient.execute({
+                            sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
+                            args: [JSON.stringify(executedLevels), symbol],
+                          });
+
+                          logger.info({
+                            action: "record_peak_drawdown_execution",
+                            symbol,
+                            level: levelName,
+                            executedLevels,
+                            message: `已记录 ${levelName} 峰值回落执行，防止重复触发`,
+                          });
+                        }
+                      } catch (error) {
+                        logger.error({
+                          action: "record_peak_drawdown_execution_error",
+                          symbol,
+                          level: levelName,
+                          error: (error as Error).message,
+                          message: "记录峰值回落执行失败",
+                        });
+                      }
                     }
                     // 触发峰值回落后，跳过分批止盈检查
                     continue;
@@ -1230,7 +1389,35 @@ async function executeCaiSenMonitor(): Promise<void> {
 
           // 检查是否达到止盈条件（只在盈利时检查）
           if (takeProfitConfig && pnlPercent > 0 && batchClosingSystem) {
-            if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+            // 🔧 关键修复：从数据库获取已执行的级别，避免重复触发
+            const executedLevelsResult = await dbClient.execute({
+              sql: "SELECT executed_levels FROM positions WHERE symbol = ?",
+              args: [symbol],
+            });
+
+            let executedLevels: Set<string> = new Set();
+            if (executedLevelsResult.rows.length > 0) {
+              const executedLevelsStr = String(
+                executedLevelsResult.rows[0].executed_levels || "[]"
+              );
+              try {
+                const levelsArray = JSON.parse(executedLevelsStr);
+                executedLevels = new Set(levelsArray);
+                logger.debug(
+                  `${symbol} 已执行的止盈级别: ${JSON.stringify(
+                    Array.from(executedLevels)
+                  )}`
+                );
+              } catch (e) {
+                logger.warn(`${symbol} 解析 executed_levels 失败: ${e}`);
+              }
+            }
+
+            // 检查第三阶段（最高优先级）
+            if (
+              pnlPercent >= takeProfitConfig.stage3.trigger &&
+              !executedLevels.has("stage3")
+            ) {
               // 达到第三阶段止盈，全部平仓
               logger.info(
                 `${symbol} 达到第三阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
@@ -1261,8 +1448,20 @@ async function executeCaiSenMonitor(): Promise<void> {
                 batchClosingSystem.activateBatchClosing(batchId);
                 await batchClosingSystem.executeBatch(batchId);
                 logger.info(`${symbol} 第三阶段止盈已执行，全部平仓`);
+
+                // 🔧 更新已执行级别
+                executedLevels.add("stage3");
+                await dbClient.execute({
+                  sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
+                  args: [JSON.stringify(Array.from(executedLevels)), symbol],
+                });
               }
-            } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+            }
+            // 检查第二阶段
+            else if (
+              pnlPercent >= takeProfitConfig.stage2.trigger &&
+              !executedLevels.has("stage2")
+            ) {
               // 达到第二阶段止盈，平仓部分仓位
               logger.info(
                 `${symbol} 达到第二阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
@@ -1301,8 +1500,20 @@ async function executeCaiSenMonitor(): Promise<void> {
                     closePercent * 100
                   ).toFixed(0)}%`
                 );
+
+                // 🔧 更新已执行级别
+                executedLevels.add("stage2");
+                await dbClient.execute({
+                  sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
+                  args: [JSON.stringify(Array.from(executedLevels)), symbol],
+                });
               }
-            } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+            }
+            // 检查第一阶段
+            else if (
+              pnlPercent >= takeProfitConfig.stage1.trigger &&
+              !executedLevels.has("stage1")
+            ) {
               // 达到第一阶段止盈，平仓部分仓位
               logger.info(
                 `${symbol} 达到第一阶段止盈条件: ${pnlPercent.toFixed(2)}% >= ${
@@ -1340,6 +1551,34 @@ async function executeCaiSenMonitor(): Promise<void> {
                   `${symbol} 第一阶段止盈已执行，平仓${(
                     closePercent * 100
                   ).toFixed(0)}%`
+                );
+
+                // 🔧 更新已执行级别
+                executedLevels.add("stage1");
+                await dbClient.execute({
+                  sql: "UPDATE positions SET executed_levels = ? WHERE symbol = ?",
+                  args: [JSON.stringify(Array.from(executedLevels)), symbol],
+                });
+              }
+            } else {
+              // 已经执行过对应级别，跳过
+              if (pnlPercent >= takeProfitConfig.stage3.trigger) {
+                logger.debug(
+                  `${symbol} 第三阶段止盈已执行过，跳过（当前盈利: ${pnlPercent.toFixed(
+                    2
+                  )}%）`
+                );
+              } else if (pnlPercent >= takeProfitConfig.stage2.trigger) {
+                logger.debug(
+                  `${symbol} 第二阶段止盈已执行过，跳过（当前盈利: ${pnlPercent.toFixed(
+                    2
+                  )}%）`
+                );
+              } else if (pnlPercent >= takeProfitConfig.stage1.trigger) {
+                logger.debug(
+                  `${symbol} 第一阶段止盈已执行过，跳过（当前盈利: ${pnlPercent.toFixed(
+                    2
+                  )}%）`
                 );
               }
             }
