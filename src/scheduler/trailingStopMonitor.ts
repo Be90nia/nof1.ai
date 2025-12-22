@@ -1249,6 +1249,7 @@ async function executeTrailingStopClose(
 
 			// 更新内存中的持仓记录，保留峰值盈利信息
 			// history 变量已在上面声明，直接使用
+			const history = positionPnlHistory.get(symbol);
 			if (history) {
 				// 同步更新内存中的已执行级别
 				history.executedLevels = new Set(currentExecutedLevels);
@@ -1281,6 +1282,48 @@ async function executeTrailingStopClose(
 async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 	if (!isRunning) {
 		return;
+	}
+
+	// 🔧 修复：蔡森策略使用独立的监控系统，避免重复触发分批止盈
+	const strategy = getTradingStrategy();
+	if (strategy === "cai-sen") {
+		// 蔡森策略只更新账户净值峰值，不检查持仓峰值和分批止盈
+		// 持仓监控由 caisen/systems/monitor/index.ts 负责
+		try {
+			const exchangeClient = createExchangeClient();
+			accountCheckCount++;
+
+			// 获取账户信息
+			const account = await exchangeClient.getFuturesAccount();
+			const accountTotal = Number.parseFloat(account.total || "0");
+			const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
+			const totalBalance = accountTotal + unrealisedPnl;
+
+			// 初始化峰值
+			if (accountPeakBalance === 0) {
+				const peakResult = await dbClient.execute(
+					"SELECT MAX(total_value) as peak FROM account_history",
+				);
+				accountPeakBalance = peakResult.rows[0]?.peak
+					? Number.parseFloat(peakResult.rows[0].peak as string)
+					: totalBalance;
+			}
+
+			// 如果当前净值创新高，立即记录到数据库
+			if (totalBalance > accountPeakBalance) {
+				const oldPeak = accountPeakBalance;
+				accountPeakBalance = totalBalance;
+				await recordAccountAssets(true);
+				logger.info(
+					`💰 账户净值创新高: ${oldPeak.toFixed(
+						2,
+					)} USDT → ${accountPeakBalance.toFixed(2)} USDT`,
+				);
+			}
+		} catch (error: any) {
+			logger.warn(`账户净值监控失败: ${error.message}`);
+		}
+		return; // 蔡森策略到此结束，不继续执行持仓监控
 	}
 
 	try {

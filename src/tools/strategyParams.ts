@@ -311,7 +311,7 @@ async function _setPeakDrawdownParams(
 	level1: { drawdownThreshold: number; closePercent: number },
 	level2: { drawdownThreshold: number; closePercent: number },
 	level3: { drawdownThreshold: number; closePercent: number },
-	minHoldingTime = 5,
+	minHoldingTime = 1,
 ): Promise<string> {
 	logger.info({
 		action: "tool_call",
@@ -476,7 +476,7 @@ export async function setPeakDrawdownParams(
 	level1: { drawdownThreshold: number; closePercent: number },
 	level2: { drawdownThreshold: number; closePercent: number },
 	level3: { drawdownThreshold: number; closePercent: number },
-	minHoldingTime = 5,
+	minHoldingTime = 1,
 ): Promise<string> {
 	return await _setPeakDrawdownParams(
 		strategy,
@@ -981,7 +981,7 @@ function getDefaultStrategyParams(): Record<string, any> {
 				{ drawdownThreshold: 2, closePercent: 50 },
 				{ drawdownThreshold: 3, closePercent: 100 },
 			],
-			minHoldingTime: 5 * 60 * 1000,
+			minHoldingTime: 1 * 60 * 1000,
 			maxClosePercent: 100,
 		},
 		dynamicStopLoss: {
@@ -1794,7 +1794,7 @@ export const setPositionExitStrategyTool = createTool({
 						.describe("第三级回落触发阈值（百分比）"),
 					closePercent: z.number().describe("第三级平仓百分比"),
 				}),
-				minHoldingTime: z.number().default(5).describe("最小持仓时间（分钟）"),
+				minHoldingTime: z.number().default(1).describe("最小持仓时间（分钟）"),
 			})
 			.optional()
 			.describe("可选，峰值回落配置"),

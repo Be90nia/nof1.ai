@@ -13,8 +13,8 @@
  * 用于存储初始开仓数量，金字塔加仓时基于此数量计算
  */
 
-import { dbClient } from "./dbClient.js";
 import { createLogger } from "../utils/loggerUtils.js";
+import { dbClient } from "./dbClient.js";
 
 const logger = createLogger({
 	name: "db-migration-initial-quantity",

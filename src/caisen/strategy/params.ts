@@ -177,7 +177,7 @@ export function getCaiSenStrategy(
 		peakDrawdownProtectionConfig: {
 			enabled: true,
 			levels: [], // 由AI动态生成，初始为空
-			minHoldingTime: 5 * 60 * 1000, // 5分钟
+			minHoldingTime: 1 * 60 * 1000, // 1分钟
 			maxClosePercent: 100, // 单次最大平仓100%
 		},
 

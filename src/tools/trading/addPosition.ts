@@ -262,8 +262,118 @@ export const addPositionTool = createTool({
 				historyRecord,
 			);
 
-			// 🔧 加仓后清空 executed_levels，让系统基于新的平均成本重新评估所有退出策略
-			// 这样 AI 重新设置退出策略参数时，所有级别都会被重新检查
+			// 🔧 加仓后智能调整 executed_levels，避免立即触发分批止盈
+			// 根据当前价格相对于新平均成本的盈亏，判断应该跳过哪些级别
+			let adjustedExecutedLevels: string[] = [];
+
+			// 获取退出策略配置
+			try {
+				const { getStrategyParams, getTradingStrategy } = await import(
+					"../../agents/tradingAgent.js"
+				);
+				const strategy = getTradingStrategy();
+				const strategyParams = getStrategyParams(strategy);
+				const exitStrategy = strategyParams.positionExitStrategy;
+
+				// 检查是否启用了分批止盈策略
+				const isTakeProfitEnabled =
+					exitStrategy?.enabled &&
+					(exitStrategy.strategyType === "partialTakeProfit" ||
+						exitStrategy.strategyType === "combination") &&
+					exitStrategy.partialTakeProfit;
+
+				if (isTakeProfitEnabled && exitStrategy.partialTakeProfit) {
+					const takeProfitConfig = exitStrategy.partialTakeProfit;
+
+					// 计算当前价格相对于新平均成本的盈亏百分比
+					const priceChangePercent =
+						((actualFillPrice - finalAveragePrice) / finalAveragePrice) * 100;
+					const currentPnlPercent =
+						currentPosition.side === "long"
+							? priceChangePercent * leverage
+							: -priceChangePercent * leverage;
+
+					logger.info({
+						action: "calculate_pnl_after_add",
+						symbol,
+						actualFillPrice,
+						finalAveragePrice,
+						priceChangePercent: priceChangePercent.toFixed(2),
+						currentPnlPercent: currentPnlPercent.toFixed(2),
+						leverage,
+						side: currentPosition.side,
+					});
+
+					// 智能判断应该跳过哪些级别
+					if (currentPnlPercent >= takeProfitConfig.stage3.trigger) {
+						// 当前已达到 stage3，标记所有级别为已执行
+						adjustedExecutedLevels = ["stage1", "stage2", "stage3"];
+						logger.warn({
+							action: "skip_all_levels_after_add",
+							symbol,
+							currentPnlPercent: currentPnlPercent.toFixed(2),
+							stage3Trigger: takeProfitConfig.stage3.trigger,
+							message: `加仓后当前盈亏 ${currentPnlPercent.toFixed(
+								2,
+							)}% 已达到 stage3，标记所有级别为已执行`,
+						});
+					} else if (currentPnlPercent >= takeProfitConfig.stage2.trigger) {
+						// 当前已达到 stage2，标记 stage1 和 stage2 为已执行
+						adjustedExecutedLevels = ["stage1", "stage2"];
+						logger.warn({
+							action: "skip_stage1_stage2_after_add",
+							symbol,
+							currentPnlPercent: currentPnlPercent.toFixed(2),
+							stage2Trigger: takeProfitConfig.stage2.trigger,
+							message: `加仓后当前盈亏 ${currentPnlPercent.toFixed(
+								2,
+							)}% 已达到 stage2，标记 stage1 和 stage2 为已执行`,
+						});
+					} else if (currentPnlPercent >= takeProfitConfig.stage1.trigger) {
+						// 当前已达到 stage1，标记 stage1 为已执行
+						adjustedExecutedLevels = ["stage1"];
+						logger.warn({
+							action: "skip_stage1_after_add",
+							symbol,
+							currentPnlPercent: currentPnlPercent.toFixed(2),
+							stage1Trigger: takeProfitConfig.stage1.trigger,
+							message: `加仓后当前盈亏 ${currentPnlPercent.toFixed(
+								2,
+							)}% 已达到 stage1，标记 stage1 为已执行`,
+						});
+					} else {
+						// 当前未达到任何级别，清空 executed_levels
+						adjustedExecutedLevels = [];
+						logger.info({
+							action: "clear_executed_levels_after_add",
+							symbol,
+							currentPnlPercent: currentPnlPercent.toFixed(2),
+							stage1Trigger: takeProfitConfig.stage1.trigger,
+							message: `加仓后当前盈亏 ${currentPnlPercent.toFixed(
+								2,
+							)}% 未达到任何止盈级别，清空 executed_levels`,
+						});
+					}
+				} else {
+					// 未启用分批止盈，清空 executed_levels
+					adjustedExecutedLevels = [];
+					logger.info({
+						action: "clear_executed_levels_no_takeprofit",
+						symbol,
+						message: "未启用分批止盈策略，清空 executed_levels",
+					});
+				}
+			} catch (error: any) {
+				logger.error({
+					action: "adjust_executed_levels_error",
+					symbol,
+					error: error.message,
+					message: "调整 executed_levels 失败，默认清空",
+				});
+				adjustedExecutedLevels = [];
+			}
+
+			// 更新数据库
 			await dbClient.execute({
 				sql: `UPDATE positions SET 
               quantity = ?,
@@ -275,7 +385,8 @@ export const addPositionTool = createTool({
               profit_target = ?,
               stop_loss = ?,
               peak_pnl_percent = ?,
-              executed_levels = ?
+              executed_levels = ?,
+              initial_quantity = ?
               WHERE symbol = ?`,
 				args: [
 					updatedMetrics.quantity,
@@ -287,17 +398,20 @@ export const addPositionTool = createTool({
 					updatedMetrics.profit_target,
 					updatedMetrics.stop_loss,
 					updatedMetrics.peak_pnl_percent,
-					"[]", // 清空已执行级别
+					JSON.stringify(adjustedExecutedLevels), // 智能调整后的已执行级别
+					updatedMetrics.quantity, // 🔧 关键修复：加仓后更新 initial_quantity 为新的总持仓
 					symbol,
 				],
 			});
 
 			logger.info({
-				action: "reset_executed_levels_after_add_position",
+				action: "update_executed_levels_after_add_position",
 				function: "addPosition",
 				symbol,
-				message:
-					"加仓后已清空 executed_levels，AI 需要基于新的平均成本重新设置退出策略参数",
+				adjustedExecutedLevels,
+				message: `加仓后已智能调整 executed_levels: ${JSON.stringify(
+					adjustedExecutedLevels,
+				)}`,
 			});
 
 			logger.info(

@@ -52,7 +52,7 @@ export function getCompleteStrategyParams() {
 				level1: { drawdownThreshold: 1.0, closePercent: 30 },
 				level2: { drawdownThreshold: 2.0, closePercent: 50 },
 				level3: { drawdownThreshold: 3.0, closePercent: 100 },
-				minHoldingTime: 5,
+				minHoldingTime: 1,
 			},
 			lastUpdated: new Date().toISOString(),
 		};
@@ -86,7 +86,7 @@ export async function getExitStrategyForSymbol(symbol: string) {
 		const strategyParams = getCompleteStrategyParams();
 		return strategyParams.positionExitStrategy;
 	} catch (error) {
-		logger.error(`获取${symbol}的退出策略配置失败:`, error as any);
+		logger.error(`获取${symbol}的退出策略配置失败`, error as any);
 		// 返回默认配置
 		return {
 			strategyType: "combination",
@@ -108,7 +108,7 @@ export async function getExitStrategyForSymbol(symbol: string) {
 				level1: { drawdownThreshold: 1.0, closePercent: 30 },
 				level2: { drawdownThreshold: 2.0, closePercent: 50 },
 				level3: { drawdownThreshold: 3.0, closePercent: 100 },
-				minHoldingTime: 5,
+				minHoldingTime: 1,
 			},
 			lastUpdated: new Date().toISOString(),
 		};
@@ -119,7 +119,7 @@ export async function getExitStrategyForSymbol(symbol: string) {
  * 修复阶段对应关系，实现差异化回落保护
  */
 export async function fixStageCorrespondence() {
-	logger.info("🔧 开始修复阶段对应关系，实现差异化回落保护...");
+	logger.info("🔧 开始修复阶段对应关系，实现差异化回落保护..");
 
 	try {
 		const strategy = getTradingStrategy();
@@ -127,12 +127,10 @@ export async function fixStageCorrespondence() {
 			return;
 		}
 
-		// 获取所有交易币种
-		const { RISK_PARAMS } = await import("../../../config/riskParams");
+		// 获取所有交易币�?		const { RISK_PARAMS } = await import("../../../config/riskParams");
 		const tradingSymbols = RISK_PARAMS.TRADING_SYMBOLS;
 
-		// 获取Agent设置的策略参数
-		const agentParams = await getAgentStrategyParams(strategy);
+		// 获取Agent设置的策略参�?		const agentParams = await getAgentStrategyParams(strategy);
 
 		// 检查每个币种的阶段对应关系
 		for (const symbol of tradingSymbols) {
@@ -140,8 +138,7 @@ export async function fixStageCorrespondence() {
 
 			// 确保阶段对应关系正确
 			if (symbolParams.partialTakeProfit) {
-				// 检查部分止盈阶段设置
-				const { stage1, stage2, stage3 } = symbolParams.partialTakeProfit;
+				// 检查部分止盈阶段设�?				const { stage1, stage2, stage3 } = symbolParams.partialTakeProfit;
 				if (!stage1 || !stage2 || !stage3) {
 					logger.warn(`⚠️  币种 ${symbol} 部分止盈阶段设置不完整，正在修复...`);
 					// 修复阶段设置
@@ -155,7 +152,7 @@ export async function fixStageCorrespondence() {
 				}
 			} else {
 				// 如果没有设置部分止盈参数，设置默认值
-				logger.warn(`⚠️  币种 ${symbol} 缺少部分止盈参数，正在设置默认值...`);
+			logger.warn(`⚠️  币种 ${symbol} 缺少部分止盈参数，正在设置默认值..`);
 				await setPartialTakeProfitParams(
 					strategy,
 					symbol,
@@ -166,8 +163,7 @@ export async function fixStageCorrespondence() {
 			}
 
 			if (symbolParams.peakDrawdownProtection) {
-				// 检查峰值回落阶段设置
-				const { stage1, stage2, stage3 } = symbolParams.peakDrawdownProtection;
+				// 检查峰值回落阶段设�?				const { stage1, stage2, stage3 } = symbolParams.peakDrawdownProtection;
 				if (!stage1 || !stage2 || !stage3) {
 					logger.warn(
 						`⚠️  币种 ${symbol} 峰值回落保护阶段设置不完整，正在修复...`,
@@ -184,8 +180,8 @@ export async function fixStageCorrespondence() {
 				}
 			} else if (symbolParams.peakDrawdown) {
 				// 如果没有设置峰值回落保护参数，设置默认值
-				logger.warn(
-					`⚠️  币种 ${symbol} 缺少峰值回落保护参数，正在设置默认值...`,
+			logger.warn(
+					`⚠️  币种 ${symbol} 缺少峰值回落保护参数，正在设置默认值..`,
 				);
 				await setPeakDrawdownParams(
 					strategy,
@@ -197,7 +193,7 @@ export async function fixStageCorrespondence() {
 				);
 			} else if (symbolParams.drawdownProtection) {
 				// 如果没有动态止损参数，设置默认值
-				logger.warn(`⚠️  币种 ${symbol} 缺少动态止损参数，正在设置默认值...`);
+				logger.warn(`⚠️  币种 ${symbol} 缺少动态止损参数，正在设置默认值..`);
 				await setDynamicStopLossParams(
 					strategy,
 					symbol,
@@ -208,7 +204,7 @@ export async function fixStageCorrespondence() {
 			}
 		}
 
-		logger.info("✅ 阶段对应关系修复完成，实现了差异化回落保护");
+		logger.info("三阶段对应关系修复完成，实现了差异化回落保护");
 	} catch (error) {
 		logger.error("❌ 修复阶段对应关系失败:", error);
 	}

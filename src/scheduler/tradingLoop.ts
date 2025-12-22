@@ -59,12 +59,15 @@ interface PositionRow {
 	leverage?: number | string | null;
 	executed_levels?: string | null; // 已执行的平仓级别（JSON 字符串）
 	exit_strategy?: string | null; // 退出策略配置（JSON 字符串）
+	initial_quantity?: number | null; // 初始开仓数量
+	average_entry_price?: number | null; // 加权平均成本
 }
 
 interface DbData {
 	opened_at?: string | null;
 	peak_pnl_percent: number;
 	leverage: number;
+	average_entry_price?: number | null;
 }
 
 // 支持的币种 - 从配置中读取
@@ -73,6 +76,9 @@ const SYMBOLS = [...RISK_PARAMS.TRADING_SYMBOLS] as string[];
 // 交易开始时间
 let tradingStartTime = new Date();
 let iterationCount = 0;
+
+// 上次 AI 执行时间（用于计算距离下次唤醒的剩余时间）
+let lastAIExecutionTime = Date.now();
 
 // 账户风险配置
 let accountRiskConfig = getAccountRiskConfig();
@@ -646,7 +652,13 @@ async function syncPositionsFromExchange(cachedPositions?: any[]) {
 						: 0, // 保留已平仓百分比（关键修复）
 					dbPos?.executed_levels || "[]", // 保留已执行的平仓级别（关键修复）
 					exitStrategy, // 从strategy_params同步退出策略配置（关键修复）
-					dbPos?.initial_quantity || quantity, // 保留初始开仓数量，如果没有则使用当前数量
+					// 🔧 修复：initial_quantity 的更新逻辑
+					// 1. 如果是新开仓（没有 initial_quantity），使用当前数量
+					// 2. 如果是加仓后的同步（initial_quantity < quantity），更新为当前数量
+					// 3. 如果是分批平仓后的同步（initial_quantity >= quantity），保持不变
+					dbPos?.initial_quantity && dbPos.initial_quantity >= quantity
+						? dbPos.initial_quantity // 分批平仓后，保持基准不变
+						: quantity, // 新开仓或加仓后，更新基准
 				],
 			});
 
@@ -679,9 +691,9 @@ async function getPositions(cachedExchangePositions?: any[]) {
 		const exchangePositions =
 			cachedExchangePositions || (await exchangeClient.getPositions());
 
-		// 从数据库获取持仓的开仓时间、峰值盈利和杠杆数（数据库中保存了正确的数据）
+		// 从数据库获取持仓的开仓时间、峰值盈利、杠杆数和平均入场价格（数据库中保存了正确的数据）
 		const dbResult = await dbClient.execute(
-			"SELECT symbol, opened_at, peak_pnl_percent, leverage FROM positions",
+			"SELECT symbol, opened_at, peak_pnl_percent, leverage, average_entry_price FROM positions",
 		);
 		const dbDataMap = new Map<string, DbData>(
 			dbResult.rows.map((row: any) => [
@@ -692,6 +704,9 @@ async function getPositions(cachedExchangePositions?: any[]) {
 						(row.peak_pnl_percent as string) || "0",
 					),
 					leverage: Number.parseInt((row.leverage as string) || "1"),
+					average_entry_price: row.average_entry_price
+						? Number.parseFloat(row.average_entry_price as string)
+						: null,
 				},
 			]),
 		);
@@ -749,6 +764,7 @@ async function getPositions(cachedExchangePositions?: any[]) {
 					margin: Number.parseFloat(p.margin || "0"),
 					opened_at: openedAt,
 					peak_pnl_percent: peakPnlPercent, // 添加峰值盈利字段
+					average_entry_price: dbData?.average_entry_price || null, // 添加平均入场价格字段
 				};
 			});
 
@@ -909,13 +925,13 @@ async function loadConfigFromDatabase() {
  */
 /**
  * 修复历史盈亏记录
- * 
+ *
  * ⚠️ 重要说明：
  * 1. 此函数仅用于修复明显错误的盈亏记录（如盈亏被错误设置为名义价值）
  * 2. 对于有加仓的持仓，平仓时已使用正确的平均成本计算盈亏
  * 3. 如果 positions 表中没有记录（已完全平仓），则无法准确获取加仓后的平均成本
  * 4. 因此，只修复能够准确计算的记录，避免引入新的错误
- * 
+ *
  * 每个周期结束时自动调用，确保所有交易记录的盈亏计算正确
  */
 async function fixHistoricalPnlRecords() {
@@ -946,7 +962,7 @@ async function fixHistoricalPnlRecords() {
 			// 优先查找对应的 positions 记录（可能已平仓，使用 average_entry_price）
 			let openPrice = 0;
 			let hasAveragePrice = false;
-			
+
 			const positionResult = await dbClient.execute({
 				sql: `SELECT average_entry_price, entry_price, add_position_count FROM positions WHERE symbol = ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1`,
 				args: [symbol, timestamp],
@@ -954,8 +970,10 @@ async function fixHistoricalPnlRecords() {
 
 			if (positionResult.rows && positionResult.rows.length > 0) {
 				const position = positionResult.rows[0];
-				const addPositionCount = Number.parseInt((position.add_position_count as string) || "0");
-				
+				const addPositionCount = Number.parseInt(
+					(position.add_position_count as string) || "0",
+				);
+
 				// 如果有加仓记录，必须使用 average_entry_price
 				if (addPositionCount > 0) {
 					const avgPrice = position.average_entry_price as string | null;
@@ -985,16 +1003,14 @@ async function fixHistoricalPnlRecords() {
 				});
 
 				if (!openResult.rows || openResult.rows.length === 0) {
-					logger.debug(
-						`跳过修复 ID=${id} (${symbol}): 找不到对应的开仓记录`,
-					);
+					logger.debug(`跳过修复 ID=${id} (${symbol}): 找不到对应的开仓记录`);
 					skippedCount++;
 					continue;
 				}
 
 				const openTrade = openResult.rows[0];
 				openPrice = Number.parseFloat(openTrade.price as string);
-				
+
 				// ⚠️ 警告：如果这个持仓有加仓，但 positions 表中已经没有记录
 				// 我们无法获取准确的平均成本，应该跳过修复
 				// 因为平仓时已经使用了正确的平均成本计算盈亏
@@ -1251,6 +1267,10 @@ async function checkAccountThresholds(accountInfo: any): Promise<boolean> {
  */
 export async function executeTradingDecision() {
 	iterationCount++;
+
+	// 🔧 更新上次 AI 执行时间（用于计算距离下次唤醒的剩余时间）
+	lastAIExecutionTime = Date.now();
+
 	const minutesElapsed = Math.floor(
 		(Date.now() - tradingStartTime.getTime()) / 60000,
 	);
@@ -2363,6 +2383,19 @@ export function setIterationCount(count: number) {
  */
 export function getIterationCount() {
 	return iterationCount;
+}
+
+/**
+ * 获取距离下次 AI 唤醒的剩余时间（分钟）
+ * @returns 剩余时间（分钟），如果为负数表示已超过预定时间
+ */
+export function getMinutesUntilNextAIExecution(): number {
+	const intervalMinutes = Number.parseInt(
+		process.env.TRADING_INTERVAL_MINUTES || "5",
+	);
+	const minutesSinceLastExecution =
+		(Date.now() - lastAIExecutionTime) / (1000 * 60);
+	return intervalMinutes - minutesSinceLastExecution;
 }
 
 /**

@@ -835,7 +835,10 @@ export function generateCaiSenPrompt(
 			"- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n";
 		prompt +=
 			"- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n";
-		prompt += "- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n";
+		prompt += "- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n";
+		prompt +=
+			"- ⚠️ 【加仓后重要提醒】：加仓后平均成本已改变，所有盈亏计算都基于新的平均成本，必须重新设置退出策略！\n\n";
+
 		for (const pos of positions) {
 			// 计算盈亏百分比：考虑杠杆倍数，使用平均成本计算
 			const effectiveEntryPrice = pos.average_entry_price || pos.entry_price;
@@ -861,35 +864,97 @@ export function generateCaiSenPrompt(
 			const drawdownFromPeak =
 				peakPnlPercent > 0 ? peakPnlPercent - pnlPercent : 0;
 
+			// 加仓信息
+			const addPositionCount = pos.add_position_count || 0;
+			const hasAddedPosition = addPositionCount > 0;
+
+			prompt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 			prompt +=
 				"当前活跃持仓: " +
 				pos.symbol +
 				" " +
 				(pos.side === "long" ? "做多" : "做空") +
 				"\n";
-			prompt += "  杠杆倍数: " + pos.leverage + "x\n";
+			prompt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
-			// 加仓信息
-			const addPositionCount = pos.add_position_count || 0;
-			const hasAddedPosition = addPositionCount > 0;
-
+			// 🔥 加仓状态突出显示
 			if (hasAddedPosition) {
 				const costReduction =
 					((pos.entry_price - effectiveEntryPrice) / pos.entry_price) * 100;
-				prompt += "  加仓状态: 已加仓" + addPositionCount + "次\n";
-				prompt += "  初始价格: " + pos.entry_price.toFixed(2) + "\n";
+				const totalAddAmount = pos.total_add_amount_usdt || 0;
+				const initialQuantity = pos.initial_quantity || pos.quantity;
+				const currentQuantity = pos.quantity;
+
+				prompt += "\n🔥 【加仓状态 - 重要】\n";
+				prompt += "  ✓ 已执行加仓: " + addPositionCount + " 次\n";
+				prompt += "  ✓ 初始开仓价格: " + pos.entry_price.toFixed(2) + " USDT\n";
 				prompt +=
-					"  平均成本: " +
+					"  ✓ 当前平均成本: " +
 					effectiveEntryPrice.toFixed(2) +
-					" (降低" +
+					" USDT (通过加仓降低了 " +
 					costReduction.toFixed(2) +
 					"%)\n";
+				prompt += "  ✓ 初始持仓数量: " + initialQuantity.toFixed(4) + " 张\n";
 				prompt +=
-					"  总加仓金额: " +
-					(pos.total_add_amount_usdt || 0).toFixed(2) +
-					" USDT\n";
+					"  ✓ 当前持仓数量: " +
+					currentQuantity.toFixed(4) +
+					" 张 (增加了 " +
+					(
+						((currentQuantity - initialQuantity) / initialQuantity) *
+						100
+					).toFixed(2) +
+					"%)\n";
+				prompt += "  ✓ 累计加仓金额: " + totalAddAmount.toFixed(2) + " USDT\n";
+
+				if (pos.last_add_position_time) {
+					const lastAddTime = new Date(pos.last_add_position_time).getTime();
+					const minutesSinceLastAdd = Math.floor(
+						(Date.now() - lastAddTime) / (1000 * 60),
+					);
+					prompt +=
+						"  ✓ 上次加仓时间: " +
+						formatChinaTime(pos.last_add_position_time) +
+						" (距今 " +
+						minutesSinceLastAdd +
+						" 分钟)\n";
+				}
+
+				prompt +=
+					"\n  ⚠️ 【关键提醒】：加仓后平均成本已从 " +
+					pos.entry_price.toFixed(2) +
+					" 降至 " +
+					effectiveEntryPrice.toFixed(2) +
+					"，\n";
+				prompt +=
+					"     所有盈亏计算、止盈止损阈值都必须基于新的平均成本 " +
+					effectiveEntryPrice.toFixed(2) +
+					" 重新计算！\n";
+				prompt +=
+					"     必须立即调用 setPositionExitStrategy 工具重新设置退出策略参数！\n\n";
 			}
 
+			// 基本信息
+			prompt += "【基本信息】\n";
+			prompt += "  杠杆倍数: " + pos.leverage + "x\n";
+			prompt += "  当前市场价: " + pos.current_price.toFixed(2) + " USDT\n";
+			if (hasAddedPosition) {
+				prompt +=
+					"  平均成本: " + effectiveEntryPrice.toFixed(2) + " USDT (已加仓)\n";
+			} else {
+				prompt += "  开仓价格: " + effectiveEntryPrice.toFixed(2) + " USDT\n";
+			}
+			prompt += "  开仓时间: " + formatChinaTime(pos.opened_at) + "\n";
+			prompt +=
+				"  已持仓: " +
+				holdingHours +
+				" 小时 (" +
+				holdingMinutes +
+				" 分钟, " +
+				holdingCycles +
+				" 个周期)\n";
+
+			// 盈亏信息
+			prompt += "\n【盈亏信息】\n";
 			prompt +=
 				"  盈亏百分比: " +
 				(pnlPercent >= 0 ? "+" : "") +
@@ -908,14 +973,14 @@ export function generateCaiSenPrompt(
 				prompt += "  峰值回撤: " + drawdownFromPeak.toFixed(2) + "%\n";
 				if (drawdownFromPeak >= params.peakDrawdownProtection) {
 					prompt +=
-						"  警告: 峰值回撤已达到 " +
+						"  ⚠️ 警告: 峰值回撤已达到 " +
 						drawdownFromPeak.toFixed(2) +
 						"%，超过保护阈值 " +
 						params.peakDrawdownProtection +
 						"%，强烈建议立即平仓！\n";
 				} else if (drawdownFromPeak >= params.peakDrawdownProtection * 0.7) {
 					prompt +=
-						"  提醒: 峰值回撤接近保护阈值 (当前" +
+						"  ⚠️ 提醒: 峰值回撤接近保护阈值 (当前" +
 						drawdownFromPeak.toFixed(2) +
 						"%，阈值" +
 						params.peakDrawdownProtection +
@@ -923,32 +988,20 @@ export function generateCaiSenPrompt(
 				}
 			}
 
-			prompt += "  初始开仓价: " + pos.entry_price.toFixed(2) + "\n";
-			if (hasAddedPosition) {
-				prompt += "  当前平均成本: " + effectiveEntryPrice.toFixed(2) + "\n";
-			}
-			prompt += "  当前市场价: " + pos.current_price.toFixed(2) + "\n";
-			prompt += "  开仓时间: " + formatChinaTime(pos.opened_at) + "\n";
-			prompt +=
-				"  已持仓: " +
-				holdingHours +
-				" 小时 (" +
-				holdingMinutes +
-				" 分钟, " +
-				holdingCycles +
-				" 个周期)\n";
-
-			// 加仓建议
+			// 加仓建议（仅在未加仓或可以继续加仓时显示）
 			if (pnlPercent < 0 && addPositionCount < 3) {
 				const priceDropPercent = Math.abs(pnlPercent / pos.leverage);
+				prompt += "\n【加仓评估】\n";
+
 				if (priceDropPercent >= 3 && priceDropPercent <= 15) {
 					prompt +=
-						"  💡 加仓提示: 当前亏损" +
+						"  💡 加仓机会: 当前亏损 " +
 						Math.abs(pnlPercent).toFixed(2) +
-						"%，价格下跌" +
+						"%，价格下跌 " +
 						priceDropPercent.toFixed(2) +
-						"%，";
-					prompt += "已加仓" + addPositionCount + "/3次，";
+						"%\n";
+					prompt += "  💡 加仓进度: " + addPositionCount + "/3 次\n";
+
 					if (pos.last_add_position_time) {
 						const lastAddTime = new Date(pos.last_add_position_time).getTime();
 						const minutesSinceLastAdd = Math.floor(
@@ -956,36 +1009,37 @@ export function generateCaiSenPrompt(
 						);
 						if (minutesSinceLastAdd >= 30) {
 							prompt +=
-								"距离上次加仓" +
+								"  ✓ 时间间隔: " +
 								minutesSinceLastAdd +
-								"分钟（≥30分钟），满足时间间隔要求。";
+								" 分钟 (≥30分钟，满足要求)\n";
 						} else {
 							prompt +=
-								"距离上次加仓仅" +
+								"  ✗ 时间间隔: " +
 								minutesSinceLastAdd +
-								"分钟（<30分钟），需等待" +
+								" 分钟 (<30分钟，需等待 " +
 								(30 - minutesSinceLastAdd) +
-								"分钟。";
+								" 分钟)\n";
 						}
 					} else {
-						prompt += "尚未加仓，可考虑加仓降低成本。";
+						prompt += "  ✓ 时间间隔: 首次加仓，无时间限制\n";
 					}
-					prompt += "\n";
+
 					prompt +=
-						"  💡 加仓评估: 请综合评估趋势方向、支撑位、成交量、风险回报比等因素，决定是否加仓。\n";
+						"  💡 决策建议: 请综合评估趋势方向、支撑位、成交量、风险回报比等因素\n";
 				} else if (priceDropPercent < 3) {
 					prompt +=
-						"  ℹ️  加仓提示: 价格下跌" +
+						"  ℹ️  加仓条件: 价格下跌 " +
 						priceDropPercent.toFixed(2) +
-						"%，未达到加仓阈值（3%），暂不建议加仓。\n";
+						"% < 3%，未达到加仓阈值\n";
 				} else if (priceDropPercent > 15) {
 					prompt +=
-						"  ⚠️  风险警告: 价格下跌" +
+						"  ⚠️  风险警告: 价格下跌 " +
 						priceDropPercent.toFixed(2) +
-						"%，超过加仓上限（15%），风险过高，应考虑止损而非加仓。\n";
+						"% > 15%，风险过高，应考虑止损而非加仓\n";
 				}
 			} else if (addPositionCount >= 3) {
-				prompt += "  ⚠️  加仓限制: 已达到最大加仓次数（3次），无法继续加仓。\n";
+				prompt +=
+					"\n【加仓限制】\n  ⚠️  已达到最大加仓次数（3次），无法继续加仓\n";
 			}
 
 			prompt += "\n";

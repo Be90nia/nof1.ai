@@ -1038,7 +1038,7 @@ function extractToolCallFromText(
 							level1: { drawdownThreshold: 2, closePercent: 30 },
 							level2: { drawdownThreshold: 4, closePercent: 40 },
 							level3: { drawdownThreshold: 6, closePercent: 30 },
-							minHoldingTime: 5,
+							minHoldingTime: 1,
 						},
 					};
 
