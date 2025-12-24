@@ -48,7 +48,7 @@ async function syncFromGate() {
 		// 真实总资产 = account.total + unrealisedPnl
 		const currentBalance = accountTotal + unrealizedPnl;
 
-		logger.info(`\n📊 Gate.io 当前账户状态:`);
+		logger.info("\n📊 Gate.io 当前账户状态:");
 		logger.info(`   账户余额: ${accountTotal} USDT`);
 		logger.info(
 			`   未实现盈亏: ${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl} USDT`,
@@ -64,7 +64,7 @@ async function syncFromGate() {
 		logger.info(`   当前持仓数: ${activePositions.length}`);
 
 		if (activePositions.length > 0) {
-			logger.info(`\n   持仓详情:`);
+			logger.info("\n   持仓详情:");
 			for (const pos of activePositions) {
 				const size = Number.parseInt(pos.size || "0");
 				const symbol = pos.contract.replace("_USDT", "");
@@ -79,7 +79,7 @@ async function syncFromGate() {
 		// 3. 确认是否继续
 		logger.info(`\n${"=".repeat(60)}`);
 		logger.info(`⚠️  将以当前账户资金 ${currentBalance} USDT 作为新的初始资金`);
-		logger.info(`   这将重置所有历史数据和收益率统计！`);
+		logger.info("   这将重置所有历史数据和收益率统计！");
 		logger.info(`${"=".repeat(60)}\n`);
 
 		// 等待 3 秒让用户看清信息
@@ -141,7 +141,7 @@ async function syncFromGate() {
 				const side = size > 0 ? "long" : "short";
 				const quantity = Math.abs(size);
 				const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-				const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+				const liqPrice = Number.parseFloat(String(pos.liqPrice || "0"));
 
 				// 生成占位符 order_id
 				const entryOrderId = `synced-${symbol}-${Date.now()}`;
@@ -172,7 +172,7 @@ async function syncFromGate() {
 		}
 
 		// 9. 更新 .env 文件中的 INITIAL_BALANCE
-		logger.info(`\n🔧 更新 .env 文件...`);
+		logger.info("\n🔧 更新 .env 文件...");
 		try {
 			const envPath = path.join(process.cwd(), ".env");
 			let envContent = fs.readFileSync(envPath, "utf-8");
@@ -201,9 +201,9 @@ async function syncFromGate() {
 			}
 
 			fs.writeFileSync(envPath, envContent, "utf-8");
-			logger.info(`✅ .env 文件已更新`);
+			logger.info("✅ .env 文件已更新");
 		} catch (error) {
-			logger.warn(`⚠️  更新 .env 文件失败:`, error);
+			logger.warn("⚠️  更新 .env 文件失败:", error);
 			logger.warn(`   请手动设置 INITIAL_BALANCE=${currentBalance.toFixed(2)}`);
 		}
 
@@ -212,24 +212,24 @@ async function syncFromGate() {
 		logger.info("✅ 数据库和配置同步完成！");
 		logger.info(`${"=".repeat(60)}`);
 
-		logger.info(`\n📊 新的初始状态:`);
+		logger.info("\n📊 新的初始状态:");
 		logger.info(`   总资产: ${currentBalance} USDT`);
 		logger.info(`   可用资金: ${availableBalance} USDT`);
 		logger.info(`   未实现盈亏: ${unrealizedPnl} USDT`);
-		logger.info(`   已实现盈亏: 0 USDT`);
-		logger.info(`   总收益率: 0%`);
+		logger.info("   已实现盈亏: 0 USDT");
+		logger.info("   总收益率: 0%");
 		logger.info(`   持仓数: ${activePositions.length}`);
 
-		logger.info(`\n💡 提示:`);
+		logger.info("\n💡 提示:");
 		logger.info(
 			`   1. 数据库已同步，初始资金: ${currentBalance.toFixed(2)} USDT`,
 		);
 		logger.info(
 			`   2. .env 文件已更新，INITIAL_BALANCE: ${currentBalance.toFixed(2)} USDT`,
 		);
-		logger.info(`   3. 从现在开始，收益率将基于此金额计算`);
-		logger.info(`\n🚀 可以运行以下命令启动交易系统:`);
-		logger.info(`   npm run trading:start`);
+		logger.info("   3. 从现在开始，收益率将基于此金额计算");
+		logger.info("\n🚀 可以运行以下命令启动交易系统:");
+		logger.info("   npm run trading:start");
 
 		client.close();
 	} catch (error) {

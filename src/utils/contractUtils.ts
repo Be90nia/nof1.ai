@@ -113,7 +113,7 @@ export function clearQuantoMultiplierCache(contract?: string) {
 		logger.debug(`清除 ${contract} 合约乘数缓存`);
 	} else {
 		quantoMultiplierCache.clear();
-		logger.debug(`清除所有合约乘数缓存`);
+		logger.debug("清除所有合约乘数缓存");
 	}
 }
 

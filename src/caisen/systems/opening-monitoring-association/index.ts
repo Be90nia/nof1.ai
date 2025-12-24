@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import {
 	type IExchangeClient,
 	createExchangeClient,
@@ -345,7 +345,7 @@ export class CaiSenOpeningMonitoringAssociation extends EventEmitter {
 			if (!this.decisionIdToOpeningIds.has(decisionId)) {
 				this.decisionIdToOpeningIds.set(decisionId, []);
 			}
-			this.decisionIdToOpeningIds.get(decisionId)!.push(openingId);
+			this.decisionIdToOpeningIds.get(decisionId)?.push(openingId);
 
 			// 发出开仓注册事件 - Emit opening registration event
 			this.emit("openingRegistered", { openingId, openingRecord });

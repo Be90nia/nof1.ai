@@ -38,7 +38,7 @@ export function isWindows(): boolean {
 export function isUtf8Supported(): boolean {
 	// 检查环境变量
 	const lang = process.env.LANG || process.env.LC_ALL || process.env.LC_CTYPE;
-	if (lang && lang.toLowerCase().includes("utf-8")) {
+	if (lang?.toLowerCase().includes("utf-8")) {
 		return true;
 	}
 

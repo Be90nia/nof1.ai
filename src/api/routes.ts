@@ -205,11 +205,11 @@ export function createApiRoutes() {
 			const symbol = c.req.query("symbol"); // 可选，筛选特定币种
 
 			// 从数据库获取历史交易记录（按 ID 降序，确保最新的在前）
-			let sql = `SELECT * FROM trades ORDER BY id DESC LIMIT ?`;
+			let sql = "SELECT * FROM trades ORDER BY id DESC LIMIT ?";
 			let args: any[] = [limit];
 
 			if (symbol) {
-				sql = `SELECT * FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?`;
+				sql = "SELECT * FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?";
 				args = [symbol, limit];
 			}
 
@@ -303,35 +303,32 @@ export function createApiRoutes() {
 	 */
 	app.get("/api/stats", async (c) => {
 		try {
-			// 统计总交易次数 - 使用 pnl IS NOT NULL 来确保这是已完成的平仓交易
+			const closeTypes = "('close', 'take_profit', 'risk_mitigation')";
+			
 			const totalTradesResult = await dbClient.execute(
-				"SELECT COUNT(*) as count FROM trades WHERE type = 'close' AND pnl IS NOT NULL",
+				`SELECT COUNT(*) as count FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL`,
 			);
 			const totalTrades = (totalTradesResult.rows[0] as any).count;
 
-			// 统计盈利交易
 			const winTradesResult = await dbClient.execute(
-				"SELECT COUNT(*) as count FROM trades WHERE type = 'close' AND pnl IS NOT NULL AND pnl > 0",
+				`SELECT COUNT(*) as count FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL AND pnl > 0`,
 			);
 			const winTrades = (winTradesResult.rows[0] as any).count;
 
-			// 计算胜率
 			const winRate = totalTrades > 0 ? (winTrades / totalTrades) * 100 : 0;
 
-			// 计算总盈亏
 			const pnlResult = await dbClient.execute(
-				"SELECT SUM(pnl) as total_pnl FROM trades WHERE type = 'close' AND pnl IS NOT NULL",
+				`SELECT SUM(pnl) as total_pnl FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL`,
 			);
 			const totalPnl = (pnlResult.rows[0] as any).total_pnl || 0;
 
-			// 获取最大单笔盈利和亏损
 			const maxWinResult = await dbClient.execute(
-				"SELECT MAX(pnl) as max_win FROM trades WHERE type = 'close' AND pnl IS NOT NULL",
+				`SELECT MAX(pnl) as max_win FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL`,
 			);
 			const maxWin = (maxWinResult.rows[0] as any).max_win || 0;
 
 			const maxLossResult = await dbClient.execute(
-				"SELECT MIN(pnl) as max_loss FROM trades WHERE type = 'close' AND pnl IS NOT NULL",
+				`SELECT MIN(pnl) as max_loss FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL`,
 			);
 			const maxLoss = (maxLossResult.rows[0] as any).max_loss || 0;
 
@@ -774,6 +771,124 @@ export function createApiRoutes() {
 				{
 					success: false,
 					message: `平仓失败: ${error.message}`,
+				},
+				500,
+			);
+		}
+	});
+
+	/**
+	 * 获取动态止损系统状态
+	 */
+	app.get("/api/dynamic-stop-loss/status", async (c) => {
+		try {
+			// 检查动态止损系统是否启用
+			const enableDynamicStopLoss =
+				process.env.ENABLE_DYNAMIC_STOP_LOSS === "true";
+
+			if (!enableDynamicStopLoss) {
+				return c.json({
+					enabled: false,
+					message: "动态止损系统未启用",
+				});
+			}
+
+			// 动态导入监控模块
+			const {
+				getSystemStatus,
+				getRecentStopLossTriggers,
+				getRecentAlerts,
+				isSystemInitialized,
+			} = await import("../utils/dynamicStopLoss");
+
+			// 检查系统是否已初始化
+			if (!isSystemInitialized()) {
+				return c.json({
+					enabled: true,
+					initialized: false,
+					message: "动态止损系统已启用但尚未初始化",
+				});
+			}
+
+			// 获取系统状态
+			const status = getSystemStatus();
+
+			// 获取最近的止损触发记录（最近10条）
+			const recentTriggers = getRecentStopLossTriggers(10);
+
+			// 获取最近的告警记录（最近10条）
+			const recentAlerts = getRecentAlerts(10);
+
+			// 获取当前配置
+			const { getConfig } = await import("../utils/dynamicStopLoss");
+			const config = getConfig();
+
+			return c.json({
+				enabled: true,
+				initialized: true,
+				status,
+				recentTriggers,
+				recentAlerts,
+				config,
+				timestamp: new Date().toISOString(),
+			});
+		} catch (error: any) {
+			logger.error("获取动态止损系统状态失败:", error);
+			return c.json(
+				{
+					error: error.message,
+					message: "获取系统状态失败",
+				},
+				500,
+			);
+		}
+	});
+
+	/**
+	 * 获取动态止损系统运行报告
+	 */
+	app.get("/api/dynamic-stop-loss/report", async (c) => {
+		try {
+			// 检查动态止损系统是否启用
+			const enableDynamicStopLoss =
+				process.env.ENABLE_DYNAMIC_STOP_LOSS === "true";
+
+			if (!enableDynamicStopLoss) {
+				return c.json({
+					enabled: false,
+					message: "动态止损系统未启用",
+				});
+			}
+
+			// 动态导入监控模块
+			const { generateRunReport, isSystemInitialized } = await import(
+				"../utils/dynamicStopLoss"
+			);
+
+			// 检查系统是否已初始化
+			if (!isSystemInitialized()) {
+				return c.json({
+					enabled: true,
+					initialized: false,
+					message: "动态止损系统已启用但尚未初始化",
+				});
+			}
+
+			// 生成运行报告
+			const report = generateRunReport();
+
+			return c.json({
+				enabled: true,
+				initialized: true,
+				report,
+				timestamp: new Date().toISOString(),
+			});
+		} catch (error: any) {
+			logger.error("生成动态止损系统运行报告失败:", error);
+			return c.json(
+				{
+					error: error.message,
+					message: "生成运行报告失败",
 				},
 				500,
 			);

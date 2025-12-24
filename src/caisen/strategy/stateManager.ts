@@ -181,9 +181,8 @@ export class CaiSenStateManager {
 	public getCurrentInterval(): number {
 		if (this.positionState === PositionState.NO_POSITION) {
 			return this.config.noPositionScanInterval * 60 * 1000; // 转换为毫秒
-		} else {
-			return this.config.hasPositionMonitorInterval * 1000; // 转换为毫秒
 		}
+		return this.config.hasPositionMonitorInterval * 1000; // 转换为毫秒
 	}
 
 	/**
@@ -253,7 +252,7 @@ export class CaiSenStateManager {
 
 			try {
 				await dbClient.execute({
-					sql: `UPDATE caisen_exception_events SET processed = 1 WHERE id = ?`,
+					sql: "UPDATE caisen_exception_events SET processed = 1 WHERE id = ?",
 					args: [eventId],
 				});
 			} catch (error) {
@@ -322,7 +321,7 @@ export class CaiSenStateManager {
 	 */
 	public resetWakeTime(): void {
 		this.lastWakeTime = Date.now();
-		logger.debug(`重置唤醒时间为当前时间`);
+		logger.debug("重置唤醒时间为当前时间");
 	}
 
 	/**

@@ -103,7 +103,9 @@ function calculateATR(candles: any[], period: number) {
 
 	const trs = [];
 	for (let i = 1; i < candles.length; i++) {
-		let high: number, low: number, prevClose: number;
+		let high: number;
+		let low: number;
+		let prevClose: number;
 
 		// 处理对象格式（FuturesCandlestick）
 		if (candles[i] && typeof candles[i] === "object" && "h" in candles[i]) {
@@ -167,7 +169,7 @@ function calculateBollingerBands(
 	const middle = recentCloses.reduce((a, b) => a + b, 0) / period;
 
 	const variance =
-		recentCloses.reduce((sum, price) => sum + Math.pow(price - middle, 2), 0) /
+		recentCloses.reduce((sum, price) => sum + (price - middle) ** 2, 0) /
 		period;
 	const std = Math.sqrt(variance);
 
@@ -186,7 +188,10 @@ function calculateMFI(candles: any[], period: number) {
 	const moneyFlows = [];
 
 	for (let i = 0; i < candles.length; i++) {
-		let high: number, low: number, close: number, volume: number;
+		let high: number;
+		let low: number;
+		let close: number;
+		let volume: number;
 
 		if (candles[i] && typeof candles[i] === "object") {
 			high = Number.parseFloat(candles[i].h);
@@ -254,7 +259,9 @@ function calculateStochastic(candles: any[], kPeriod: number, dPeriod: number) {
 		let lowestLow = Number.POSITIVE_INFINITY;
 
 		for (const candle of periodCandles) {
-			let high: number, low: number, close: number;
+			let high: number;
+			let low: number;
+			let close: number;
 
 			if (candle && typeof candle === "object") {
 				high = Number.parseFloat(candle.h);
@@ -331,11 +338,11 @@ function calculateADX(candles: any[], period: number) {
 	const trs = [];
 
 	for (let i = 1; i < candles.length; i++) {
-		let high: number,
-			low: number,
-			prevHigh: number,
-			prevLow: number,
-			prevClose: number;
+		let high: number;
+		let low: number;
+		let prevHigh: number;
+		let prevLow: number;
+		let prevClose: number;
 
 		if (
 			candles[i] &&
@@ -436,7 +443,9 @@ function calculateOBV(candles: any[]) {
 	let obv = 0;
 
 	for (let i = 1; i < candles.length; i++) {
-		let currentClose: number, prevClose: number, volume: number;
+		let currentClose: number;
+		let prevClose: number;
+		let volume: number;
 
 		if (
 			candles[i] &&
@@ -479,7 +488,10 @@ function calculateVWAP(candles: any[]) {
 	let cumulativeVolume = 0;
 
 	for (const candle of candles) {
-		let high: number, low: number, close: number, volume: number;
+		let high: number;
+		let low: number;
+		let close: number;
+		let volume: number;
 
 		if (candle && typeof candle === "object") {
 			high = Number.parseFloat(candle.h);

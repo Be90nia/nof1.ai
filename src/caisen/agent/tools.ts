@@ -627,7 +627,7 @@ export function extendCaiSenTradingToolsWithAddPosition(
 
 			// 2. 获取当前持仓
 			const positionResult = await dbClient.execute({
-				sql: `SELECT * FROM positions WHERE symbol = ? AND closed_at IS NULL`,
+				sql: "SELECT * FROM positions WHERE symbol = ? AND closed_at IS NULL",
 				args: [symbol],
 			});
 

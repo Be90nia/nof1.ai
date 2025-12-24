@@ -262,7 +262,7 @@ export const openPositionTool = createTool({
 				dayOfWeek === 6 ||
 				(dayOfWeek === 0 && hourUTC < 20)
 			) {
-				logger.warn(`⚠️  当前处于周末时段，流动性可能较低`);
+				logger.warn("⚠️  当前处于周末时段，流动性可能较低");
 				amountUsdt = Math.max(10, amountUsdt * 0.8);
 			}
 
@@ -270,7 +270,7 @@ export const openPositionTool = createTool({
 			try {
 				const orderBook = await client.getOrderBook(contract, 5); // 获取前5档订单
 
-				if (orderBook && orderBook.bids && orderBook.bids.length > 0) {
+				if (orderBook?.bids && orderBook.bids.length > 0) {
 					// 计算买单深度（前5档）
 					const bidDepth = orderBook.bids
 						.slice(0, 5)
@@ -548,7 +548,7 @@ export const openPositionTool = createTool({
 									price: 0,
 									reduceOnly: true,
 								});
-								logger.info(`已回滚交易`);
+								logger.info("已回滚交易");
 							} catch (rollbackError: any) {
 								logger.error(`回滚失败: ${rollbackError.message}，请手动处理`);
 							}
@@ -657,7 +657,7 @@ export const openPositionTool = createTool({
 
 						if (gatePositionSize !== 0) {
 							if (gatePosition.liq_price) {
-								liquidationPrice = Number.parseFloat(gatePosition.liq_price);
+								liquidationPrice = gatePosition.liq_price;
 							}
 							break; // 持仓已存在，跳出循环
 						}
@@ -672,7 +672,7 @@ export const openPositionTool = createTool({
 						logger.error(
 							`订单ID: ${order.id}, 成交数量: ${actualFillSize}, 计算数量: ${finalQuantity}`,
 						);
-						logger.error(`可能原因：Gate.io API 延迟或持仓需要更长时间更新`);
+						logger.error("可能原因：Gate.io API 延迟或持仓需要更长时间更新");
 					}
 				} catch (error) {
 					logger.warn(
@@ -815,7 +815,7 @@ export const closePositionTool = createTool({
 			// 🔒 防止同周期内平仓保护：检查持仓开仓时间，防止刚开仓就立即平仓
 			// 优先从数据库获取完整持仓信息
 			const dbPositionResult = await dbClient.execute({
-				sql: `SELECT * FROM positions WHERE symbol = ? LIMIT 1`,
+				sql: "SELECT * FROM positions WHERE symbol = ? LIMIT 1",
 				args: [symbol],
 			});
 
@@ -1046,7 +1046,7 @@ export const closePositionTool = createTool({
 
 			// 检测盈亏是否被错误地设置为名义价值
 			if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
-				logger.error(`🚨 检测到盈亏计算异常！`);
+				logger.error("🚨 检测到盈亏计算异常！");
 				logger.error(
 					`  当前pnl: ${pnl.toFixed(
 						2,

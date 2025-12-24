@@ -683,7 +683,7 @@ async function _resetStrategyParams(
 			action: "db_execute_result",
 			function: "resetStrategyParams",
 			affectedRows: result.rowsAffected,
-			message: `数据库删除操作完成`,
+			message: "数据库删除操作完成",
 		});
 
 		const msg = symbol
@@ -799,7 +799,7 @@ async function _setDynamicStopLossParams(
 					if (validTypes.includes(conditionType)) {
 						// 验证条件值
 						const value = Number(condition.value);
-						if (!isNaN(value) && value >= 0 && value <= 1) {
+						if (!Number.isNaN(value) && value >= 0 && value <= 1) {
 							processedConditions.push({
 								type: conditionType as "volatility" | "trend" | "news",
 								value: value,
@@ -1090,7 +1090,7 @@ async function _getAgentStrategyParams(
 
 						// 提取各个组件参数并存储
 						if (value.partialTakeProfit) {
-							paramsBySymbol[symbolPart]["partialTakeProfit"] =
+							paramsBySymbol[symbolPart].partialTakeProfit =
 								value.partialTakeProfit;
 							logger.debug({
 								action: "store_unified_component",
@@ -1101,7 +1101,7 @@ async function _getAgentStrategyParams(
 							});
 						}
 						if (value.dynamicStopLoss) {
-							paramsBySymbol[symbolPart]["dynamicStopLoss"] =
+							paramsBySymbol[symbolPart].dynamicStopLoss =
 								value.dynamicStopLoss;
 							logger.debug({
 								action: "store_unified_component",
@@ -1113,7 +1113,7 @@ async function _getAgentStrategyParams(
 						}
 						if (value.peakDrawdown) {
 							// 将统一工具中的peakDrawdown转换为系统使用的peakDrawdownProtectionConfig格式
-							paramsBySymbol[symbolPart]["peakDrawdownProtectionConfig"] = {
+							paramsBySymbol[symbolPart].peakDrawdownProtectionConfig = {
 								enabled: true,
 								levels: [
 									value.peakDrawdown.level1,
@@ -1141,21 +1141,21 @@ async function _getAgentStrategyParams(
 							function: "getAgentStrategyParams",
 							symbol: symbolPart,
 							paramType,
-							message: `成功解析并存储参数`,
+							message: "成功解析并存储参数",
 						});
 					}
 				} else {
 					// 全局参数（不带币种后缀）
-					paramsBySymbol["global"] = paramsBySymbol["global"] || {
+					paramsBySymbol.global = paramsBySymbol.global || {
 						...defaultParams,
 					};
-					paramsBySymbol["global"][row.key] = value;
+					paramsBySymbol.global[row.key] = value;
 					logger.debug({
 						action: "param_store",
 						function: "getAgentStrategyParams",
 						symbol: "global",
 						paramType: row.key,
-						message: `成功解析并存储全局参数`,
+						message: "成功解析并存储全局参数",
 					});
 				}
 			} catch (e) {
@@ -1175,10 +1175,10 @@ async function _getAgentStrategyParams(
 					}
 					paramsBySymbol[symbolPart][paramType] = row.value;
 				} else {
-					paramsBySymbol["global"] = paramsBySymbol["global"] || {
+					paramsBySymbol.global = paramsBySymbol.global || {
 						...defaultParams,
 					};
-					paramsBySymbol["global"][row.key] = row.value;
+					paramsBySymbol.global[row.key] = row.value;
 				}
 			}
 		}
@@ -1201,7 +1201,7 @@ async function _getAgentStrategyParams(
 			});
 
 			// 同时保留global默认参数，用于未指定币种的情况
-			paramsBySymbol["global"] = defaultParams;
+			paramsBySymbol.global = defaultParams;
 
 			logger.info({
 				action: "default_params_init",
@@ -1261,7 +1261,7 @@ async function _getAgentStrategyParams(
 			});
 
 			// 同时保留global默认参数，用于未指定币种的情况
-			paramsBySymbol["global"] = defaultParams;
+			paramsBySymbol.global = defaultParams;
 
 			logger.info({
 				action: "error_recovery",
@@ -1398,16 +1398,7 @@ async function _setPositionExitStrategy(
 					message: `组合策略缺少必要组件: ${missingComponents.join("、")}`,
 				});
 				throw new Error(
-					`❌ 组合策略必须包含${missingComponents.join("、")}配置。\n` +
-						`📌 接收到的参数：\n` +
-						`- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n` +
-						`- 动态止损：${dynamicStopLoss ? "已配置" : "未配置"}\n` +
-						`- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n` +
-						`📌 请检查工具调用的JSON格式是否正确：\n` +
-						`- 确保所有组件都是顶层字段\n` +
-						`- 检查括号是否正确匹配\n` +
-						`- 确保组件名称拼写正确\n` +
-						`- 示例格式：{\"strategyType\":\"combination\",\"enabled\":true,\"partialTakeProfit\":{...},\"dynamicStopLoss\":{...},\"peakDrawdown\":{...}}`,
+					`❌ 组合策略必须包含${missingComponents.join("、")}配置。\n📌 接收到的参数：\n- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n- 动态止损：${dynamicStopLoss ? "已配置" : "未配置"}\n- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n📌 请检查工具调用的JSON格式是否正确：\n- 确保所有组件都是顶层字段\n- 检查括号是否正确匹配\n- 确保组件名称拼写正确\n- 示例格式：{\"strategyType\":\"combination\",\"enabled\":true,\"partialTakeProfit\":{...},\"dynamicStopLoss\":{...},\"peakDrawdown\":{...}}`,
 				);
 			}
 		} else if (strategyType === "partialTakeProfit") {
@@ -1421,11 +1412,7 @@ async function _setPositionExitStrategy(
 					message: "分批止盈策略缺少partialTakeProfit组件",
 				});
 				throw new Error(
-					`❌ 分批止盈策略必须包含分批止盈配置。\n` +
-						`📌 接收到的参数：\n` +
-						`- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n` +
-						`📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n` +
-						`- 示例格式：{\"strategyType\":\"partialTakeProfit\",\"enabled\":true,\"partialTakeProfit\":{...}}`,
+					`❌ 分批止盈策略必须包含分批止盈配置。\n📌 接收到的参数：\n- 分批止盈：${partialTakeProfit ? "已配置" : "未配置"}\n📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n- 示例格式：{\"strategyType\":\"partialTakeProfit\",\"enabled\":true,\"partialTakeProfit\":{...}}`,
 				);
 			}
 		} else if (strategyType === "peakDrawdown") {
@@ -1439,11 +1426,7 @@ async function _setPositionExitStrategy(
 					message: "峰值回落策略缺少peakDrawdown组件",
 				});
 				throw new Error(
-					`❌ 峰值回落策略必须包含峰值回落配置。\n` +
-						`📌 接收到的参数：\n` +
-						`- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n` +
-						`📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n` +
-						`- 示例格式：{\"strategyType\":\"peakDrawdown\",\"enabled\":true,\"peakDrawdown\":{...}}`,
+					`❌ 峰值回落策略必须包含峰值回落配置。\n📌 接收到的参数：\n- 峰值回落：${peakDrawdown ? "已配置" : "未配置"}\n📌 请检查工具调用的JSON格式是否正确，特别是括号是否匹配。\n- 示例格式：{\"strategyType\":\"peakDrawdown\",\"enabled\":true,\"peakDrawdown\":{...}}`,
 				);
 			}
 		}

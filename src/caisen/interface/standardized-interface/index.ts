@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import { logger } from "../../../utils/loggerUtils";
 import type { CaiSenAiParameterControl } from "../../systems/ai-parameter-control";
 import type {

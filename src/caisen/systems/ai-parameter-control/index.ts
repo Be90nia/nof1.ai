@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import type { IExchangeClient } from "../../../services/exchangeClient";
 import type { StrategyParams } from "../../../strategies/types.js";
 import { logger } from "../../../utils/loggerUtils";

@@ -137,12 +137,12 @@ class DBClient {
 						action: "db_busy_retry",
 						message: `数据库繁忙，第${i + 1}次重试...`,
 						sql: sql.replace(/\s+/g, " ").trim(),
-						retryDelay: initialDelayMs * Math.pow(2, i),
+						retryDelay: initialDelayMs * 2 ** i,
 					});
 
 					// 指数退避重试
 					await new Promise((resolve) =>
-						setTimeout(resolve, initialDelayMs * Math.pow(2, i)),
+						setTimeout(resolve, initialDelayMs * 2 ** i),
 					);
 					continue;
 				}

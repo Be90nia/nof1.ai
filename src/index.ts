@@ -114,7 +114,7 @@ async function main() {
 	const params = getStrategyParams(strategy);
 	const isCodeLevelEnabled = params.enableCodeLevelProtection;
 
-	logger.info("\n" + "=".repeat(80));
+	logger.info(`\n${"=".repeat(80)}`);
 	logger.info("系统启动完成！");
 	logger.info("=".repeat(80));
 	logger.info(`\n监控界面: http://localhost:${port}/`);
@@ -141,7 +141,7 @@ async function main() {
 		const lowThreshold = Math.ceil(levMin + (levMax - levMin) * 0.33);
 		const midThreshold = Math.ceil(levMin + (levMax - levMin) * 0.67);
 
-		logger.info(`\n📊 代码级移动止盈监控（每10秒检查）:`);
+		logger.info("\n📊 代码级移动止盈监控（每10秒检查）:");
 		logger.info(
 			`  • Level 1: 峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓`,
 		);
@@ -152,7 +152,7 @@ async function main() {
 			`  • Level 3: 峰值达到 ${params.trailingStop.level3.trigger}% 时，回落至 ${params.trailingStop.level3.stopAt}% 平仓`,
 		);
 
-		logger.info(`\n🛡️ 代码级自动止损监控（每10秒检查）:`);
+		logger.info("\n🛡️ 代码级自动止损监控（每10秒检查）:");
 		logger.info(
 			`  • ${levMin}-${lowThreshold}倍杠杆，亏损 ${params.stopLoss.low}% 时止损`,
 		);
@@ -165,7 +165,7 @@ async function main() {
 			`  • ${midThreshold + 1}倍以上杠杆，亏损 ${params.stopLoss.high}% 时止损`,
 		);
 
-		logger.info(`\n💰 代码级分批止盈监控（每10秒检查）:`);
+		logger.info("\n💰 代码级分批止盈监控（每10秒检查）:");
 		logger.info(
 			`  • Stage 1: 盈利达到 ${params.partialTakeProfit.stage1.trigger}% 时，平仓 ${params.partialTakeProfit.stage1.closePercent}%`,
 		);
@@ -178,13 +178,13 @@ async function main() {
 
 		// 如果是双重防护模式，添加特别说明
 		if (isDualProtection) {
-			logger.info(`\n🛡️ 双重防护模式说明:`);
-			logger.info(`  • 代码级监控作为安全网，自动执行止损止盈`);
-			logger.info(`  • AI可以在自动触发之前主动止损止盈`);
-			logger.info(`  • 提供更强的风险保护和操作灵活性`);
+			logger.info("\n🛡️ 双重防护模式说明:");
+			logger.info("  • 代码级监控作为安全网，自动执行止损止盈");
+			logger.info("  • AI可以在自动触发之前主动止损止盈");
+			logger.info("  • 提供更强的风险保护和操作灵活性");
 		}
 	} else {
-		logger.info(`\n⚠️  当前策略未启用代码级监控，止损止盈完全由AI控制`);
+		logger.info("\n⚠️  当前策略未启用代码级监控，止损止盈完全由AI控制");
 	}
 
 	logger.info(`\n支持币种: ${RISK_PARAMS.TRADING_SYMBOLS.join(", ")}`);

@@ -1090,10 +1090,9 @@ export function calculateAtrTrailingStop(
 	if (direction === "LONG") {
 		// 多头：止损价 = 最高价 - ATR * 倍数
 		return highestPrice - atr * atrMultiple;
-	} else {
-		// 空头：止损价 = 最低价 + ATR * 倍数
-		return lowestPrice + atr * atrMultiple;
 	}
+	// 空头：止损价 = 最低价 + ATR * 倍数
+	return lowestPrice + atr * atrMultiple;
 }
 
 /**

@@ -157,6 +157,13 @@ ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT=50      # 强制平仓阈值：自动平掉
 
 # 账户记录配置
 ACCOUNT_RECORD_INTERVAL_MINUTES=1            # 账户记录间隔
+
+# 动态止损优化系统配置
+ENABLE_DYNAMIC_STOP_LOSS=true               # 启用动态止损系统
+DYNAMIC_STOP_LOSS_BASE_PERCENT=2.0          # 基础止损百分比
+DYNAMIC_STOP_LOSS_AI_ENABLED=true           # 启用 AI 智能判断
+DYNAMIC_STOP_LOSS_AI_CONFIDENCE=0.7         # AI 判断置信度阈值
+DYNAMIC_STOP_LOSS_TRAILING_ENABLED=true     # 启用追踪止损
 ```
 
 **API 密钥获取**:
@@ -264,6 +271,22 @@ npm run trading:start
 - **多时间框架**: 跨多个时间窗口聚合数据
 - **风险管理**: AI 控制的仓位规模和杠杆管理
 
+### 🚀 动态止损优化系统
+
+- **多维度分析**: 趋势强度、波动率、七分位位置、成交量因子、时间衰减
+- **AI 智能判断**: 基于市场指标的二次确认机制，提升止损决策准确性
+- **蔡森策略整合**: 多时间框架趋势分析，支撑阻力位识别
+- **追踪止损**: 智能追踪止损，基于 ATR 动态调整追踪距离
+- **实时监控**: 系统状态监控、性能指标收集、告警机制
+
+**启用动态止损**:
+```env
+# 在 .env 文件中添加
+ENABLE_DYNAMIC_STOP_LOSS=true
+```
+
+详细文档: [动态止损优化系统](./docs/dynamic-stop-loss-optimization.md)
+
 ### 完整交易功能
 
 - **支持资产**: BTC, ETH, SOL, BNB, XRP, DOGE, GT, TRUMP, ADA, WLFI
@@ -276,6 +299,7 @@ npm run trading:start
 - **Web 仪表板**: 实时账户指标和持仓概览
 - **AI 决策日志**: 透明展示模型推理过程
 - **交易历史**: 完整的交易记录与时间戳
+- **动态止损状态**: 实时查看止损系统运行状态和决策记录
 
 ## 风险声明
 

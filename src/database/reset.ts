@@ -158,7 +158,7 @@ async function resetDatabase() {
 
 		if (latestAccount.rows.length > 0) {
 			const account = latestAccount.rows[0] as any;
-			logger.info("\n" + "=".repeat(60));
+			logger.info(`\n${"=".repeat(60)}`);
 			logger.info("✅ 数据库重置成功！");
 			logger.info("=".repeat(60));
 			logger.info("\n📊 初始账户状态:");
@@ -168,7 +168,7 @@ async function resetDatabase() {
 			logger.info(`  已实现盈亏: ${account.realized_pnl} USDT`);
 			logger.info(`  总收益率: ${account.return_percent}%`);
 			logger.info("\n当前无持仓");
-			logger.info("\n" + "=".repeat(60));
+			logger.info(`\n${"=".repeat(60)}`);
 		}
 
 		client.close();

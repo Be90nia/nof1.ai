@@ -11,6 +11,7 @@ import { Agent, Memory, createTool } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
 import { z } from "zod";
 import * as tradingTools from "../tools/trading";
+import type { DynamicIndicators } from "../utils/dynamicStopLoss/types";
 import { createLogger } from "../utils/loggerUtils";
 
 // 创建日志记录器
@@ -21,12 +22,12 @@ const logger = createLogger({ name: "ai-stoploss-judgment", level: "info" });
  * Market volatility type enumeration
  */
 export enum MarketVolatilityType {
-	/** 偶发性波动 Occasional fluctuation */
-	OCCASIONAL = "occasional",
-	/** 行情异常 Abnormal market movement */
-	ABNORMAL = "abnormal",
-	/** 不确定 Uncertain */
-	UNCERTAIN = "uncertain",
+  /** 偶发性波动 Occasional fluctuation */
+  OCCASIONAL = "occasional",
+  /** 行情异常 Abnormal market movement */
+  ABNORMAL = "abnormal",
+  /** 不确定 Uncertain */
+  UNCERTAIN = "uncertain",
 }
 
 /**
@@ -34,27 +35,27 @@ export enum MarketVolatilityType {
  * AI stop loss judgment result interface
  */
 export interface AIStopLossJudgment {
-	/** 波动类型 Volatility type */
-	volatilityType: MarketVolatilityType;
-	/** 判断信心度 Judgment confidence (0-1) */
-	confidence: number;
-	/** 判断理由 Judgment reason */
-	reason: string;
-	/** 建议行动 Recommended action */
-	recommendedAction: "close_position" | "hold_position" | "reduce_position";
-	/** 市场分析数据 Market analysis data */
-	marketAnalysis: {
-		/** 价格波动率 Price volatility */
-		priceVolatility: number;
-		/** 成交量变化 Volume change */
-		volumeChange: number;
-		/** 技术指标信号 Technical indicator signals */
-		technicalSignals: string[];
-		/** 市场情绪 Market sentiment */
-		marketSentiment: "bullish" | "bearish" | "neutral";
-	};
-	/** 判断时间戳 Judgment timestamp */
-	timestamp: number;
+  /** 波动类型 Volatility type */
+  volatilityType: MarketVolatilityType;
+  /** 判断信心度 Judgment confidence (0-1) */
+  confidence: number;
+  /** 判断理由 Judgment reason */
+  reason: string;
+  /** 建议行动 Recommended action */
+  recommendedAction: "close_position" | "hold_position" | "reduce_position";
+  /** 市场分析数据 Market analysis data */
+  marketAnalysis: {
+    /** 价格波动率 Price volatility */
+    priceVolatility: number;
+    /** 成交量变化 Volume change */
+    volumeChange: number;
+    /** 技术指标信号 Technical indicator signals */
+    technicalSignals: string[];
+    /** 市场情绪 Market sentiment */
+    marketSentiment: "bullish" | "bearish" | "neutral";
+  };
+  /** 判断时间戳 Judgment timestamp */
+  timestamp: number;
 }
 
 /**
@@ -62,16 +63,16 @@ export interface AIStopLossJudgment {
  * AI stop loss judgment configuration interface
  */
 export interface AIStopLossJudgmentConfig {
-	/** 判断间隔时间（秒） Judgment interval (seconds) */
-	judgmentIntervalSeconds: number;
-	/** 最小信心度阈值 Minimum confidence threshold */
-	minConfidenceThreshold: number;
-	/** 是否启用详细日志 Enable detailed logging */
-	enableDetailedLogging: boolean;
-	/** AI模型名称 AI model name */
-	aiModelName: string;
-	/** 市场数据历史窗口（分钟） Market data history window (minutes) */
-	marketDataWindowMinutes: number;
+  /** 判断间隔时间（秒） Judgment interval (seconds) */
+  judgmentIntervalSeconds: number;
+  /** 最小信心度阈值 Minimum confidence threshold */
+  minConfidenceThreshold: number;
+  /** 是否启用详细日志 Enable detailed logging */
+  enableDetailedLogging: boolean;
+  /** AI模型名称 AI model name */
+  aiModelName: string;
+  /** 市场数据历史窗口（分钟） Market data history window (minutes) */
+  marketDataWindowMinutes: number;
 }
 
 /**
@@ -79,11 +80,11 @@ export interface AIStopLossJudgmentConfig {
  * Default AI stop loss judgment configuration
  */
 export const DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG: AIStopLossJudgmentConfig = {
-	judgmentIntervalSeconds: 30,
-	minConfidenceThreshold: 0.7,
-	enableDetailedLogging: true,
-	aiModelName: process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
-	marketDataWindowMinutes: 60,
+  judgmentIntervalSeconds: 30,
+  minConfidenceThreshold: 0.7,
+  enableDetailedLogging: true,
+  aiModelName: process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp",
+  marketDataWindowMinutes: 60,
 };
 
 /**
@@ -91,36 +92,120 @@ export const DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG: AIStopLossJudgmentConfig = {
  * Create specialized prompt for AI stop loss judgment
  *
  * @param config 配置信息 Configuration information
+ * @param dynamicIndicators 动态指标（可选）Dynamic indicators (optional)
  * @returns AI止损判断提示词 AI stop loss judgment prompt
  */
 function generateAIStopLossJudgmentPrompt(
-	config: AIStopLossJudgmentConfig,
+  config: AIStopLossJudgmentConfig,
+  dynamicIndicators?: DynamicIndicators
 ): string {
-	// 使用默认配置值，因为相关配置模块可能不存在
-	const riskConfig = {
-		extremeStopLossPercent: 10,
-		maxHoldingHours: 24,
-	};
+  // 使用默认配置值，因为相关配置模块可能不存在
+  const riskConfig = {
+    extremeStopLossPercent: 10,
+    maxHoldingHours: 24,
+  };
 
-	const strategy = {
-		stopLoss: {
-			low: 4,
-			high: 6,
-		},
-		trailingStop: {
-			level1: { trigger: 2 },
-			level2: { trigger: 3 },
-			level3: { trigger: 5 },
-		},
-	};
+  const strategy = {
+    stopLoss: {
+      low: 4,
+      high: 6,
+    },
+    trailingStop: {
+      level1: { trigger: 2 },
+      level2: { trigger: 3 },
+      level3: { trigger: 5 },
+    },
+  };
 
-	return `
+  // 构建动态指标信息
+  let dynamicIndicatorsInfo = "";
+  if (dynamicIndicators) {
+    dynamicIndicatorsInfo = `
+
+🎯 【动态指标数据】
+
+当前市场动态指标：
+▶ 趋势强度：${dynamicIndicators.trendStrength.toFixed(
+      2
+    )} (-100到100，正值表示上涨趋势)
+▶ 波动率：
+  - ATR波动率：${dynamicIndicators.volatility.atr.toFixed(6)}
+  - 历史波动率：${dynamicIndicators.volatility.historical.toFixed(6)}
+  - 归一化波动率：${dynamicIndicators.volatility.normalized.toFixed(0)} (0-100)
+▶ 七分位位置：${dynamicIndicators.sevenSegmentLevel}/7 (1=极低位，7=极高位)
+▶ 成交量因子：${dynamicIndicators.volumeFactor.toFixed(
+      0
+    )} (0-100，>70表示成交量异常放大)
+▶ 时间衰减因子：${dynamicIndicators.timeDecayFactor.toFixed(
+      2
+    )} (0-1，越大表示持仓时间越长)
+▶ 市场情绪：
+  - RSI指标：${dynamicIndicators.marketSentiment.rsi.toFixed(
+    0
+  )} (0-100，>70超买，<30超卖)
+  - MACD指标：${dynamicIndicators.marketSentiment.macd.toFixed(6)}
+  - 综合情绪得分：${dynamicIndicators.marketSentiment.sentiment.toFixed(
+    0
+  )} (0-100)
+
+🎯 【动态指标解读指南】
+
+▶ 高波动率环境（归一化波动率>70）：
+  - 对偶发性波动的容忍度应该提高 20%
+  - 价格波动幅度较大是正常现象
+  - 建议：除非有明确的趋势反转信号，否则倾向于判断为偶发性波动
+  - 置信度调整：+0.2（判断为偶发性波动时）
+
+▶ 低波动率环境（归一化波动率<30）：
+  - 对偶发性波动的容忍度应该降低 10%
+  - 即使小幅波动也可能是趋势改变的信号
+  - 建议：对价格波动保持警惕，更容易判断为行情异常
+  - 置信度调整：+0.1（判断为行情异常时）
+
+▶ 趋势一致性判断：
+  - 趋势强度绝对值>50：趋势明确，一致性高
+  - 趋势强度绝对值<20：趋势不明确或震荡，一致性低
+  - 当趋势明确且与持仓方向一致时，倾向于判断为偶发性波动
+  - 置信度调整：趋势一致性高时 +0.15，趋势分歧时 -0.1
+
+▶ 七分位位置考量：
+  - 低位（1-3分位）：价格处于历史低位，上涨空间大
+  - 高位（5-7分位）：价格处于历史高位，下跌风险大
+  - 结合持仓方向和七分位位置综合判断
+
+▶ 成交量异常信号：
+  - 成交量因子>70：成交量异常放大，可能是重要信号
+  - 需要结合价格走势判断是突破还是反转
+  - 置信度调整：成交量异常时 +0.1
+
+▶ 持仓时间考量：
+  - 时间衰减因子>0.8：持仓时间较长，应考虑获利了结或止损
+  - 时间衰减因子<0.3：持仓时间较短，可以给予更多耐心
+
+🎯 【置信度计算规则】
+
+基础置信度：0.5
+
+调整因子：
+1. 高波动率环境（normalized > 70）：+0.2
+2. 低波动率环境（normalized < 30）：+0.1
+3. 趋势一致性高（|trendStrength| > 50）：+0.15
+4. 趋势分歧（|trendStrength| < 20）：-0.1
+5. 成交量异常（volumeFactor > 70）：+0.1
+6. 极端亏损（|pnlPercent| > 8）：置信度设为 0.9
+
+最终置信度 = Math.max(0, Math.min(1, 基础置信度 + 所有调整因子))
+`;
+  }
+
+  return `
 【AI智能止损判断系统】
 
 你的角色：市场波动分析专家
 - 你需要分析当前市场情况，判断价格波动是偶发性波动还是行情异常
 - 基于分析结果，提供止损建议：继续持仓、减少仓位或立即平仓
 - 你的判断将直接影响交易系统的止损决策
+${dynamicIndicatorsInfo}
 
 🎯 【判断标准】
 
@@ -225,201 +310,201 @@ function generateAIStopLossJudgmentPrompt(
  * @returns AI止损判断Agent实例 AI stop loss judgment agent instance
  */
 export async function createAIStopLossJudgmentAgent(
-	config: AIStopLossJudgmentConfig = DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG,
+  config: AIStopLossJudgmentConfig = DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG
 ): Promise<Agent> {
-	// 创建OpenAI实例
-	const openai = createOpenAI({
-		apiKey: process.env.OPENAI_API_KEY || "",
-		baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-	});
+  // 创建OpenAI实例
+  const openai = createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY || "",
+    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
+  });
 
-	// 创建内存实例
-	const memory = new Memory({
-		storage: new LibSQLMemoryAdapter({
-			url: "file:./.voltagent/ai-stop-loss-judgment.db",
-		}),
-	});
+  // 创建内存实例
+  const memory = new Memory({
+    storage: new LibSQLMemoryAdapter({
+      url: "file:./.voltagent/ai-stop-loss-judgment.db",
+    }),
+  });
 
-	// 创建AI止损判断专用工具集
-	const tools = [
-		// 市场价格分析工具
-		createTool({
-			name: "getMarketPrice",
-			description: "获取当前市场价格和价格变化",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-			}),
-			execute: async ({ symbol }) => {
-				// 这里应该调用实际的市场价格API
-				return {
-					symbol,
-					price: 0,
-					change24h: 0,
-					changePercent: 0,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+  // 创建AI止损判断专用工具集
+  const tools = [
+    // 市场价格分析工具
+    createTool({
+      name: "getMarketPrice",
+      description: "获取当前市场价格和价格变化",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+      }),
+      execute: async ({ symbol }) => {
+        // 这里应该调用实际的市场价格API
+        return {
+          symbol,
+          price: 0,
+          change24h: 0,
+          changePercent: 0,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 技术指标分析工具
-		createTool({
-			name: "getTechnicalIndicators",
-			description: "获取技术指标数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-				timeframe: z.string().describe("时间框架，如1m, 5m, 15m, 1h"),
-			}),
-			execute: async ({ symbol, timeframe }) => {
-				// 这里应该调用实际的技术指标API
-				return {
-					symbol,
-					timeframe,
-					rsi: 50,
-					macd: { value: 0, signal: 0, histogram: 0 },
-					ema: { short: 0, medium: 0, long: 0 },
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 技术指标分析工具
+    createTool({
+      name: "getTechnicalIndicators",
+      description: "获取技术指标数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+        timeframe: z.string().describe("时间框架，如1m, 5m, 15m, 1h"),
+      }),
+      execute: async ({ symbol, timeframe }) => {
+        // 这里应该调用实际的技术指标API
+        return {
+          symbol,
+          timeframe,
+          rsi: 50,
+          macd: { value: 0, signal: 0, histogram: 0 },
+          ema: { short: 0, medium: 0, long: 0 },
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 成交量分析工具
-		createTool({
-			name: "getVolumeAnalysis",
-			description: "获取成交量分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-				period: z.string().describe("分析周期，如1h, 4h, 1d"),
-			}),
-			execute: async ({ symbol, period }) => {
-				// 这里应该调用实际的成交量分析API
-				return {
-					symbol,
-					period,
-					currentVolume: 0,
-					averageVolume: 0,
-					volumeRatio: 0,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 成交量分析工具
+    createTool({
+      name: "getVolumeAnalysis",
+      description: "获取成交量分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+        period: z.string().describe("分析周期，如1h, 4h, 1d"),
+      }),
+      execute: async ({ symbol, period }) => {
+        // 这里应该调用实际的成交量分析API
+        return {
+          symbol,
+          period,
+          currentVolume: 0,
+          averageVolume: 0,
+          volumeRatio: 0,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 市场情绪分析工具
-		createTool({
-			name: "getMarketSentiment",
-			description: "获取市场情绪分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-			}),
-			execute: async ({ symbol }) => {
-				// 这里应该调用实际的市场情绪分析API
-				return {
-					symbol,
-					sentiment: "neutral",
-					fearGreedIndex: 50,
-					fundingRate: 0,
-					longShortRatio: 1,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 市场情绪分析工具
+    createTool({
+      name: "getMarketSentiment",
+      description: "获取市场情绪分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+      }),
+      execute: async ({ symbol }) => {
+        // 这里应该调用实际的市场情绪分析API
+        return {
+          symbol,
+          sentiment: "neutral",
+          fearGreedIndex: 50,
+          fundingRate: 0,
+          longShortRatio: 1,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 资金流向分析工具
-		createTool({
-			name: "getMoneyFlow",
-			description: "获取资金流向分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-				period: z.string().describe("分析周期，如1h, 4h, 1d"),
-			}),
-			execute: async ({ symbol, period }) => {
-				// 这里应该调用实际的资金流向分析API
-				return {
-					symbol,
-					period,
-					netFlow: 0,
-					inflow: 0,
-					outflow: 0,
-					largeHolderFlow: 0,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 资金流向分析工具
+    createTool({
+      name: "getMoneyFlow",
+      description: "获取资金流向分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+        period: z.string().describe("分析周期，如1h, 4h, 1d"),
+      }),
+      execute: async ({ symbol, period }) => {
+        // 这里应该调用实际的资金流向分析API
+        return {
+          symbol,
+          period,
+          netFlow: 0,
+          inflow: 0,
+          outflow: 0,
+          largeHolderFlow: 0,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 关键价位分析工具
-		createTool({
-			name: "getKeyPriceLevels",
-			description: "获取关键价位分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-			}),
-			execute: async ({ symbol }) => {
-				// 这里应该调用实际的关键价位分析API
-				return {
-					symbol,
-					support: [0, 0, 0],
-					resistance: [0, 0, 0],
-					pivot: 0,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 关键价位分析工具
+    createTool({
+      name: "getKeyPriceLevels",
+      description: "获取关键价位分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+      }),
+      execute: async ({ symbol }) => {
+        // 这里应该调用实际的关键价位分析API
+        return {
+          symbol,
+          support: [0, 0, 0],
+          resistance: [0, 0, 0],
+          pivot: 0,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 波动率分析工具
-		createTool({
-			name: "getVolatilityAnalysis",
-			description: "获取波动率分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-				period: z.string().describe("分析周期，如1h, 4h, 1d"),
-			}),
-			execute: async ({ symbol, period }) => {
-				// 这里应该调用实际的波动率分析API
-				return {
-					symbol,
-					period,
-					currentVolatility: 0,
-					averageVolatility: 0,
-					volatilityRatio: 0,
-					timestamp: Date.now(),
-				};
-			},
-		}),
+    // 波动率分析工具
+    createTool({
+      name: "getVolatilityAnalysis",
+      description: "获取波动率分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+        period: z.string().describe("分析周期，如1h, 4h, 1d"),
+      }),
+      execute: async ({ symbol, period }) => {
+        // 这里应该调用实际的波动率分析API
+        return {
+          symbol,
+          period,
+          currentVolatility: 0,
+          averageVolatility: 0,
+          volatilityRatio: 0,
+          timestamp: Date.now(),
+        };
+      },
+    }),
 
-		// 市场新闻分析工具
-		createTool({
-			name: "getMarketNews",
-			description: "获取市场新闻分析数据",
-			parameters: z.object({
-				symbol: z.string().describe("交易对符号，如BTC/USDT"),
-				timeWindow: z.string().describe("时间窗口，如1h, 4h, 1d"),
-			}),
-			execute: async ({ symbol, timeWindow }) => {
-				// 这里应该调用实际的市场新闻分析API
-				return {
-					symbol,
-					timeWindow,
-					news: [],
-					impact: "neutral",
-					timestamp: Date.now(),
-				};
-			},
-		}),
-	];
+    // 市场新闻分析工具
+    createTool({
+      name: "getMarketNews",
+      description: "获取市场新闻分析数据",
+      parameters: z.object({
+        symbol: z.string().describe("交易对符号，如BTC/USDT"),
+        timeWindow: z.string().describe("时间窗口，如1h, 4h, 1d"),
+      }),
+      execute: async ({ symbol, timeWindow }) => {
+        // 这里应该调用实际的市场新闻分析API
+        return {
+          symbol,
+          timeWindow,
+          news: [],
+          impact: "neutral",
+          timestamp: Date.now(),
+        };
+      },
+    }),
+  ];
 
-	// 生成提示词
-	const prompt = generateAIStopLossJudgmentPrompt(config);
+  // 生成提示词
+  const prompt = generateAIStopLossJudgmentPrompt(config);
 
-	// 创建Agent
-	const agent = new Agent({
-		name: "ai-stoploss-judgment-agent",
-		instructions: prompt,
-		model: openai.chat(config.aiModelName),
-		tools,
-		memory,
-		logger: logger.child({ component: "ai-stoploss-judgment-agent" }),
-	});
+  // 创建Agent
+  const agent = new Agent({
+    name: "ai-stoploss-judgment-agent",
+    instructions: prompt,
+    model: openai.chat(config.aiModelName),
+    tools,
+    memory,
+    logger: logger.child({ component: "ai-stoploss-judgment-agent" }),
+  });
 
-	return agent;
+  return agent;
 }
 
 /**
@@ -427,67 +512,161 @@ export async function createAIStopLossJudgmentAgent(
  * AI stop loss judger class
  */
 export class AIStopLossJudger {
-	private agent?: Agent;
-	private config?: AIStopLossJudgmentConfig;
-	private judgmentCache: Map<string, AIStopLossJudgment> = new Map();
-	private isInitialized = false;
-	private logger: any;
+  private agent?: Agent;
+  private config?: AIStopLossJudgmentConfig;
+  private judgmentCache: Map<string, AIStopLossJudgment> = new Map();
+  private isInitialized = false;
 
-	/**
-	 * 初始化AI止损判断器
-	 * Initialize AI stop loss judger
-	 *
-	 * @param config 配置 Configuration
-	 */
-	async initialize(
-		config: AIStopLossJudgmentConfig = DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG,
-	): Promise<void> {
-		this.config = config;
-		this.agent = await createAIStopLossJudgmentAgent(config);
-		this.isInitialized = true;
+  /**
+   * 初始化AI止损判断器
+   * Initialize AI stop loss judger
+   *
+   * @param config 配置 Configuration
+   */
+  async initialize(
+    config: AIStopLossJudgmentConfig = DEFAULT_AI_STOPLOSS_JUDGMENT_CONFIG
+  ): Promise<void> {
+    this.config = config;
+    this.agent = await createAIStopLossJudgmentAgent(config);
+    this.isInitialized = true;
 
-		logger.info("AI止损判断器初始化完成", {
-			judgmentIntervalSeconds: config.judgmentIntervalSeconds,
-			minConfidenceThreshold: config.minConfidenceThreshold,
-			aiModelName: config.aiModelName,
-		});
-	}
+    logger.info("AI止损判断器初始化完成", {
+      judgmentIntervalSeconds: config.judgmentIntervalSeconds,
+      minConfidenceThreshold: config.minConfidenceThreshold,
+      aiModelName: config.aiModelName,
+    });
+  }
 
-	/**
-	 * 判断持仓是否应该止损
-	 * Judge whether a position should be stopped loss
-	 *
-	 * @param positionId 持仓ID Position ID
-	 * @param symbol 交易符号 Trading symbol
-	 * @param currentPnLPercent 当前盈亏百分比 Current profit/loss percentage
-	 * @param leverage 杠杆倍数 Leverage
-	 * @returns AI止损判断结果 AI stop loss judgment result
-	 */
-	async judgeStopLoss(
-		positionId: string,
-		symbol: string,
-		currentPnLPercent: number,
-		leverage: number,
-	): Promise<AIStopLossJudgment> {
-		if (!this.isInitialized || !this.agent || !this.config) {
-			throw new Error("AI止损判断器未初始化，请先调用initialize方法");
-		}
+  /**
+   * 判断持仓是否应该止损
+   * Judge whether a position should be stopped loss
+   *
+   * @param positionId 持仓ID Position ID
+   * @param symbol 交易符号 Trading symbol
+   * @param currentPnLPercent 当前盈亏百分比 Current profit/loss percentage
+   * @param leverage 杠杆倍数 Leverage
+   * @param dynamicIndicators 动态指标（可选）Dynamic indicators (optional)
+   * @returns AI止损判断结果 AI stop loss judgment result
+   */
+  async judgeStopLoss(
+    positionId: string,
+    symbol: string,
+    currentPnLPercent: number,
+    leverage: number,
+    dynamicIndicators?: DynamicIndicators
+  ): Promise<AIStopLossJudgment> {
+    if (!this.isInitialized || !this.agent || !this.config) {
+      throw new Error("AI止损判断器未初始化，请先调用initialize方法");
+    }
 
-		// 检查缓存
-		const cacheKey = `${positionId}_${symbol}_${Math.floor(
-			Date.now() / (this.config.judgmentIntervalSeconds * 1000),
-		)}`;
-		if (this.judgmentCache.has(cacheKey)) {
-			const cachedResult = this.judgmentCache.get(cacheKey)!;
-			if (this.config.enableDetailedLogging) {
-				logger.debug("使用AI止损判断缓存", { positionId, symbol, cacheKey });
-			}
-			return cachedResult;
-		}
+    const config = this.config;
+    const agent = this.agent;
 
-		try {
-			// 生成特定于当前持仓的提示词
-			const specificPrompt = `
+    // 使用带超时的判断方法
+    return await this.judgeStopLossWithTimeout(
+      positionId,
+      symbol,
+      currentPnLPercent,
+      leverage,
+      dynamicIndicators,
+      5000 // 5秒超时
+    );
+  }
+
+  /**
+   * 带超时处理的AI判断
+   * AI judgment with timeout handling
+   */
+  private async judgeStopLossWithTimeout(
+    positionId: string,
+    symbol: string,
+    currentPnLPercent: number,
+    leverage: number,
+    dynamicIndicators?: DynamicIndicators,
+    timeoutMs: number = 5000
+  ): Promise<AIStopLossJudgment> {
+    const timeoutPromise = new Promise<AIStopLossJudgment>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error("AI判断超时"));
+      }, timeoutMs);
+    });
+
+    const judgmentPromise = this.performAIJudgment(
+      positionId,
+      symbol,
+      currentPnLPercent,
+      leverage,
+      dynamicIndicators
+    );
+
+    try {
+      return await Promise.race([judgmentPromise, timeoutPromise]);
+    } catch (error) {
+      if ((error as Error).message.includes("超时")) {
+        // 记录超时事件到监控系统
+        const { recordError, triggerAlert } = await import(
+          "../utils/dynamicStopLoss/monitoring"
+        );
+        recordError("aiJudgment", error as Error);
+        triggerAlert("warning", "AI判断超时，使用默认逻辑", {
+          positionId,
+          symbol,
+          timeout: timeoutMs,
+        });
+
+        logger.warn({
+          action: "ai_judgment_timeout",
+          positionId,
+          symbol,
+          timeout: timeoutMs,
+          message: "AI判断超时，使用默认判断逻辑",
+        });
+
+        // 返回基于规则的默认判断
+        return this.getDefaultJudgment(
+          positionId,
+          symbol,
+          currentPnLPercent,
+          leverage,
+          dynamicIndicators
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 执行AI判断的核心逻辑
+   * Core AI judgment logic
+   */
+  private async performAIJudgment(
+    positionId: string,
+    symbol: string,
+    currentPnLPercent: number,
+    leverage: number,
+    dynamicIndicators?: DynamicIndicators
+  ): Promise<AIStopLossJudgment> {
+    if (!this.config || !this.agent) {
+      throw new Error("AI止损判断器未初始化");
+    }
+
+    // 检查缓存
+    const cacheKey = `${positionId}_${symbol}_${Math.floor(
+      Date.now() / (this.config.judgmentIntervalSeconds * 1000)
+    )}`;
+    if (this.judgmentCache.has(cacheKey)) {
+      const cachedResult = this.judgmentCache.get(cacheKey);
+      if (cachedResult) {
+        if (this.config.enableDetailedLogging) {
+          logger.debug("使用AI止损判断缓存", { positionId, symbol, cacheKey });
+        }
+        return cachedResult;
+      }
+    }
+
+    try {
+      // 生成特定于当前持仓的提示词
+      const specificPrompt = `
 请分析以下持仓情况，判断是否应该止损：
 
 持仓信息：
@@ -496,214 +675,323 @@ export class AIStopLossJudger {
 - 当前盈亏: ${currentPnLPercent}%
 - 杠杆倍数: ${leverage}x
 
-请基于当前市场数据，判断这个持仓的亏损是偶发性波动还是行情异常，并提供相应的建议。
+请基于当前市场数据${
+        dynamicIndicators ? "和提供的动态指标" : ""
+      }，判断这个持仓的亏损是偶发性波动还是行情异常，并提供相应的建议。
 
-${generateAIStopLossJudgmentPrompt(this.config)}
+${generateAIStopLossJudgmentPrompt(this.config, dynamicIndicators)}
 `;
 
-			// 执行AI分析
-			let result;
-			try {
-				result = await this.agent.generateText(specificPrompt);
-			} catch (error) {
-				console.error("AI模型调用失败 AI model call failed:", error);
-				throw new Error(`AI模型调用失败: ${error}`);
-			}
+      // 执行AI分析
+      let result: Awaited<ReturnType<typeof this.agent.generateText>>;
+      try {
+        result = await this.agent.generateText(specificPrompt);
+      } catch (error) {
+        console.error("AI模型调用失败 AI model call failed:", error);
+        throw new Error(`AI模型调用失败: ${error}`);
+      }
 
-			// 记录AI返回的原始结果
-			console.log("AI返回的原始结果 Raw AI response:", result.text);
+      // 记录AI返回的原始结果
+      console.log("AI返回的原始结果 Raw AI response:", result.text);
 
-			// 检查结果是否为空
-			if (!result.text || result.text.trim().length === 0) {
-				console.error("AI返回结果为空 Empty AI response");
-				// 不抛出错误，而是返回默认的安全结果
-				const emptyResult: AIStopLossJudgment = {
-					volatilityType: MarketVolatilityType.UNCERTAIN,
-					confidence: 0.3,
-					reason: "AI返回结果为空，采用保守策略",
-					recommendedAction: "reduce_position",
-					marketAnalysis: {
-						priceVolatility: 0.5,
-						volumeChange: 0.5,
-						technicalSignals: ["AI返回结果为空"],
-						marketSentiment: "neutral",
-					},
-					timestamp: Date.now(),
-				};
+      // 检查结果是否为空
+      if (!result.text || result.text.trim().length === 0) {
+        console.error("AI返回结果为空 Empty AI response");
+        // 不抛出错误，而是返回默认的安全结果
+        const emptyResult: AIStopLossJudgment = {
+          volatilityType: MarketVolatilityType.UNCERTAIN,
+          confidence: 0.3,
+          reason: "AI返回结果为空，采用保守策略",
+          recommendedAction: "reduce_position",
+          marketAnalysis: {
+            priceVolatility: 0.5,
+            volumeChange: 0.5,
+            technicalSignals: ["AI返回结果为空"],
+            marketSentiment: "neutral",
+          },
+          timestamp: Date.now(),
+        };
 
-				// 缓存结果
-				this.judgmentCache.set(cacheKey, emptyResult);
-				return emptyResult;
-			}
+        // 缓存结果
+        this.judgmentCache.set(cacheKey, emptyResult);
+        return emptyResult;
+      }
 
-			// 添加延迟，避免API调用过于频繁
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+      // 添加延迟，避免API调用过于频繁
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-			// 解析AI返回的JSON结果
-			let judgmentResult: AIStopLossJudgment;
-			try {
-				// 尝试从结果中提取JSON - 改进的正则表达式，更精确地匹配JSON对象
-				let jsonText = result.text;
+      // 解析AI返回的JSON结果
+      let judgmentResult: AIStopLossJudgment;
+      try {
+        // 尝试从结果中提取JSON - 改进的正则表达式，更精确地匹配JSON对象
+        let jsonText = result.text;
 
-				// 尝试多种方法提取JSON
-				let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-				if (!jsonMatch) {
-					// 尝试查找JSON代码块
-					jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```/);
-					if (jsonMatch) {
-						jsonText = jsonMatch[1];
-					} else {
-						// 尝试查找可能的JSON起始位置
-						const startIndex = jsonText.indexOf("{");
-						const endIndex = jsonText.lastIndexOf("}");
-						if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-							jsonText = jsonText.substring(startIndex, endIndex + 1);
-						} else {
-							throw new Error("AI返回结果中未找到有效的JSON");
-						}
-					}
-				} else {
-					jsonText = jsonMatch[0];
-				}
+        // 尝试多种方法提取JSON
+        let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          // 尝试查找JSON代码块
+          jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```/);
+          if (jsonMatch) {
+            jsonText = jsonMatch[1];
+          } else {
+            // 尝试查找可能的JSON起始位置
+            const startIndex = jsonText.indexOf("{");
+            const endIndex = jsonText.lastIndexOf("}");
+            if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+              jsonText = jsonText.substring(startIndex, endIndex + 1);
+            } else {
+              throw new Error("AI返回结果中未找到有效的JSON");
+            }
+          }
+        } else {
+          jsonText = jsonMatch[0];
+        }
 
-				// 清理JSON字符串，移除可能的注释和多余空格
-				jsonText = jsonText
-					.replace(/\/\*[\s\S]*?\*\//g, "")
-					.replace(/\/\/.*$/gm, "")
-					.trim();
+        // 清理JSON字符串，移除可能的注释和多余空格
+        jsonText = jsonText
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/\/\/.*$/gm, "")
+          .trim();
 
-				console.log("提取的JSON文本 Extracted JSON text:", jsonText); // 调试日志
+        console.log("提取的JSON文本 Extracted JSON text:", jsonText); // 调试日志
 
-				const parsedResult = JSON.parse(jsonText);
+        const parsedResult = JSON.parse(jsonText);
 
-				// 验证必要字段
-				if (
-					!parsedResult.volatilityType ||
-					!parsedResult.confidence ||
-					!parsedResult.reason ||
-					!parsedResult.recommendedAction ||
-					!parsedResult.marketAnalysis
-				) {
-					console.log(
-						"AI返回的JSON缺少必要字段 Missing required fields in AI response:",
-						parsedResult,
-					); // 调试日志
-					throw new Error("AI返回的JSON缺少必要字段");
-				}
+        // 验证必要字段
+        if (
+          !parsedResult.volatilityType ||
+          !parsedResult.confidence ||
+          !parsedResult.reason ||
+          !parsedResult.recommendedAction ||
+          !parsedResult.marketAnalysis
+        ) {
+          console.log(
+            "AI返回的JSON缺少必要字段 Missing required fields in AI response:",
+            parsedResult
+          ); // 调试日志
+          throw new Error("AI返回的JSON缺少必要字段");
+        }
 
-				// 构建标准结果对象
-				judgmentResult = {
-					volatilityType: parsedResult.volatilityType as MarketVolatilityType,
-					confidence: parsedResult.confidence,
-					reason: parsedResult.reason,
-					recommendedAction: parsedResult.recommendedAction,
-					marketAnalysis: {
-						priceVolatility: parsedResult.marketAnalysis.priceVolatility,
-						volumeChange: parsedResult.marketAnalysis.volumeChange,
-						technicalSignals: parsedResult.marketAnalysis.technicalSignals,
-						marketSentiment: parsedResult.marketAnalysis.marketSentiment,
-					},
-					timestamp: Date.now(),
-				};
-			} catch (parseError) {
-				console.error(
-					"解析AI止损判断结果失败 Failed to parse AI stop loss judgment result:",
-					{
-						error: parseError,
-						result: result.text,
-					},
-				);
+        // 构建标准结果对象
+        judgmentResult = {
+          volatilityType: parsedResult.volatilityType as MarketVolatilityType,
+          confidence: parsedResult.confidence,
+          reason: parsedResult.reason,
+          recommendedAction: parsedResult.recommendedAction,
+          marketAnalysis: {
+            priceVolatility: parsedResult.marketAnalysis.priceVolatility,
+            volumeChange: parsedResult.marketAnalysis.volumeChange,
+            technicalSignals: parsedResult.marketAnalysis.technicalSignals,
+            marketSentiment: parsedResult.marketAnalysis.marketSentiment,
+          },
+          timestamp: Date.now(),
+        };
+      } catch (parseError) {
+        console.error(
+          "解析AI止损判断结果失败 Failed to parse AI stop loss judgment result:",
+          {
+            error: parseError,
+            result: result.text,
+          }
+        );
 
-				// 返回默认的安全结果
-				judgmentResult = {
-					volatilityType: MarketVolatilityType.UNCERTAIN,
-					confidence: 0.5,
-					reason: "AI判断结果解析失败，采用保守策略",
-					recommendedAction: "reduce_position",
-					marketAnalysis: {
-						priceVolatility: 0.5,
-						volumeChange: 0.5,
-						technicalSignals: ["解析失败"],
-						marketSentiment: "neutral",
-					},
-					timestamp: Date.now(),
-				};
-			}
+        // 返回默认的安全结果
+        judgmentResult = {
+          volatilityType: MarketVolatilityType.UNCERTAIN,
+          confidence: 0.5,
+          reason: "AI判断结果解析失败，采用保守策略",
+          recommendedAction: "reduce_position",
+          marketAnalysis: {
+            priceVolatility: 0.5,
+            volumeChange: 0.5,
+            technicalSignals: ["解析失败"],
+            marketSentiment: "neutral",
+          },
+          timestamp: Date.now(),
+        };
+      }
 
-			// 缓存结果
-			this.judgmentCache.set(cacheKey, judgmentResult);
+      // 缓存结果
+      this.judgmentCache.set(cacheKey, judgmentResult);
 
-			// 记录日志
-			if (this.config.enableDetailedLogging) {
-				logger.info("AI止损判断完成", {
-					positionId,
-					symbol,
-					currentPnLPercent,
-					leverage,
-					volatilityType: judgmentResult.volatilityType,
-					confidence: judgmentResult.confidence,
-					recommendedAction: judgmentResult.recommendedAction,
-					reason: judgmentResult.reason,
-				});
-			}
+      // 记录日志
+      if (this.config.enableDetailedLogging) {
+        logger.info("AI止损判断完成", {
+          positionId,
+          symbol,
+          currentPnLPercent,
+          leverage,
+          volatilityType: judgmentResult.volatilityType,
+          confidence: judgmentResult.confidence,
+          recommendedAction: judgmentResult.recommendedAction,
+          reason: judgmentResult.reason,
+        });
+      }
 
-			return judgmentResult;
-		} catch (error) {
-			logger.error("AI止损判断失败", { error, positionId, symbol });
+      return judgmentResult;
+    } catch (error) {
+      logger.error("AI止损判断失败", { error, positionId, symbol });
 
-			// 返回默认的安全结果
-			const safeResult: AIStopLossJudgment = {
-				volatilityType: MarketVolatilityType.UNCERTAIN,
-				confidence: 0.3,
-				reason: "AI判断过程出错，采用保守策略",
-				recommendedAction: "reduce_position",
-				marketAnalysis: {
-					priceVolatility: 0.5,
-					volumeChange: 0.5,
-					technicalSignals: ["判断失败"],
-					marketSentiment: "neutral",
-				},
-				timestamp: Date.now(),
-			};
+      // 返回默认的安全结果
+      const safeResult: AIStopLossJudgment = {
+        volatilityType: MarketVolatilityType.UNCERTAIN,
+        confidence: 0.3,
+        reason: "AI判断过程出错，采用保守策略",
+        recommendedAction: "reduce_position",
+        marketAnalysis: {
+          priceVolatility: 0.5,
+          volumeChange: 0.5,
+          technicalSignals: ["判断失败"],
+          marketSentiment: "neutral",
+        },
+        timestamp: Date.now(),
+      };
 
-			return safeResult;
-		}
-	}
+      return safeResult;
+    }
+  }
 
-	/**
-	 * 清理过期的缓存
-	 * Clear expired cache
-	 */
-	clearExpiredCache(): void {
-		if (!this.config) return;
+  /**
+   * 获取默认判断结果（降级处理）
+   * Get default judgment result (degradation handling)
+   */
+  private getDefaultJudgment(
+    positionId: string,
+    symbol: string,
+    currentPnLPercent: number,
+    leverage: number,
+    dynamicIndicators?: DynamicIndicators
+  ): AIStopLossJudgment {
+    logger.warn({
+      action: "using_default_judgment",
+      positionId,
+      symbol,
+      currentPnLPercent,
+      leverage,
+      message: "使用基于规则的默认判断逻辑",
+    });
 
-		const now = Date.now();
-		const expireTime = this.config.judgmentIntervalSeconds * 1000 * 2; // 缓存保留2个判断周期
+    // 基于规则的判断逻辑
+    let volatilityType = MarketVolatilityType.UNCERTAIN;
+    let confidence = 0.5;
+    let recommendedAction:
+      | "close_position"
+      | "hold_position"
+      | "reduce_position" = "reduce_position";
+    let reason = "AI判断不可用，基于规则判断";
 
-		for (const [key, value] of this.judgmentCache.entries()) {
-			if (now - value.timestamp > expireTime) {
-				this.judgmentCache.delete(key);
-			}
-		}
-	}
+    // 基于亏损程度的判断
+    if (currentPnLPercent <= -10) {
+      // 亏损超过10%，倾向于认为是行情异常
+      volatilityType = MarketVolatilityType.ABNORMAL;
+      confidence = 0.7;
+      recommendedAction = "close_position";
+      reason = "亏损超过10%，建议止损";
+    } else if (currentPnLPercent <= -5) {
+      // 亏损5-10%，需要谨慎
+      volatilityType = MarketVolatilityType.UNCERTAIN;
+      confidence = 0.6;
+      recommendedAction = "reduce_position";
+      reason = "亏损5-10%，建议减仓";
+    } else {
+      // 亏损小于5%，可能是偶发性波动
+      volatilityType = MarketVolatilityType.OCCASIONAL;
+      confidence = 0.6;
+      recommendedAction = "hold_position";
+      reason = "亏损较小，可能是偶发性波动";
+    }
 
-	/**
-	 * 获取判断器状态
-	 * Get judger status
-	 *
-	 * @returns 判断器状态 Judger status
-	 */
-	getStatus(): {
-		isInitialized: boolean;
-		cacheSize: number;
-		config?: AIStopLossJudgmentConfig;
-	} {
-		return {
-			isInitialized: this.isInitialized,
-			cacheSize: this.judgmentCache.size,
-			config: this.config,
-		};
-	}
+    // 如果有动态指标，调整判断
+    if (dynamicIndicators) {
+      // 高波动率环境下，提高对偶发性波动的容忍度
+      if (dynamicIndicators.volatility.normalized > 70) {
+        if (volatilityType === MarketVolatilityType.UNCERTAIN) {
+          volatilityType = MarketVolatilityType.OCCASIONAL;
+          confidence = Math.min(confidence + 0.1, 0.8);
+          reason += "，高波动率环境下调整为偶发性波动";
+        }
+      }
+
+      // 趋势强度很强时，可能是趋势延续
+      if (Math.abs(dynamicIndicators.trendStrength) > 50) {
+        if (volatilityType === MarketVolatilityType.OCCASIONAL) {
+          volatilityType = MarketVolatilityType.ABNORMAL;
+          confidence = Math.min(confidence + 0.15, 0.85);
+          reason += "，强趋势环境下调整为行情异常";
+        }
+      }
+
+      // 市场情绪极端时，增加警惕
+      if (
+        dynamicIndicators.marketSentiment.sentiment > 80 ||
+        dynamicIndicators.marketSentiment.sentiment < 20
+      ) {
+        confidence = Math.min(confidence + 0.1, 0.9);
+        reason += "，市场情绪极端";
+      }
+    }
+
+    // 基于杠杆调整风险
+    if (leverage > 10) {
+      // 高杠杆时更保守
+      if (recommendedAction === "hold_position") {
+        recommendedAction = "reduce_position";
+        reason += "，高杠杆环境下采用保守策略";
+      }
+    }
+
+    const sentiment = dynamicIndicators?.marketSentiment.sentiment ?? 50;
+
+    return {
+      volatilityType,
+      confidence,
+      reason,
+      recommendedAction,
+      marketAnalysis: {
+        priceVolatility: (dynamicIndicators?.volatility.normalized ?? 50) / 100,
+        volumeChange: (dynamicIndicators?.volumeFactor ?? 50) / 100,
+        technicalSignals: ["基于规则的默认判断"],
+        marketSentiment:
+          sentiment > 60 ? "bullish" : sentiment < 40 ? "bearish" : "neutral",
+      },
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * 清理过期的缓存
+   * Clear expired cache
+   */
+  clearExpiredCache(): void {
+    if (!this.config) return;
+
+    const now = Date.now();
+    const expireTime = this.config.judgmentIntervalSeconds * 1000 * 2; // 缓存保留2个判断周期
+
+    for (const [key, value] of this.judgmentCache.entries()) {
+      if (now - value.timestamp > expireTime) {
+        this.judgmentCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 获取判断器状态
+   * Get judger status
+   *
+   * @returns 判断器状态 Judger status
+   */
+  getStatus(): {
+    isInitialized: boolean;
+    cacheSize: number;
+    config?: AIStopLossJudgmentConfig;
+  } {
+    return {
+      isInitialized: this.isInitialized,
+      cacheSize: this.judgmentCache.size,
+      config: this.config,
+    };
+  }
 }
 
 // 导出默认的AI止损判断器实例

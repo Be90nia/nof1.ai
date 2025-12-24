@@ -48,7 +48,7 @@ async function migrate() {
 
 		// 添加新字段
 		await dbClient.execute({
-			sql: `ALTER TABLE positions ADD COLUMN partial_close_percentage REAL DEFAULT 0`,
+			sql: "ALTER TABLE positions ADD COLUMN partial_close_percentage REAL DEFAULT 0",
 			args: [],
 		});
 

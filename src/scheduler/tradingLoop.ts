@@ -430,7 +430,7 @@ async function calculateSharpeRatio(): Promise<number> {
 
 		// 计算收益率的标准差
 		const variance =
-			returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) /
+			returns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) /
 			returns.length;
 		const stdDev = Math.sqrt(variance);
 
@@ -499,6 +499,20 @@ async function getAccountInfo() {
 		// 计算 Sharpe Ratio
 		const sharpeRatio = await calculateSharpeRatio();
 
+		// 计算胜率
+		const closeTypes = "('close', 'take_profit', 'risk_mitigation')";
+		const totalTradesResult = await dbClient.execute(
+			`SELECT COUNT(*) as count FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL`,
+		);
+		const totalTrades = (totalTradesResult.rows[0] as any).count;
+
+		const winTradesResult = await dbClient.execute(
+			`SELECT COUNT(*) as count FROM trades WHERE type IN ${closeTypes} AND pnl IS NOT NULL AND pnl > 0`,
+		);
+		const winTrades = (winTradesResult.rows[0] as any).count;
+
+		const winRate = totalTrades > 0 ? (winTrades / totalTrades) * 100 : 0;
+
 		return {
 			totalBalance, // 总资产（不包含未实现盈亏）
 			availableBalance, // 可用余额
@@ -507,6 +521,9 @@ async function getAccountInfo() {
 			sharpeRatio, // 夏普比率
 			initialBalance, // 初始净值（用于计算回撤）
 			peakBalance, // 峰值净值（用于计算回撤）
+			winRate, // 胜率
+			totalTrades, // 总交易数
+			winTrades, // 盈利交易数
 		};
 	} catch (error) {
 		logger.error("获取账户信息失败:", error as any);
@@ -518,6 +535,9 @@ async function getAccountInfo() {
 			sharpeRatio: 0,
 			initialBalance: 0,
 			peakBalance: 0,
+			winRate: 0,
+			totalTrades: 0,
+			winTrades: 0,
 		};
 	}
 }
@@ -783,7 +803,7 @@ async function getTradeHistory(limit = 10) {
 	try {
 		// 从数据库获取历史交易记录
 		const result = await dbClient.execute({
-			sql: `SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?`,
+			sql: "SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?",
 			args: [limit],
 		});
 
@@ -861,7 +881,7 @@ async function syncConfigToDatabase() {
 
 		// 更新或插入配置
 		await dbClient.execute({
-			sql: `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)`,
+			sql: "INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)",
 			args: [
 				"account_stop_loss_usdt",
 				config.stopLossUsdt.toString(),
@@ -870,7 +890,7 @@ async function syncConfigToDatabase() {
 		});
 
 		await dbClient.execute({
-			sql: `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)`,
+			sql: "INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)",
 			args: [
 				"account_take_profit_usdt",
 				config.takeProfitUsdt.toString(),
@@ -892,12 +912,12 @@ async function syncConfigToDatabase() {
 async function loadConfigFromDatabase() {
 	try {
 		const stopLossResult = await dbClient.execute({
-			sql: `SELECT value FROM system_config WHERE key = ?`,
+			sql: "SELECT value FROM system_config WHERE key = ?",
 			args: ["account_stop_loss_usdt"],
 		});
 
 		const takeProfitResult = await dbClient.execute({
-			sql: `SELECT value FROM system_config WHERE key = ?`,
+			sql: "SELECT value FROM system_config WHERE key = ?",
 			args: ["account_take_profit_usdt"],
 		});
 
@@ -964,7 +984,7 @@ async function fixHistoricalPnlRecords() {
 			let hasAveragePrice = false;
 
 			const positionResult = await dbClient.execute({
-				sql: `SELECT average_entry_price, entry_price, add_position_count FROM positions WHERE symbol = ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1`,
+				sql: "SELECT average_entry_price, entry_price, add_position_count FROM positions WHERE symbol = ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1",
 				args: [symbol, timestamp],
 			});
 
@@ -1053,7 +1073,7 @@ async function fixHistoricalPnlRecords() {
 
 				// 更新数据库
 				await dbClient.execute({
-					sql: `UPDATE trades SET pnl = ?, fee = ? WHERE id = ?`,
+					sql: "UPDATE trades SET pnl = ?, fee = ? WHERE id = ?",
 					args: [correctPnl, totalFee, id],
 				});
 
@@ -1218,7 +1238,7 @@ async function closeAllPositions(reason: string): Promise<void> {
 			}
 		}
 
-		logger.warn(`清仓完成`);
+		logger.warn("清仓完成");
 	} catch (error) {
 		logger.error("清仓失败:", error as any);
 		throw error;
@@ -1624,7 +1644,7 @@ export async function executeTradingDecision() {
 
 						// 检测盈亏是否被错误地设置为名义价值
 						if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
-							logger.error(`【强制平仓】检测到盈亏计算异常！`);
+							logger.error("【强制平仓】检测到盈亏计算异常！");
 							logger.error(
 								`  当前pnl: ${pnl.toFixed(
 									2,
@@ -1849,7 +1869,7 @@ export async function executeTradingDecision() {
 		logger.info("【入参 - AI 提示词】");
 		logger.info("=".repeat(80));
 		logger.info(prompt);
-		logger.info("=".repeat(80) + "\n");
+		logger.info(`${"=".repeat(80)}\n`);
 
 		// 传递市场数据给Agent（用于子Agent）
 		const agent = await createTradingAgent(intervalMinutes, marketData);
@@ -1946,7 +1966,7 @@ export async function executeTradingDecision() {
 			logger.info("【输出 - AI 决策】");
 			logger.info("=".repeat(80));
 			logger.info(displayText || "无决策输出");
-			logger.info("=".repeat(80) + "\n");
+			logger.info(`${"=".repeat(80)}\n`);
 
 			// 🔧 修复：保存美化后的决策文本到数据库，显示完整的工具调用参数
 			// 使用 displayText 而不是 decisionText，确保前端能看到完整的参数信息
@@ -1973,7 +1993,7 @@ export async function executeTradingDecision() {
 
 					// 蔡森策略工具调用检查
 					if (currentStrategy === "cai-sen") {
-						logger.info(`🔍 开始检查蔡森策略工具调用完整性...`);
+						logger.info("🔍 开始检查蔡森策略工具调用完整性...");
 
 						// 获取所有需要检查的货币对（持仓币种 + 交易币种）
 						const allSymbols = new Set<string>();
@@ -2092,7 +2112,7 @@ export async function executeTradingDecision() {
 								// 🔧 修复：不再自动设置默认参数，避免覆盖 AI 的自定义参数
 								// 原因：当 AI 已经调用了 setPositionExitStrategy 并设置了自定义参数时，
 								// 这个逻辑会再次设置默认参数，覆盖 AI 的设置
-								logger.warn(`📌 请确保 AI 为该币种调用了完整的退出策略工具`);
+								logger.warn("📌 请确保 AI 为该币种调用了完整的退出策略工具");
 
 								// 不再自动设置默认参数，让 AI 自己决定
 								// 如果 AI 没有设置，系统会在下一个周期提醒 AI 设置
@@ -2104,7 +2124,7 @@ export async function executeTradingDecision() {
 						}
 
 						if (!missingToolCalls) {
-							logger.info(`✅ 所有币种都已调用了必需的工具函数`);
+							logger.info("✅ 所有币种都已调用了必需的工具函数");
 						}
 					}
 
@@ -2269,7 +2289,7 @@ export async function executeTradingDecision() {
 					finalUnrealizedPnL >= 0 ? "+" : ""
 				}${finalUnrealizedPnL.toFixed(2)} USDT`,
 			);
-			logger.info("=".repeat(80) + "\n");
+			logger.info(`${"=".repeat(80)}\n`);
 		} catch (agentError) {
 			logger.error("Agent 执行失败:", agentError as any);
 			try {
@@ -2467,7 +2487,7 @@ async function executeClosingStrategy(
 
 					// 更新数据库中的持仓信息
 					await dbClient.execute({
-						sql: `UPDATE positions SET partial_close_percentage = partial_close_percentage + ? WHERE symbol = ?`,
+						sql: "UPDATE positions SET partial_close_percentage = partial_close_percentage + ? WHERE symbol = ?",
 						args: [closePercentage, symbol],
 					});
 

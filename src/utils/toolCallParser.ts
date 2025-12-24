@@ -74,8 +74,8 @@ function fixComponentNesting(parameters: any): any {
 	if (partialTakeProfit) {
 		// 清理可能存在的嵌套组件
 		const cleanPartialTakeProfit: any = { ...partialTakeProfit };
-		delete cleanPartialTakeProfit.dynamicStopLoss;
-		delete cleanPartialTakeProfit.peakDrawdown;
+		cleanPartialTakeProfit.dynamicStopLoss = undefined;
+		cleanPartialTakeProfit.peakDrawdown = undefined;
 		newParams.partialTakeProfit = cleanPartialTakeProfit;
 	}
 
@@ -84,8 +84,8 @@ function fixComponentNesting(parameters: any): any {
 	if (dynamicStopLoss) {
 		// 清理可能存在的嵌套组件
 		const cleanDynamicStopLoss: any = { ...dynamicStopLoss };
-		delete cleanDynamicStopLoss.partialTakeProfit;
-		delete cleanDynamicStopLoss.peakDrawdown;
+		cleanDynamicStopLoss.partialTakeProfit = undefined;
+		cleanDynamicStopLoss.peakDrawdown = undefined;
 		newParams.dynamicStopLoss = cleanDynamicStopLoss;
 	}
 
@@ -94,8 +94,8 @@ function fixComponentNesting(parameters: any): any {
 	if (peakDrawdown) {
 		// 清理可能存在的嵌套组件
 		const cleanPeakDrawdown: any = { ...peakDrawdown };
-		delete cleanPeakDrawdown.partialTakeProfit;
-		delete cleanPeakDrawdown.dynamicStopLoss;
+		cleanPeakDrawdown.partialTakeProfit = undefined;
+		cleanPeakDrawdown.dynamicStopLoss = undefined;
 		newParams.peakDrawdown = cleanPeakDrawdown;
 	}
 
@@ -748,21 +748,21 @@ function extractToolCallFromText(
 				// 提取策略
 				const strategyRegex = /-\s*策略：\s*(.+?)(?=(?:\n-\s*|$))/s;
 				const strategyMatch = toolCallBlock.match(strategyRegex);
-				if (strategyMatch && strategyMatch[1].trim()) {
+				if (strategyMatch?.[1].trim()) {
 					params.strategy = strategyMatch[1].trim();
 				}
 
 				// 提取策略类型
 				const strategyTypeRegex = /-\s*策略类型：\s*(.+?)(?=(?:\n-\s*|$))/s;
 				const strategyTypeMatch = toolCallBlock.match(strategyTypeRegex);
-				if (strategyTypeMatch && strategyTypeMatch[1].trim()) {
+				if (strategyTypeMatch?.[1].trim()) {
 					params.strategyType = strategyTypeMatch[1].trim();
 				}
 
 				// 提取启用状态
 				const enabledRegex = /-\s*启用状态：\s*(.+?)(?=(?:\n-\s*|$))/s;
 				const enabledMatch = toolCallBlock.match(enabledRegex);
-				if (enabledMatch && enabledMatch[1].trim()) {
+				if (enabledMatch?.[1].trim()) {
 					params.enabled = enabledMatch[1].trim().toLowerCase() === "启用";
 				}
 
@@ -1496,7 +1496,7 @@ export function formatToolCallsDisplay(text: string): string {
 
 			for (const toolCall of blockToolCalls) {
 				let line = `- 工具：${toolCall.name}`;
-				formattedToolCalls += wrapLine(line, maxLineWidth).join("\n") + "\n";
+				formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 				// 根据不同的工具类型，使用不同的格式化方式
 				const params = toolCall.parameters;
@@ -1615,12 +1615,13 @@ export function formatToolCallsDisplay(text: string): string {
 					formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 					// 显示策略说明
-					line = `- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）`;
+					line =
+						"- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）";
 					formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 					// 显示分批止盈参数
 					if (params.partialTakeProfit) {
-						line = `- 分批止盈设置：`;
+						line = "- 分批止盈设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1652,7 +1653,7 @@ export function formatToolCallsDisplay(text: string): string {
 							"\n",
 						)}\n`;
 					} else {
-						line = `- 分批止盈设置：未配置`;
+						line = "- 分批止盈设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1660,7 +1661,7 @@ export function formatToolCallsDisplay(text: string): string {
 
 					// 显示峰值回落参数
 					if (params.peakDrawdown) {
-						line = `- 峰值回落设置：`;
+						line = "- 峰值回落设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1693,7 +1694,7 @@ export function formatToolCallsDisplay(text: string): string {
 							)}\n`;
 						}
 					} else {
-						line = `- 峰值回落设置：未配置`;
+						line = "- 峰值回落设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1701,7 +1702,7 @@ export function formatToolCallsDisplay(text: string): string {
 
 					// 显示完整的动态止损参数
 					if (params.dynamicStopLoss) {
-						line = `- 动态止损设置：`;
+						line = "- 动态止损设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1719,24 +1720,21 @@ export function formatToolCallsDisplay(text: string): string {
 
 							if (trailingStop.level1) {
 								line = `  - 第一级移动止损：盈利达到 +${trailingStop.level1.trigger}%时，止损移至 +${trailingStop.level1.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 
 							if (trailingStop.level2) {
 								line = `  - 第二级移动止损：盈利达到 +${trailingStop.level2.trigger}%时，止损移至 +${trailingStop.level2.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 
 							if (trailingStop.level3) {
 								line = `  - 第三级移动止损：盈利达到 +${trailingStop.level3.trigger}%时，止损移至 +${trailingStop.level3.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 						}
 					} else {
-						line = `- 动态止损设置：未配置`;
+						line = "- 动态止损设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1805,7 +1803,7 @@ export function formatToolCallsDisplay(text: string): string {
 				let formattedToolCalls = "\n**执行参数设置：**\n";
 
 				let line = `- 工具：${toolCall.name}`;
-				formattedToolCalls += wrapLine(line, maxLineWidth).join("\n") + "\n";
+				formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 				const params = toolCall.parameters;
 
@@ -1825,12 +1823,13 @@ export function formatToolCallsDisplay(text: string): string {
 					formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 					// 显示策略说明
-					line = `- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）`;
+					line =
+						"- 策略说明：统一管理退出策略（分批止盈 + 峰值回落 + 动态止损）";
 					formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 
 					// 显示分批止盈参数
 					if (params.partialTakeProfit) {
-						line = `- 分批止盈设置：`;
+						line = "- 分批止盈设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1862,7 +1861,7 @@ export function formatToolCallsDisplay(text: string): string {
 							"\n",
 						)}\n`;
 					} else {
-						line = `- 分批止盈设置：未配置`;
+						line = "- 分批止盈设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1870,7 +1869,7 @@ export function formatToolCallsDisplay(text: string): string {
 
 					// 显示峰值回落参数
 					if (params.peakDrawdown) {
-						line = `- 峰值回落设置：`;
+						line = "- 峰值回落设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1903,7 +1902,7 @@ export function formatToolCallsDisplay(text: string): string {
 							)}\n`;
 						}
 					} else {
-						line = `- 峰值回落设置：未配置`;
+						line = "- 峰值回落设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1911,7 +1910,7 @@ export function formatToolCallsDisplay(text: string): string {
 
 					// 显示完整的动态止损参数
 					if (params.dynamicStopLoss) {
-						line = `- 动态止损设置：`;
+						line = "- 动态止损设置：";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;
@@ -1929,24 +1928,21 @@ export function formatToolCallsDisplay(text: string): string {
 
 							if (trailingStop.level1) {
 								line = `  - 第一级移动止损：盈利达到 +${trailingStop.level1.trigger}%时，止损移至 +${trailingStop.level1.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 
 							if (trailingStop.level2) {
 								line = `  - 第二级移动止损：盈利达到 +${trailingStop.level2.trigger}%时，止损移至 +${trailingStop.level2.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 
 							if (trailingStop.level3) {
 								line = `  - 第三级移动止损：盈利达到 +${trailingStop.level3.trigger}%时，止损移至 +${trailingStop.level3.stopAt}%`;
-								formattedToolCalls +=
-									wrapLine(line, maxLineWidth).join("\n") + "\n";
+								formattedToolCalls += `${wrapLine(line, maxLineWidth).join("\n")}\n`;
 							}
 						}
 					} else {
-						line = `- 动态止损设置：未配置`;
+						line = "- 动态止损设置：未配置";
 						formattedToolCalls += `${wrapLine(line, maxLineWidth).join(
 							"\n",
 						)}\n`;

@@ -183,7 +183,7 @@ export class OkxWebSocketClient {
 
 				if (channel === "tickers" && instId) {
 					this.handleTickerUpdate(instId, data.data[0]);
-				} else if (channel && channel.startsWith("candle") && instId) {
+				} else if (channel?.startsWith("candle") && instId) {
 					this.handleCandleUpdate(instId, channel, data.data);
 				} else if (channel === "books" && instId) {
 					this.handleOrderBookUpdate(instId, data.data[0]);
@@ -342,7 +342,7 @@ export class OkxWebSocketClient {
 				if (!this.subscriptions.has(key)) {
 					this.subscriptions.set(key, new Set());
 				}
-				this.subscriptions.get(key)!.add(callback);
+				this.subscriptions.get(key)?.add(callback);
 			}
 		} else {
 			throw new Error("WebSocket 未连接");

@@ -182,67 +182,62 @@ export class ClosePositionValidator {
 						message: "持仓数量为0，验证通过",
 						positionSize: 0,
 					};
-				} else {
+				}
+				return {
+					passed: false,
+					message: `存在残留持仓，数量: ${positionSize}`,
+					positionSize: positionSize,
+				};
+			}
+			// 有预期平仓数量，检查持仓是否按照预期减少
+			// 注意：position.size 是负数表示空头，正数表示多头
+			// 对于多头，平仓后持仓应该减少；对于空头，平仓后持仓应该增加
+			const absolutePositionSizeBig = positionSizeBig.abs();
+			const absoluteExpectedCloseSizeBig = expectedCloseSizeBig.abs();
+
+			// 对于部分平仓，预期剩余数量就是平仓后的持仓数量
+			const expectedRemainingSizeBig = absolutePositionSizeBig;
+
+			// 检查是否是完全平仓
+			if (absoluteExpectedCloseSizeBig.gte(absolutePositionSizeBig)) {
+				// 完全平仓，检查持仓是否为0
+				if (positionSizeBig.eq(0)) {
 					return {
-						passed: false,
-						message: `存在残留持仓，数量: ${positionSize}`,
-						positionSize: positionSize,
+						passed: true,
+						message: "完全平仓成功，持仓数量为0",
+						positionSize: 0,
 					};
 				}
-			} else {
-				// 有预期平仓数量，检查持仓是否按照预期减少
-				// 注意：position.size 是负数表示空头，正数表示多头
-				// 对于多头，平仓后持仓应该减少；对于空头，平仓后持仓应该增加
-				const absolutePositionSizeBig = positionSizeBig.abs();
-				const absoluteExpectedCloseSizeBig = expectedCloseSizeBig.abs();
-
-				// 对于部分平仓，预期剩余数量就是平仓后的持仓数量
-				const expectedRemainingSizeBig = absolutePositionSizeBig;
-
-				// 检查是否是完全平仓
-				if (absoluteExpectedCloseSizeBig.gte(absolutePositionSizeBig)) {
-					// 完全平仓，检查持仓是否为0
-					if (positionSizeBig.eq(0)) {
-						return {
-							passed: true,
-							message: "完全平仓成功，持仓数量为0",
-							positionSize: 0,
-						};
-					} else {
-						return {
-							passed: false,
-							message: `完全平仓失败，存在残留持仓，数量: ${positionSize}`,
-							positionSize: positionSize,
-						};
-					}
-				} else {
-					// 部分平仓，只要持仓数量合理减少即可，不要求为0
-					// 检查持仓数量是否在合理范围内（考虑到交易所的最小变动单位）
-					// 这里允许一定的误差范围（0.1%）
-					const tolerance = absolutePositionSizeBig.times(0.001); // 0.1% 误差范围
-					const diffBig = absolutePositionSizeBig
-						.minus(expectedRemainingSizeBig)
-						.abs();
-
-					if (
-						diffBig.lte(tolerance) ||
-						absolutePositionSizeBig.lt(absoluteExpectedCloseSizeBig)
-					) {
-						// 持仓数量已经按照预期减少，验证通过
-						return {
-							passed: true,
-							message: `部分平仓成功，持仓数量已减少至 ${positionSize}`,
-							positionSize: positionSize,
-						};
-					} else {
-						return {
-							passed: false,
-							message: `部分平仓失败，持仓数量未按预期减少，实际: ${positionSize}, 预期剩余: ${expectedRemainingSizeBig.toString()}`,
-							positionSize: positionSize,
-						};
-					}
-				}
+				return {
+					passed: false,
+					message: `完全平仓失败，存在残留持仓，数量: ${positionSize}`,
+					positionSize: positionSize,
+				};
 			}
+			// 部分平仓，只要持仓数量合理减少即可，不要求为0
+			// 检查持仓数量是否在合理范围内（考虑到交易所的最小变动单位）
+			// 这里允许一定的误差范围（0.1%）
+			const tolerance = absolutePositionSizeBig.times(0.001); // 0.1% 误差范围
+			const diffBig = absolutePositionSizeBig
+				.minus(expectedRemainingSizeBig)
+				.abs();
+
+			if (
+				diffBig.lte(tolerance) ||
+				absolutePositionSizeBig.lt(absoluteExpectedCloseSizeBig)
+			) {
+				// 持仓数量已经按照预期减少，验证通过
+				return {
+					passed: true,
+					message: `部分平仓成功，持仓数量已减少至 ${positionSize}`,
+					positionSize: positionSize,
+				};
+			}
+			return {
+				passed: false,
+				message: `部分平仓失败，持仓数量未按预期减少，实际: ${positionSize}, 预期剩余: ${expectedRemainingSizeBig.toString()}`,
+				positionSize: positionSize,
+			};
 		} catch (error: any) {
 			logger.error(`验证持仓数量时出错: ${contract}`, error);
 			return {
@@ -274,13 +269,12 @@ export class ClosePositionValidator {
 					message: `账户余额正常: ${balance} USDT`,
 					balance: balance,
 				};
-			} else {
-				return {
-					passed: false,
-					message: `账户余额异常: ${balance} USDT`,
-					balance: balance,
-				};
 			}
+			return {
+				passed: false,
+				message: `账户余额异常: ${balance} USDT`,
+				balance: balance,
+			};
 		} catch (error: any) {
 			logger.error("验证账户余额时出错", error);
 			return {
@@ -328,30 +322,27 @@ export class ClosePositionValidator {
 						message: `完全平仓成功，持仓状态: ${status}`,
 						status: status,
 					};
-				} else {
-					return {
-						passed: false,
-						message: `完全平仓失败，持仓状态异常: ${status}`,
-						status: status,
-					};
 				}
-			} else {
-				// 部分平仓情况：只要持仓存在且状态不是error，就通过验证
-				// 部分平仓后，持仓状态可能仍然是open
-				if (status !== "error") {
-					return {
-						passed: true,
-						message: `部分平仓成功，持仓状态: ${status}`,
-						status: status,
-					};
-				} else {
-					return {
-						passed: false,
-						message: `持仓状态异常: ${status}`,
-						status: status,
-					};
-				}
+				return {
+					passed: false,
+					message: `完全平仓失败，持仓状态异常: ${status}`,
+					status: status,
+				};
 			}
+			// 部分平仓情况：只要持仓存在且状态不是error，就通过验证
+			// 部分平仓后，持仓状态可能仍然是open
+			if (status !== "error") {
+				return {
+					passed: true,
+					message: `部分平仓成功，持仓状态: ${status}`,
+					status: status,
+				};
+			}
+			return {
+				passed: false,
+				message: `持仓状态异常: ${status}`,
+				status: status,
+			};
 		} catch (error: any) {
 			logger.error(`验证持仓状态时出错: ${contract}`, error);
 			return {

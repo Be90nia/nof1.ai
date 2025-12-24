@@ -16,8 +16,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { dbClient } from "../../database/dbClient";
 
 /**
@@ -44,7 +44,7 @@ export class SystemCompactor {
 
 			// 删除旧的交易记录
 			const deleteResult = await dbClient.execute({
-				sql: `DELETE FROM trades WHERE timestamp < ?`,
+				sql: "DELETE FROM trades WHERE timestamp < ?",
 				args: [cutoffTimestamp],
 			});
 
@@ -52,7 +52,7 @@ export class SystemCompactor {
 
 			// 删除旧的位置记录
 			const deletePositionsResult = await dbClient.execute({
-				sql: `DELETE FROM positions WHERE updated_at < ?`,
+				sql: "DELETE FROM positions WHERE updated_at < ?",
 				args: [cutoffTimestamp],
 			});
 
@@ -62,7 +62,7 @@ export class SystemCompactor {
 
 			// 删除旧的账户历史记录
 			const deleteHistoryResult = await dbClient.execute({
-				sql: `DELETE FROM account_history WHERE timestamp < ?`,
+				sql: "DELETE FROM account_history WHERE timestamp < ?",
 				args: [cutoffTimestamp],
 			});
 
@@ -84,7 +84,7 @@ export class SystemCompactor {
 		try {
 			// 获取优化前数据库大小
 			const sizeBeforeResult = await dbClient.execute({
-				sql: `SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()`,
+				sql: "SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()",
 			});
 			const sizeBefore = sizeBeforeResult.rows[0] as { size: number };
 
@@ -98,7 +98,7 @@ export class SystemCompactor {
 
 			// 获取优化后数据库大小
 			const sizeAfterResult = await dbClient.execute({
-				sql: `SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()`,
+				sql: "SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()",
 			});
 			const sizeAfter = sizeAfterResult.rows[0] as { size: number };
 
@@ -227,7 +227,7 @@ export class SystemCompactor {
 			"================================================================================",
 		);
 		console.log("");
-		console.log(`配置参数:`);
+		console.log("配置参数:");
 		console.log(`  保留天数: ${this.retentionDays} 天`);
 		console.log("");
 

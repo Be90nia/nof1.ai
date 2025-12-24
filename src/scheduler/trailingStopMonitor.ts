@@ -122,7 +122,7 @@ function checkExitConditions(
 	}
 
 	// 2. 检查策略参数中的 positionExitStrategy 配置
-	if (params.positionExitStrategy && params.positionExitStrategy.enabled) {
+	if (params.positionExitStrategy?.enabled) {
 		return checkPositionExitStrategy(
 			params.positionExitStrategy,
 			peakPnlPercent,
@@ -296,20 +296,19 @@ function checkExitConditions(
 						stopAt: level.stopAt,
 						closePercent: 100, // 默认全部平仓
 					};
-				} else {
-					// 还在止损线之上，继续持有
-					return {
-						shouldClose: false,
-						level: level.name,
-						description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
-							level.trigger
-						}%移动止盈，止损线${level.stopAt}%，当前${currentPnlPercent.toFixed(
-							2,
-						)}%`,
-						type: "trailing_stop_monitoring",
-						stopAt: level.stopAt,
-					};
 				}
+				// 还在止损线之上，继续持有
+				return {
+					shouldClose: false,
+					level: level.name,
+					description: `峰值${peakPnlPercent.toFixed(2)}%，触发${
+						level.trigger
+					}%移动止盈，止损线${level.stopAt}%，当前${currentPnlPercent.toFixed(
+						2,
+					)}%`,
+					type: "trailing_stop_monitoring",
+					stopAt: level.stopAt,
+				};
 			}
 		}
 	}
@@ -473,11 +472,7 @@ function checkPositionExitStrategy(
 			if (currentPnlPercent >= stage.trigger) {
 				// 获取对应的drawdownThreshold
 				let drawdownThreshold = 0;
-				if (
-					exitStrategy &&
-					exitStrategy.dynamicStopLoss &&
-					exitStrategy.dynamicStopLoss.peakDrawdown
-				) {
+				if (exitStrategy?.dynamicStopLoss?.peakDrawdown) {
 					const peakDrawdown = exitStrategy.dynamicStopLoss.peakDrawdown;
 					if (stage.name === "stage1" && peakDrawdown.level1) {
 						drawdownThreshold = peakDrawdown.level1.drawdownThreshold;
@@ -630,7 +625,7 @@ function checkPositionExitStrategy(
 		}
 
 		// 组合策略：检查当前阶段对应的峰值回落级别
-		if (peakLevel && peakLevel.trigger) {
+		if (peakLevel?.trigger) {
 			// 检查是否达到峰值回落触发阈值
 			if (drawdownPercent >= peakLevel.trigger) {
 				// 检查该级别是否已执行
@@ -975,7 +970,7 @@ async function fixTrailingStopTradeRecord(symbol: string): Promise<void> {
 
 			// 更新数据库
 			await dbClient.execute({
-				sql: `UPDATE trades SET price = ?, pnl = ?, fee = ? WHERE id = ?`,
+				sql: "UPDATE trades SET price = ?, pnl = ?, fee = ? WHERE id = ?",
 				args: [closePrice, correctPnl, totalFee, id],
 			});
 
@@ -1538,7 +1533,7 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 				initialQuantity > 0 ? (closedQuantity / initialQuantity) * 100 : 0;
 
 			// ===== 检查平仓条件（适用于所有启用自动平仓的策略）=====
-			if (autoCloseEnabled || (exitStrategy && exitStrategy.strategyType)) {
+			if (autoCloseEnabled || exitStrategy?.strategyType) {
 				// 使用新的检查函数，支持多种平仓策略，传递已平仓百分比和已执行级别
 				const exitResult = checkExitConditions(
 					history.peakPnlPercent,
@@ -1636,8 +1631,6 @@ async function checkPeakPnlAndTrailingStop(autoCloseEnabled: boolean) {
 					}
 				}
 			} else if (!autoCloseEnabled) {
-				// 非自动平仓策略：仅更新峰值，不执行自动平仓
-				continue;
 			}
 		}
 
@@ -1677,28 +1670,28 @@ export function startTrailingStopMonitor() {
 	logger.info("🚀 启动实时峰值监控（持仓 + 账户）");
 	logger.info("=".repeat(60));
 	logger.info(`  当前策略: ${strategy}`);
-	logger.info(`  检查间隔: 10秒`);
-	logger.info(``);
-	logger.info(`  【持仓峰值监控】`);
-	logger.info(`    峰值更新: ✅ 启用（所有策略）`);
+	logger.info("  检查间隔: 10秒");
+	logger.info("");
+	logger.info("  【持仓峰值监控】");
+	logger.info("    峰值更新: ✅ 启用（所有策略）");
 	logger.info(
 		`    自动平仓: ${
 			autoCloseEnabled ? "✅ 启用（波段策略）" : "❌ 禁用（由 AI 决策）"
 		}`,
 	);
-	logger.info(``);
-	logger.info(`  【账户净值峰值监控】`);
-	logger.info(`    峰值更新: ✅ 启用（所有策略）`);
-	logger.info(`    精确记录: 净值创新高时立即写入数据库`);
-	logger.info(`    解决问题: 交易周期长导致错过净值峰值`);
+	logger.info("");
+	logger.info("  【账户净值峰值监控】");
+	logger.info("    峰值更新: ✅ 启用（所有策略）");
+	logger.info("    精确记录: 净值创新高时立即写入数据库");
+	logger.info("    解决问题: 交易周期长导致错过净值峰值");
 
 	if (autoCloseEnabled) {
 		const config = getTrailingStopConfig();
 		if (config) {
 			// 显示移动止盈规则
 			if (config.trailingStop) {
-				logger.info(``);
-				logger.info(`  【移动止盈规则】`);
+				logger.info("");
+				logger.info("  【移动止盈规则】");
 				logger.info(`    Level1: ${config.trailingStop.level1.description}`);
 				logger.info(`    Level2: ${config.trailingStop.level2.description}`);
 				logger.info(`    Level3: ${config.trailingStop.level3.description}`);
@@ -1706,8 +1699,8 @@ export function startTrailingStopMonitor() {
 
 			// 显示分批止盈规则
 			if (config.partialTakeProfit) {
-				logger.info(``);
-				logger.info(`  【分批止盈规则】`);
+				logger.info("");
+				logger.info("  【分批止盈规则】");
 				logger.info(
 					`    Stage1: ${config.partialTakeProfit.stage1.description}`,
 				);
@@ -1720,11 +1713,11 @@ export function startTrailingStopMonitor() {
 			}
 		}
 	} else {
-		logger.info(``);
-		logger.info(`  【说明】`);
-		logger.info(`    • 持仓：仅更新峰值盈利，不执行自动平仓`);
-		logger.info(`    • 账户：精确捕获净值峰值，供 AI 计算回撤`);
-		logger.info(`    • 决策：所有平仓决策由 AI 根据峰值数据判断`);
+		logger.info("");
+		logger.info("  【说明】");
+		logger.info("    • 持仓：仅更新峰值盈利，不执行自动平仓");
+		logger.info("    • 账户：精确捕获净值峰值，供 AI 计算回撤");
+		logger.info("    • 决策：所有平仓决策由 AI 根据峰值数据判断");
 	}
 	logger.info("=".repeat(60));
 

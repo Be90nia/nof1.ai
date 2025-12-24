@@ -424,20 +424,13 @@ export const addPositionTool = createTool({
 
 			return {
 				success: true,
-				message:
-					`✅ 加仓成功：${symbol} 加仓${actualFillSize}张@${actualFillPrice.toFixed(
-						2,
-					)}，新平均成本${finalAveragePrice.toFixed(
-						2,
-					)}（降低${finalCostReduction.toFixed(
-						2,
-					)}%），总持仓${updatedMetrics.quantity}张\n\n` +
-					`⚠️ 重要提醒：加仓后平均成本已改变，必须立即调用 setPositionExitStrategy 工具重新设置退出策略参数！\n` +
-					`- 原平均成本: ${oldAveragePrice.toFixed(2)} USDT\n` +
-					`- 新平均成本: ${finalAveragePrice.toFixed(2)} USDT\n` +
-					`- 成本降低: ${finalCostReduction.toFixed(2)}%\n` +
-					`- 总持仓: ${updatedMetrics.quantity}张\n` +
-					`- 请基于新的平均成本重新计算所有退出策略阈值（分批止盈、动态止损、峰值回落）`,
+				message: `✅ 加仓成功：${symbol} 加仓${actualFillSize}张@${actualFillPrice.toFixed(
+					2,
+				)}，新平均成本${finalAveragePrice.toFixed(
+					2,
+				)}（降低${finalCostReduction.toFixed(
+					2,
+				)}%），总持仓${updatedMetrics.quantity}张\n\n⚠️ 重要提醒：加仓后平均成本已改变，必须立即调用 setPositionExitStrategy 工具重新设置退出策略参数！\n- 原平均成本: ${oldAveragePrice.toFixed(2)} USDT\n- 新平均成本: ${finalAveragePrice.toFixed(2)} USDT\n- 成本降低: ${finalCostReduction.toFixed(2)}%\n- 总持仓: ${updatedMetrics.quantity}张\n- 请基于新的平均成本重新计算所有退出策略阈值（分批止盈、动态止损、峰值回落）`,
 				data: {
 					symbol,
 					addQuantity: actualFillSize,

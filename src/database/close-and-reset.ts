@@ -220,7 +220,7 @@ async function resetDatabase(): Promise<void> {
 
 		if (latestAccount.rows.length > 0) {
 			const account = latestAccount.rows[0] as any;
-			logger.info("\n" + "=".repeat(60));
+			logger.info(`\n${"=".repeat(60)}`);
 			logger.info("✅ 数据库重置成功！");
 			logger.info("=".repeat(60));
 			logger.info("\n📊 初始账户状态:");
@@ -230,7 +230,7 @@ async function resetDatabase(): Promise<void> {
 			logger.info(`  已实现盈亏: ${account.realized_pnl} USDT`);
 			logger.info(`  总收益率: ${account.return_percent}%`);
 			logger.info("\n当前无持仓");
-			logger.info("\n" + "=".repeat(60));
+			logger.info(`\n${"=".repeat(60)}`);
 		}
 
 		client.close();
@@ -283,7 +283,7 @@ async function syncPositions(): Promise<void> {
 				const side = size > 0 ? "long" : "short";
 				const quantity = Math.abs(size);
 				const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-				const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+				const liqPrice = Number.parseFloat(String(pos.liqPrice || "0"));
 
 				await client.execute({
 					sql: `INSERT INTO positions 

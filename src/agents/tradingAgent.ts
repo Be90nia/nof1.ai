@@ -144,7 +144,7 @@ function generateAiAutonomousPromptForCycle(data: {
 
 	// 输出持仓信息（精简版）
 	if (positions && positions.length > 0) {
-		prompt += `\n\n【持仓】`;
+		prompt += "\n\n【持仓】";
 		for (const pos of positions) {
 			const holdingMinutes = Math.floor(
 				(new Date().getTime() - new Date(pos.opened_at).getTime()) /
@@ -185,7 +185,7 @@ function generateAiAutonomousPromptForCycle(data: {
 	}
 
 	// 输出市场数据（精简版）
-	prompt += `\n\n【市场数据】`;
+	prompt += "\n\n【市场数据】";
 	if (marketData) {
 		for (const [symbol, dataRaw] of Object.entries(marketData)) {
 			const data = dataRaw as any;
@@ -320,24 +320,22 @@ export function generateTradingPrompt(data: {
 		}
 	}
 
-	let prompt =
-		urgentWarnings +
-		`【交易周期 #${iteration}】${currentTime}
+	let prompt = `${urgentWarnings}【交易周期 #${iteration}】${currentTime}
 已运行 ${minutesElapsed} 分钟，执行周期 ${intervalMinutes} 分钟
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 当前策略：${params.name}（${params.description}）
 目标月回报：${
-			params.name === "稳健"
-				? "10-20%"
-				: params.name === "平衡"
-					? "20-40%"
-					: params.name === "激进"
-						? "30-50%（频繁小盈利累积）"
-						: params.name === "激进团"
-							? "50-80%"
-							: "20-30%"
-		}
+		params.name === "稳健"
+			? "10-20%"
+			: params.name === "平衡"
+				? "20-40%"
+				: params.name === "激进"
+					? "30-50%（频繁小盈利累积）"
+					: params.name === "激进团"
+						? "50-80%"
+						: "20-30%"
+	}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【硬性风控底线 - 系统强制执行】
@@ -351,14 +349,14 @@ export function generateTradingPrompt(data: {
 │ 策略止损：${params.stopLoss.low}% ~ ${params.stopLoss.high}%（根据杠杆）│
 │ 分批止盈：                               │
 │   • 盈利≥+${params.partialTakeProfit.stage1.trigger}% → 平仓${
-			params.partialTakeProfit.stage1.closePercent
-		}%  │
+		params.partialTakeProfit.stage1.closePercent
+	}%  │
 │   • 盈利≥+${params.partialTakeProfit.stage2.trigger}% → 平仓${
-			params.partialTakeProfit.stage2.closePercent
-		}%  │
+		params.partialTakeProfit.stage2.closePercent
+	}%  │
 │   • 盈利≥+${params.partialTakeProfit.stage3.trigger}% → 平仓${
-			params.partialTakeProfit.stage3.closePercent
-		}% │
+		params.partialTakeProfit.stage3.closePercent
+	}% │
 │ 峰值回撤：≥${params.peakDrawdownProtection}% → 危险信号，立即平仓 │
 ${
 	isCodeLevelProtectionEnabled
@@ -466,7 +464,7 @@ ${
 		// 日内时序数据（3分钟级别）
 		if (data.intradaySeries && data.intradaySeries.midPrices.length > 0) {
 			const series = data.intradaySeries;
-			prompt += `日内序列（按分钟，最旧 → 最新）：\n\n`;
+			prompt += "日内序列（按分钟，最旧 → 最新）：\n\n";
 
 			// Mid prices
 			prompt += `中间价: [${series.midPrices
@@ -497,7 +495,7 @@ ${
 		// 更长期的上下文数据（1小时级别 - 用于短线交易）
 		if (data.longerTermContext) {
 			const ltc = data.longerTermContext;
-			prompt += `更长期上下文（1小时时间框架）：\n\n`;
+			prompt += "更长期上下文（1小时时间框架）：\n\n";
 
 			prompt += `20周期EMA: ${ltc.ema20.toFixed(
 				2,
@@ -529,7 +527,7 @@ ${
 
 		// 多时间框架指标数据
 		if (data.timeframes) {
-			prompt += `多时间框架指标：\n\n`;
+			prompt += "多时间框架指标：\n\n";
 
 			const tfList = [
 				{ key: "1m", name: "1分钟" },
@@ -568,12 +566,12 @@ ${
 					)}, OBV=${tfData.obv.toFixed(0)}, VWAP=${tfData.vwap.toFixed(2)}\n`;
 				}
 			}
-			prompt += `\n`;
+			prompt += "\n";
 		}
 	}
 
 	// 账户信息和表现（参照 1.md 格式）
-	prompt += `\n以下是您的账户信息和表现\n`;
+	prompt += "\n以下是您的账户信息和表现\n";
 
 	// 计算账户回撤（如果提供了初始净值和峰值净值）
 	if (
@@ -612,6 +610,10 @@ ${
 
 	prompt += `当前总收益率: ${accountInfo.returnPercent.toFixed(2)}%\n\n`;
 
+	if (accountInfo.winRate !== undefined) {
+		prompt += `胜率: ${accountInfo.winRate.toFixed(2)}% (${accountInfo.winTrades}/${accountInfo.totalTrades})\n\n`;
+	}
+
 	// 计算所有持仓的未实现盈亏总和
 	const totalUnrealizedPnL = positions.reduce(
 		(sum, pos) => sum + (pos.unrealized_pnl || 0),
@@ -625,11 +627,13 @@ ${
 
 	// 当前持仓和表现
 	if (positions.length > 0) {
-		prompt += `以下是您当前的持仓信息。重要说明：\n`;
+		prompt += "以下是您当前的持仓信息。重要说明：\n";
 		prompt += `- 所有"盈亏百分比"都是考虑杠杆后的值，公式为：盈亏百分比 = (价格变动%) × 杠杆倍数\n`;
-		prompt += `- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n`;
-		prompt += `- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n`;
-		prompt += `- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n`;
+		prompt +=
+			"- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n";
+		prompt +=
+			"- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n";
+		prompt += "- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n";
 		for (const pos of positions) {
 			// 计算盈亏百分比：考虑杠杆倍数
 			// 对于杠杆交易：盈亏百分比 = (价格变动百分比) × 杠杆倍数
@@ -719,9 +723,10 @@ ${
 
 	// 历史成交记录（最近10条）
 	if (tradeHistory && tradeHistory.length > 0) {
-		prompt += `\n最近交易历史（最近10笔交易，最旧 → 最新）：\n`;
-		prompt += `重要说明：以下仅为最近10条交易的统计，用于分析近期策略表现，不代表账户总盈亏。\n`;
-		prompt += `使用此信息评估近期交易质量、识别策略问题、优化决策方向。\n\n`;
+		prompt += "\n最近交易历史（最近10笔交易，最旧 → 最新）：\n";
+		prompt +=
+			"重要说明：以下仅为最近10条交易的统计，用于分析近期策略表现，不代表账户总盈亏。\n";
+		prompt += "使用此信息评估近期交易质量、识别策略问题、优化决策方向。\n\n";
 
 		let totalProfit = 0;
 		let profitCount = 0;
@@ -752,34 +757,35 @@ ${
 						lossCount++;
 					}
 				} else {
-					prompt += `  盈亏: 暂无数据\n`;
+					prompt += "  盈亏: 暂无数据\n";
 				}
 			}
 
-			prompt += `\n`;
+			prompt += "\n";
 		}
 
 		if (profitCount > 0 || lossCount > 0) {
 			const winRate = (profitCount / (profitCount + lossCount)) * 100;
-			prompt += `最近10条交易统计（仅供参考）:\n`;
+			prompt += "最近10条交易统计（仅供参考）:\n";
 			prompt += `  - 胜率: ${winRate.toFixed(1)}%\n`;
 			prompt += `  - 盈利交易: ${profitCount}笔\n`;
 			prompt += `  - 亏损交易: ${lossCount}笔\n`;
 			prompt += `  - 最近10条净盈亏: ${
 				totalProfit >= 0 ? "+" : ""
 			}${totalProfit.toFixed(2)} USDT\n`;
-			prompt += `\n注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n`;
+			prompt +=
+				"\n注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n";
 			prompt += `账户真实盈亏请参考上方"当前账户状态"中的收益率和总资产变化。\n\n`;
 		}
 	}
 
 	// 上一次的AI决策记录（仅供参考，不是当前状态）
 	if (recentDecisions && recentDecisions.length > 0) {
-		prompt += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-		prompt += `【历史决策记录 - 仅供参考】\n`;
-		prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-		prompt += `重要提醒：以下是历史决策记录，仅作为参考，不代表当前状态！\n`;
-		prompt += `当前市场数据和持仓信息请参考上方实时数据。\n\n`;
+		prompt += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+		prompt += "【历史决策记录 - 仅供参考】\n";
+		prompt += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+		prompt += "重要提醒：以下是历史决策记录，仅作为参考，不代表当前状态！\n";
+		prompt += "当前市场数据和持仓信息请参考上方实时数据。\n\n";
 
 		for (let i = 0; i < recentDecisions.length; i++) {
 			const decision = recentDecisions[i];
@@ -795,10 +801,10 @@ ${
 			prompt += `  当时决策内容: ${decision.decision}\n\n`;
 		}
 
-		prompt += `\n使用建议：\n`;
-		prompt += `- 仅作为决策连续性参考，不要被历史决策束缚\n`;
-		prompt += `- 市场已经变化，请基于当前最新数据独立判断\n`;
-		prompt += `- 如果市场条件改变，应该果断调整策略\n\n`;
+		prompt += "\n使用建议：\n";
+		prompt += "- 仅作为决策连续性参考，不要被历史决策束缚\n";
+		prompt += "- 市场已经变化，请基于当前最新数据独立判断\n";
+		prompt += "- 如果市场条件改变，应该果断调整策略\n\n";
 	}
 
 	return prompt;
@@ -1575,7 +1581,7 @@ ${strategySpecificContent}
     - Level 1: 峰值达到 ${params.trailingStop.level1.trigger}% 时，回落至 ${params.trailingStop.level1.stopAt}% 平仓
     - Level 2: 峰值达到 ${params.trailingStop.level2.trigger}% 时，回落至 ${params.trailingStop.level2.stopAt}% 平仓
     - Level 3: 峰值达到 ${params.trailingStop.level3.trigger}% 时，回落至 ${params.trailingStop.level3.stopAt}% 平仓`
-			: `* 当前策略未启用自动监控移动止盈，AI需主动监控峰值回撤`
+			: "* 当前策略未启用自动监控移动止盈，AI需主动监控峰值回撤"
 	}
 - AI战术决策（专业建议，灵活执行）：
   * 策略止损线：${params.stopLoss.low}% 到 ${

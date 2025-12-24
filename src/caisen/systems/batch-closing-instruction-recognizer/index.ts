@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import type { IExchangeClient } from "../../../services/exchangeClient";
 import type { StrategyParams } from "../../../strategies/types";
 import { logger } from "../../../utils/loggerUtils";
@@ -788,19 +788,18 @@ export class CaiSenBatchClosingInstructionRecognizer extends EventEmitter {
 				}
 
 				return true;
-			} else {
-				// 更新状态为失败 - Update status to failed
-				instruction.status = InstructionStatus.FAILED;
-				instruction.updatedAt = Date.now();
-				instruction.errorMessage = "Instruction validation failed";
-
-				// 发出验证失败事件 - Emit validation failure event
-				this.emit("validationFailed", { instructionId, instruction });
-
-				logger.error("指令验证失败", { instructionId });
-
-				return false;
 			}
+			// 更新状态为失败 - Update status to failed
+			instruction.status = InstructionStatus.FAILED;
+			instruction.updatedAt = Date.now();
+			instruction.errorMessage = "Instruction validation failed";
+
+			// 发出验证失败事件 - Emit validation failure event
+			this.emit("validationFailed", { instructionId, instruction });
+
+			logger.error("指令验证失败", { instructionId });
+
+			return false;
 		} catch (error) {
 			// 更新状态为失败 - Update status to failed
 			const instruction = this.instructions.get(instructionId);
@@ -893,22 +892,21 @@ export class CaiSenBatchClosingInstructionRecognizer extends EventEmitter {
 				logger.info("Instruction execution succeeded", { instructionId });
 
 				return true;
-			} else {
-				// 更新状态为失败 - Update status to failed
-				instruction.status = InstructionStatus.FAILED;
-				instruction.updatedAt = Date.now();
-				instruction.errorMessage = "Instruction execution failed";
-
-				// 更新索引 - Update indexes
-				this.updateIndexes(instruction);
-
-				// 发出执行失败事件 - Emit execution failure event
-				this.emit("executionFailed", { instructionId, instruction });
-
-				logger.error("指令执行失败", { instructionId });
-
-				return false;
 			}
+			// 更新状态为失败 - Update status to failed
+			instruction.status = InstructionStatus.FAILED;
+			instruction.updatedAt = Date.now();
+			instruction.errorMessage = "Instruction execution failed";
+
+			// 更新索引 - Update indexes
+			this.updateIndexes(instruction);
+
+			// 发出执行失败事件 - Emit execution failure event
+			this.emit("executionFailed", { instructionId, instruction });
+
+			logger.error("指令执行失败", { instructionId });
+
+			return false;
 		} catch (error) {
 			// 更新状态为失败 - Update status to failed
 			const instruction = this.instructions.get(instructionId);

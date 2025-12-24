@@ -110,7 +110,7 @@ async function syncPositionsOnly() {
 				const side = size > 0 ? "long" : "short";
 				const quantity = Math.abs(size);
 				const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-				const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+				const liqPrice = Number.parseFloat(String(pos.liqPrice || "0"));
 
 				// 默认退出策略配置
 				const defaultExitStrategy = {

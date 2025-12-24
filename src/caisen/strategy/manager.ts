@@ -129,7 +129,7 @@ export class CaiSenStrategyManager {
 	private async loadStrategyParamsFromDatabase(): Promise<any> {
 		try {
 			const result = await dbClient.execute({
-				sql: `SELECT value FROM strategy_params WHERE strategy = ? AND key = ?`,
+				sql: "SELECT value FROM strategy_params WHERE strategy = ? AND key = ?",
 				args: ["cai-sen", "positionExitStrategy"],
 			});
 
@@ -198,7 +198,7 @@ export class CaiSenStrategyManager {
 
 				// 2. 从数据库获取持久化的参数
 				const dbResult = await dbClient.execute({
-					sql: `SELECT key, value FROM strategy_params WHERE strategy = ? AND key LIKE ?`,
+					sql: "SELECT key, value FROM strategy_params WHERE strategy = ? AND key LIKE ?",
 					args: ["cai-sen", "agentParams_%"],
 				});
 
